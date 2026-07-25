@@ -2,24 +2,25 @@ package trader
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/mcp"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/store"
-	"nofx/wallet"
-	"github.com/ethereum/go-ethereum/crypto"
 	"nofx/trader/aster"
 	"nofx/trader/binance"
 	"nofx/trader/bitget"
 	"nofx/trader/bybit"
 	"nofx/trader/gate"
 	"nofx/trader/hyperliquid"
+	"nofx/trader/hz"
 	"nofx/trader/indodax"
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
 	"nofx/trader/okx"
+	"nofx/wallet"
 	"sync"
 	"time"
 )
@@ -65,6 +66,11 @@ type AutoTraderConfig struct {
 	// Indodax API configuration
 	IndodaxAPIKey    string
 	IndodaxSecretKey string
+
+	// HZ trading account configuration
+	HZAPIURL    string
+	HZAPIKey    string
+	HZSecretKey string
 
 	// Hyperliquid configuration
 	HyperliquidPrivateKey  string
@@ -148,9 +154,9 @@ type AutoTrader struct {
 	userID                string             // User ID
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
 	claw402WalletAddr     string             // Claw402 wallet address (derived from private key at start)
-	consecutiveAIFailures int               // Consecutive AI call failures
-	safeMode              bool              // Safe mode: no new positions, protect existing ones
-	safeModeReason        string            // Why safe mode was activated
+	consecutiveAIFailures int                // Consecutive AI call failures
+	safeMode              bool               // Safe mode: no new positions, protect existing ones
+	safeModeReason        string             // Why safe mode was activated
 }
 
 // NewAutoTrader creates an automatic trader
@@ -286,6 +292,17 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	case "indodax":
 		logger.Infof("🏦 [%s] Using Indodax Spot trading", config.Name)
 		trader = indodax.NewIndodaxTrader(config.IndodaxAPIKey, config.IndodaxSecretKey)
+	case "hz":
+		logger.Infof("🏦 [%s] Using HZ trading account", config.Name)
+		trader, err = hz.NewTrader(
+			config.HZAPIURL,
+			config.HZAPIKey,
+			config.HZSecretKey,
+			config.IsCrossMargin,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize HZ trader: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
 	}

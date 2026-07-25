@@ -690,6 +690,10 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	case "indodax":
 		traderConfig.IndodaxAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.IndodaxSecretKey = string(exchangeCfg.SecretKey)
+	case "hz":
+		traderConfig.HZAPIURL = exchangeCfg.APIURL
+		traderConfig.HZAPIKey = string(exchangeCfg.APIKey)
+		traderConfig.HZSecretKey = string(exchangeCfg.SecretKey)
 	}
 
 	// Set API keys based on AI model (convert EncryptedString to string)
@@ -740,4 +744,3 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 
 	return nil
 }
-

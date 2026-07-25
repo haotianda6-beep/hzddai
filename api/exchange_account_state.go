@@ -17,6 +17,7 @@ import (
 	"nofx/trader/bybit"
 	"nofx/trader/gate"
 	hyperliquidtrader "nofx/trader/hyperliquid"
+	"nofx/trader/hz"
 	"nofx/trader/indodax"
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
@@ -174,6 +175,9 @@ func probeExchangeAccountState(exchangeCfg *store.Exchange, userID string) Excha
 		state.ErrorMessage = message
 		return state
 	}
+	if closer, ok := tempTrader.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
 
 	balanceInfo, err := tempTrader.GetBalance()
 	if err != nil {
@@ -238,6 +242,13 @@ func buildExchangeProbeTrader(exchangeCfg *store.Exchange, userID string) (trade
 		return kucoin.NewKuCoinTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase)), nil
 	case "indodax":
 		return indodax.NewIndodaxTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey)), nil
+	case "hz":
+		return hz.NewTrader(
+			exchangeCfg.APIURL,
+			string(exchangeCfg.APIKey),
+			string(exchangeCfg.SecretKey),
+			true,
+		)
 	case "hyperliquid":
 		return hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
@@ -313,6 +324,8 @@ func accountAssetForExchange(exchangeType string) string {
 	switch exchangeType {
 	case "hyperliquid", "aster", "lighter":
 		return "USDC"
+	case "hz":
+		return "USD"
 	default:
 		return "USDT"
 	}
@@ -323,6 +336,10 @@ func missingExchangeCredentials(exchangeCfg *store.Exchange) (status string, cod
 	case "binance", "bybit", "gate", "indodax":
 		if exchangeCfg.APIKey == "" || exchangeCfg.SecretKey == "" {
 			return exchangeAccountStatusMissingCredentials, "MISSING_REQUIRED_FIELDS", "API key and secret key are required", true
+		}
+	case "hz":
+		if exchangeCfg.APIURL == "" || exchangeCfg.APIKey == "" || exchangeCfg.SecretKey == "" {
+			return exchangeAccountStatusMissingCredentials, "MISSING_REQUIRED_FIELDS", "API URL, API key, and secret key are required", true
 		}
 	case "okx", "bitget", "kucoin":
 		if exchangeCfg.APIKey == "" || exchangeCfg.SecretKey == "" || exchangeCfg.Passphrase == "" {
