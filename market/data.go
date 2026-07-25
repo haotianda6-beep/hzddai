@@ -31,6 +31,17 @@ func Get(symbol string) (*Data, error) {
 
 // GetWithExchange retrieves market data for the specified token using exchange-specific data
 func GetWithExchange(symbol, exchange string) (*Data, error) {
+	if strings.EqualFold(exchange, "hz") && hzConfigured(symbol) {
+		primary, err := getKlinesFromHZ(symbol, "5m", 100)
+		if err != nil {
+			return nil, err
+		}
+		longer, err := getKlinesFromHZ(symbol, "4h", 100)
+		if err != nil {
+			return nil, err
+		}
+		return BuildDataFromKlines(strings.ToUpper(symbol), primary, longer)
+	}
 	var klines3m, klines4h []Kline
 	var err error
 	// Normalize symbol
@@ -145,6 +156,9 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 // primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
 // count: number of K-lines for each timeframe
 func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int) (*Data, error) {
+	if hzConfigured(symbol) {
+		return getWithHZTimeframes(symbol, timeframes, primaryTimeframe, count)
+	}
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -229,7 +243,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
 	// Calculate price changes
-	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data
@@ -556,6 +570,9 @@ func IsXyzDexAsset(symbol string) bool {
 // For xyz dex assets (stocks, forex, commodities): uses xyz: prefix without USDT suffix
 func Normalize(symbol string) string {
 	symbol = strings.ToUpper(symbol)
+	if IsHZSymbol(symbol) {
+		return symbol
+	}
 
 	// Check if this is an xyz dex asset
 	if IsXyzDexAsset(symbol) {

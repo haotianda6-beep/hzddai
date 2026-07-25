@@ -365,8 +365,10 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		return
 	}
 
+	var strategyConfig *store.StrategyConfig
 	if req.StrategyID != "" {
-		_, err = s.store.Strategy().Get(userID, req.StrategyID)
+		strategy, strategyErr := s.store.Strategy().Get(userID, req.StrategyID)
+		err = strategyErr
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				SafeBadRequestWithDetails(c, formatTraderCreationError("你选择的策略不存在，或者已经被删除了", "请重新选择一个可用策略后，再继续创建机器人"), "trader.create.strategy_not_found", nil)
@@ -376,6 +378,14 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				formatTraderCreationError("暂时无法读取你选择的策略配置", "请稍后重试；如果问题持续，再检查本地服务是否正常"),
 				err,
 			)
+			return
+		}
+		strategyConfig, err = strategy.ParseConfig()
+		if err != nil {
+			SafeBadRequestWithDetails(c, formatTraderCreationError(
+				"你选择的策略配置不完整",
+				"请先修正策略后再创建机器人",
+			), "trader.create.strategy_invalid", nil)
 			return
 		}
 	}
@@ -442,6 +452,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	if exchangeMsg, exchangeErrorKey, exchangeErrorParams := validateExchangeForTraderCreation(exchangeCfg); exchangeMsg != "" {
 		SafeBadRequestWithDetails(c, exchangeMsg, exchangeErrorKey, exchangeErrorParams)
+		return
+	}
+	if err := store.ValidateStrategyExchange(exchangeCfg.ExchangeType, strategyConfig); err != nil {
+		SafeBadRequestWithDetails(c, formatTraderCreationError(
+			err.Error(), "请重新选择匹配的策略或交易账户",
+		), "trader.create.strategy_exchange_mismatch", nil)
 		return
 	}
 
@@ -622,8 +638,43 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	if strategyID == "" {
 		strategyID = existingTrader.StrategyID
 	}
+	exchangeID := req.ExchangeID
+	if exchangeID == "" {
+		exchangeID = existingTrader.ExchangeID
+	}
 
-	exchangeChanged := req.ExchangeID != "" && req.ExchangeID != existingTrader.ExchangeID
+	strategy, err := s.store.Strategy().Get(userID, strategyID)
+	if err != nil {
+		SafeBadRequest(c, "选择的策略不存在")
+		return
+	}
+	strategyConfig, err := strategy.ParseConfig()
+	if err != nil {
+		SafeBadRequest(c, "选择的策略配置不完整")
+		return
+	}
+	exchanges, err := s.store.Exchange().List(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to load exchange", err)
+		return
+	}
+	var exchangeCfg *store.Exchange
+	for _, item := range exchanges {
+		if item.ID == exchangeID {
+			exchangeCfg = item
+			break
+		}
+	}
+	if exchangeCfg == nil {
+		SafeBadRequest(c, "选择的交易账户不存在")
+		return
+	}
+	if err := store.ValidateStrategyExchange(exchangeCfg.ExchangeType, strategyConfig); err != nil {
+		SafeBadRequest(c, err.Error())
+		return
+	}
+
+	exchangeChanged := exchangeID != existingTrader.ExchangeID
 	resetInitialBalance := exchangeChanged && req.InitialBalance <= 0
 
 	initialBalance := existingTrader.InitialBalance
@@ -640,7 +691,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		UserID:               userID,
 		Name:                 req.Name,
 		AIModelID:            req.AIModelID,
-		ExchangeID:           req.ExchangeID,
+		ExchangeID:           exchangeID,
 		StrategyID:           strategyID, // Associated strategy ID
 		InitialBalance:       initialBalance,
 		BTCETHLeverage:       btcEthLeverage,

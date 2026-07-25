@@ -55,20 +55,23 @@ func (t *Trader) GetOrderBook(symbol string, _ int) ([][]float64, [][]float64, e
 	return [][]float64{{number(value.Bid), 0}}, [][]float64{{number(value.Ask), 0}}, nil
 }
 
-func (t *Trader) Reconcile() error {
-	if _, err := t.GetBalance(); err != nil {
+func (t *Trader) Reconcile() (err error) {
+	defer func() { t.reconcileHealthy.Store(err == nil) }()
+	var snapshot account
+	if err = t.client.do(context.Background(), http.MethodGet, "/account", nil, "", &snapshot); err != nil {
 		return err
 	}
-	if _, err := t.GetPositions(); err != nil {
+	t.accountOpeningStopped.Store(!snapshot.Tradable)
+	if _, err = t.GetPositions(); err != nil {
 		return err
 	}
-	_, err := t.GetOpenOrders("")
+	_, err = t.GetOpenOrders("")
 	return err
 }
 
 func (t *Trader) placeOrder(request createOrderRequest) (order, error) {
 	if !t.IsReady() {
-		return order{}, fmt.Errorf("HZ real-time connection is not ready; opening is blocked")
+		return order{}, fmt.Errorf("%s", t.openingBlockReason())
 	}
 	if err := t.SetLeverage(request.Instrument, request.Leverage); err != nil {
 		return order{}, err
@@ -95,6 +98,36 @@ func (t *Trader) placeOrder(request createOrderRequest) (order, error) {
 		}
 	}
 	return order{}, err
+}
+
+func (t *Trader) openingBlockReason() string {
+	switch {
+	case !t.streamReady.Load():
+		return "HZ 实时连接未就绪，已停止新开仓"
+	case !t.reconcileHealthy.Load():
+		return "HZ 账户对账失败，已停止新开仓"
+	case t.accountOpeningStopped.Load():
+		return "HZ 账户当前不可交易，已停止新开仓"
+	default:
+		return "HZ 平台已停止 API 新开仓"
+	}
+}
+
+func (t *Trader) reconcileOnce() {
+	_ = t.Reconcile()
+}
+
+func (t *Trader) reconcileLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.reconcileOnce()
+		}
+	}
 }
 
 func (t *Trader) orderByClientID(clientOrderID string) (order, error) {

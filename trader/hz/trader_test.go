@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
 	defer trader.Close()
 	trader.client.http.Timeout = 10 * time.Millisecond
 	trader.streamReady.Store(true)
+	trader.reconcileHealthy.Store(true)
 	result, err := trader.OpenLong("XAUUSD", 0.01, 500)
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +58,9 @@ func TestOpenIsBlockedWhileStreamIsDisconnected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer trader.Close()
-	if _, err := trader.OpenShort("XAUUSD", 0.01, 500); err == nil {
-		t.Fatal("expected disconnected stream to block opening")
+	if _, err := trader.OpenShort("XAUUSD", 0.01, 500); err == nil ||
+		!strings.Contains(err.Error(), "已停止新开仓") {
+		t.Fatalf("expected Chinese disconnected guard, got %v", err)
 	}
 }
 
@@ -77,8 +80,46 @@ func TestGetPositionsMapsHZSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(positions) != 1 || positions[0]["side"] != "long" || positions[0]["positionAmt"] != 0.01 {
+	if len(positions) != 1 || positions[0]["side"] != "long" || positions[0]["positionAmt"] != 0.01 ||
+		positions[0]["leverage"] != float64(500) || positions[0]["liquidationPrice"] != 0.0 {
 		t.Fatalf("wrong positions: %#v", positions)
+	}
+}
+
+func TestReconcileFailureBlocksOpening(t *testing.T) {
+	var fail atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() {
+			http.Error(w, `{"code":"TEMPORARY","message":"暂不可用"}`, http.StatusServiceUnavailable)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/account":
+			_ = json.NewEncoder(w).Encode(account{Currency: "USD", Tradable: true})
+		case "/api/v1/positions", "/api/v1/orders/open":
+			_, _ = w.Write([]byte("[]"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := newClient(server.URL+"/api/v1", "key", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trader := &Trader{client: client}
+	if err := trader.Reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	trader.streamReady.Store(true)
+	if !trader.IsReady() {
+		t.Fatal("successful reconciliation should permit opening")
+	}
+	fail.Store(true)
+	trader.reconcileOnce()
+	if trader.IsReady() {
+		t.Fatal("failed reconciliation should block opening")
 	}
 }
 

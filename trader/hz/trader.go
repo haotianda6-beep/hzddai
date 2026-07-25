@@ -14,11 +14,13 @@ import (
 )
 
 type Trader struct {
-	client         *client
-	crossMargin    atomic.Bool
-	streamReady    atomic.Bool
-	openingStopped atomic.Bool
-	cancelStream   context.CancelFunc
+	client                *client
+	crossMargin           atomic.Bool
+	streamReady           atomic.Bool
+	reconcileHealthy      atomic.Bool
+	streamOpeningStopped  atomic.Bool
+	accountOpeningStopped atomic.Bool
+	cancelStream          context.CancelFunc
 }
 
 func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error) {
@@ -33,12 +35,14 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 	trader := &Trader{client: client, cancelStream: cancel}
 	trader.crossMargin.Store(crossMargin)
 	go trader.runStream(ctx)
+	go trader.reconcileLoop(ctx, time.Minute)
 	return trader, nil
 }
 
 func (t *Trader) Close() { t.cancelStream() }
 func (t *Trader) IsReady() bool {
-	return t.streamReady.Load() && !t.openingStopped.Load()
+	return t.streamReady.Load() && t.reconcileHealthy.Load() &&
+		!t.streamOpeningStopped.Load() && !t.accountOpeningStopped.Load()
 }
 
 func (t *Trader) GetBalance() (map[string]interface{}, error) {
@@ -70,7 +74,8 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 			"entryPrice":       number(item.EntryPrice),
 			"markPrice":        number(item.CurrentPrice),
 			"unRealizedProfit": number(item.UnrealizedPnL),
-			"leverage":         item.Leverage,
+			"leverage":         float64(item.Leverage),
+			"liquidationPrice": 0.0,
 			"side":             strings.ToLower(item.Side),
 			"mgnMode":          strings.ToLower(item.MarginMode),
 			"createdTime":      unixMillis(item.OpenedAt),

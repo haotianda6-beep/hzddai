@@ -93,7 +93,7 @@ func (t *Trader) streamSession(ctx context.Context) (connected, permanent bool, 
 			trading := status.MarketStatus == "" ||
 				strings.EqualFold(status.MarketStatus, "open") ||
 				strings.EqualFold(status.MarketStatus, "trading")
-			t.openingStopped.Store(status.APIOpeningStopped || status.Maintenance || !trading)
+			t.streamOpeningStopped.Store(status.APIOpeningStopped || status.Maintenance || !trading)
 		}
 		t.streamReady.Store(true)
 	}

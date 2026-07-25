@@ -619,6 +619,9 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		if err != nil {
 			return fmt.Errorf("failed to parse strategy config for trader %s: %w", traderCfg.Name, err)
 		}
+		if err := store.ValidateStrategyExchange(exchangeCfg.ExchangeType, strategyConfig); err != nil {
+			return err
+		}
 		logger.Infof("✓ Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
 	} else {
 		return fmt.Errorf("trader %s has no strategy configured", traderCfg.Name)

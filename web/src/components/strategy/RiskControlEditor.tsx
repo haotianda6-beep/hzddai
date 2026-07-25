@@ -7,6 +7,7 @@ interface RiskControlEditorProps {
   onChange: (config: RiskControlConfig) => void
   disabled?: boolean
   language: string
+  hzMode?: boolean
 }
 
 export function RiskControlEditor({
@@ -14,6 +15,7 @@ export function RiskControlEditor({
   onChange,
   disabled,
   language,
+  hzMode,
 }: RiskControlEditorProps) {
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
@@ -73,38 +75,57 @@ export function RiskControlEditor({
         </div>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div
-            className="p-4 rounded-lg"
+            className={`p-4 rounded-lg ${hzMode ? 'col-span-2' : ''}`}
             style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {ts(riskControl.btcEthLeverage, language)}
+              {hzMode ? 'HZ 杠杆' : ts(riskControl.btcEthLeverage, language)}
             </label>
             <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {ts(riskControl.btcEthLeverageDesc, language)}
+              {hzMode
+                ? '适用于黄金、白银和原油，范围 100 到 2000 倍'
+                : ts(riskControl.btcEthLeverageDesc, language)}
             </p>
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.btc_eth_max_leverage ?? 5}
-                onChange={(e) =>
-                  updateField('btc_eth_max_leverage', parseInt(e.target.value))
+                value={
+                  hzMode
+                    ? (config.altcoin_max_leverage ?? 500)
+                    : (config.btc_eth_max_leverage ?? 5)
                 }
+                onChange={(e) => {
+                  const value = parseInt(e.target.value)
+                  if (hzMode && !disabled) {
+                    onChange({
+                      ...config,
+                      btc_eth_max_leverage: value,
+                      altcoin_max_leverage: value,
+                    })
+                  } else {
+                    updateField('btc_eth_max_leverage', value)
+                  }
+                }}
                 disabled={disabled}
-                min={1}
-                max={20}
+                min={hzMode ? 100 : 1}
+                max={hzMode ? 2000 : 20}
+                step={hzMode ? 100 : 1}
                 className="flex-1 accent-yellow-500"
               />
               <span
                 className="w-12 text-center font-mono"
                 style={{ color: '#F0B90B' }}
               >
-                {config.btc_eth_max_leverage ?? 5}x
+                {hzMode
+                  ? (config.altcoin_max_leverage ?? 500)
+                  : (config.btc_eth_max_leverage ?? 5)}
+                x
               </span>
             </div>
           </div>
 
           <div
-            className="p-4 rounded-lg"
+            className={hzMode ? 'hidden' : 'p-4 rounded-lg'}
             style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
@@ -160,7 +181,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.btc_eth_max_position_value_ratio ?? 5}
                 onChange={(e) =>
-                  updateField('btc_eth_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'btc_eth_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -192,7 +216,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.altcoin_max_position_value_ratio ?? 1}
                 onChange={(e) =>
-                  updateField('altcoin_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'altcoin_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -237,7 +264,10 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_risk_reward_ratio ?? 3}
                 onChange={(e) =>
-                  updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
+                  updateField(
+                    'min_risk_reward_ratio',
+                    parseFloat(e.target.value) || 3
+                  )
                 }
                 disabled={disabled}
                 min={1}
@@ -268,14 +298,20 @@ export function RiskControlEditor({
                 type="range"
                 value={(config.max_margin_usage ?? 0.9) * 100}
                 onChange={(e) =>
-                  updateField('max_margin_usage', parseInt(e.target.value) / 100)
+                  updateField(
+                    'max_margin_usage',
+                    parseInt(e.target.value) / 100
+                  )
                 }
                 disabled={disabled}
                 min={10}
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
               </span>
             </div>
@@ -308,7 +344,10 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_position_size ?? 12}
                 onChange={(e) =>
-                  updateField('min_position_size', parseFloat(e.target.value) || 12)
+                  updateField(
+                    'min_position_size',
+                    parseFloat(e.target.value) || 12
+                  )
                 }
                 disabled={disabled}
                 min={10}
@@ -348,7 +387,10 @@ export function RiskControlEditor({
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {config.min_confidence ?? 75}
               </span>
             </div>

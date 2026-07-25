@@ -5,6 +5,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"nofx/kernel"
 	"nofx/logger"
+	"nofx/market"
 	"nofx/mcp"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
@@ -294,6 +295,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		trader = indodax.NewIndodaxTrader(config.IndodaxAPIKey, config.IndodaxSecretKey)
 	case "hz":
 		logger.Infof("🏦 [%s] Using HZ trading account", config.Name)
+		if err = market.ConfigureHZ(config.HZAPIURL); err != nil {
+			return nil, fmt.Errorf("failed to configure HZ market data: %w", err)
+		}
 		trader, err = hz.NewTrader(
 			config.HZAPIURL,
 			config.HZAPIKey,
