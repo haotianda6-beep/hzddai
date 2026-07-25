@@ -13,20 +13,18 @@ import (
 )
 
 func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
-	var clientOrderID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/orders":
 			var input createOrderRequest
 			_ = json.NewDecoder(r.Body).Decode(&input)
-			clientOrderID = input.ClientOrderID
 			if input.Side != "LONG" || input.SizeMode != "LOTS" || input.Size != "0.01" || input.Leverage != 500 {
 				t.Errorf("wrong order payload: %#v", input)
 			}
 			time.Sleep(40 * time.Millisecond)
 			writeOrder(w, input.ClientOrderID, "FILLED")
 		case strings.HasPrefix(r.URL.Path, "/api/v1/orders/by-client-id/"):
-			writeOrder(w, clientOrderID, "FILLED")
+			writeOrder(w, strings.TrimPrefix(r.URL.Path, "/api/v1/orders/by-client-id/"), "FILLED")
 		default:
 			http.NotFound(w, r)
 		}
