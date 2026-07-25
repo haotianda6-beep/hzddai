@@ -28,6 +28,7 @@ type Exchange struct {
 	SecretKey               crypto.EncryptedString `gorm:"column:secret_key;default:''" json:"secretKey"`
 	Passphrase              crypto.EncryptedString `gorm:"column:passphrase;default:''" json:"passphrase"`
 	Testnet                 bool                   `gorm:"default:false" json:"testnet"`
+	APIURL                  string                 `gorm:"column:api_url;default:''" json:"apiUrl"`
 	HyperliquidWalletAddr   string                 `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
 	HyperliquidUnifiedAcct  bool                   `gorm:"column:hyperliquid_unified_account;default:true" json:"hyperliquidUnifiedAccount"` // Unified Account mode (Spot as collateral)
 	AsterUser               string                 `gorm:"column:aster_user;default:''" json:"asterUser"`
@@ -54,6 +55,11 @@ func (s *ExchangeStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'exchanges'`).Scan(&tableExists)
 		if tableExists > 0 {
+			if !s.db.Migrator().HasColumn(&Exchange{}, "APIURL") {
+				if err := s.db.Migrator().AddColumn(&Exchange{}, "APIURL"); err != nil {
+					return err
+				}
+			}
 			// Still run data migrations
 			s.migrateToMultiAccount()
 			s.db.Model(&Exchange{}).Where("account_name = '' OR account_name IS NULL").Update("account_name", "Default")
@@ -176,6 +182,8 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 		return "LIGHTER DEX", "dex"
 	case "indodax":
 		return "Indodax", "cex"
+	case "hz":
+		return "HZ 交易账户", "cex"
 	default:
 		return exchangeType + " Exchange", "cex"
 	}
@@ -183,7 +191,7 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 
 // Create creates a new exchange account with UUID
 func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled bool,
-	apiKey, secretKey, passphrase string, testnet bool,
+	apiKey, secretKey, passphrase string, testnet bool, apiURL string,
 	hyperliquidWalletAddr string, hyperliquidUnifiedAcct bool,
 	asterUser, asterSigner, asterPrivateKey,
 	lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string, lighterApiKeyIndex int) (string, error) {
@@ -210,6 +218,7 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 		SecretKey:               crypto.EncryptedString(secretKey),
 		Passphrase:              crypto.EncryptedString(passphrase),
 		Testnet:                 testnet,
+		APIURL:                  apiURL,
 		HyperliquidWalletAddr:   hyperliquidWalletAddr,
 		HyperliquidUnifiedAcct:  hyperliquidUnifiedAcct,
 		AsterUser:               asterUser,
@@ -228,7 +237,7 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 }
 
 // Update updates exchange configuration by UUID
-func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKey, passphrase string, testnet bool,
+func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKey, passphrase string, testnet bool, apiURL string,
 	hyperliquidWalletAddr string, hyperliquidUnifiedAcct bool,
 	asterUser, asterSigner, asterPrivateKey, lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string, lighterApiKeyIndex int) error {
 
@@ -237,6 +246,7 @@ func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKe
 	updates := map[string]interface{}{
 		"enabled":                     enabled,
 		"testnet":                     testnet,
+		"api_url":                     apiURL,
 		"hyperliquid_wallet_addr":     hyperliquidWalletAddr,
 		"hyperliquid_unified_account": hyperliquidUnifiedAcct,
 		"aster_user":                  asterUser,
@@ -313,7 +323,7 @@ func (s *ExchangeStore) CreateLegacy(userID, id, name, typ string, enabled bool,
 
 	// Check if this is an old-style ID (exchange type as ID)
 	if id == "binance" || id == "bybit" || id == "okx" || id == "bitget" || id == "hyperliquid" || id == "aster" || id == "lighter" {
-		_, err := s.Create(userID, id, "Default", enabled, apiKey, secretKey, "", testnet,
+		_, err := s.Create(userID, id, "Default", enabled, apiKey, secretKey, "", testnet, "",
 			hyperliquidWalletAddr, true, // Default to Unified Account mode
 			asterUser, asterSigner, asterPrivateKey, "", "", "", 0)
 		return err

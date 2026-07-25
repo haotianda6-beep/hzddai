@@ -241,7 +241,8 @@ export function SettingsPage() {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    apiUrl?: string
   ) => {
     try {
       if (exchangeId) {
@@ -253,6 +254,7 @@ export function SettingsPage() {
               secret_key: secretKey || '',
               passphrase: passphrase || '',
               testnet: testnet || false,
+              api_url: apiUrl || '',
               hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
               aster_user: asterUser || '',
               aster_signer: asterSigner || '',
@@ -275,6 +277,7 @@ export function SettingsPage() {
           secret_key: secretKey || '',
           passphrase: passphrase || '',
           testnet: testnet || false,
+          api_url: apiUrl || '',
           hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
           aster_user: asterUser || '',
           aster_signer: asterSigner || '',

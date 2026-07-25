@@ -20,7 +20,7 @@ import { Tooltip } from './Tooltip'
 import { getShortName } from './utils'
 
 // Supported exchange templates
-const SUPPORTED_EXCHANGE_TEMPLATES = [
+export const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'binance', name: 'Binance Futures', type: 'cex' as const },
   { exchange_type: 'bybit', name: 'Bybit Futures', type: 'cex' as const },
   { exchange_type: 'okx', name: 'OKX Futures', type: 'cex' as const },
@@ -31,7 +31,17 @@ const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'aster', name: 'Aster DEX', type: 'dex' as const },
   { exchange_type: 'lighter', name: 'Lighter', type: 'dex' as const },
   { exchange_type: 'indodax', name: 'Indodax', type: 'cex' as const },
+  { exchange_type: 'hz', name: 'HZ 交易账户', type: 'cex' as const },
 ]
+
+export function getExchangeCredentialFields(exchangeType: string) {
+  return {
+    apiUrl: exchangeType === 'hz',
+    apiKey: true,
+    secretKey: true,
+    passphrase: exchangeType === 'okx' || exchangeType === 'bitget' || exchangeType === 'kucoin',
+  }
+}
 
 interface ExchangeConfigModalProps {
   allExchanges: Exchange[]
@@ -51,7 +61,8 @@ interface ExchangeConfigModalProps {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
-    lighterApiKeyIndex?: number
+    lighterApiKeyIndex?: number,
+    apiUrl?: string
   ) => Promise<void>
   onDelete: (exchangeId: string) => void
   onClose: () => void
@@ -157,6 +168,7 @@ export function ExchangeConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
+  const [apiUrl, setApiUrl] = useState('')
   const [testnet, setTestnet] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [serverIP, setServerIP] = useState<{ public_ip: string; message: string } | null>(null)
@@ -194,6 +206,7 @@ export function ExchangeConfigModal({
   const currentExchangeType = editingExchangeId
     ? selectedExchange?.exchange_type
     : selectedExchangeType
+  const credentialFields = getExchangeCredentialFields(currentExchangeType || '')
 
   const exchangeRegistrationLinks: Record<string, { url: string; hasReferral?: boolean }> = {
     binance: { url: 'https://www.binance.com/join?ref=NOFXENG', hasReferral: true },
@@ -214,6 +227,7 @@ export function ExchangeConfigModal({
       setAccountName(selectedExchange.account_name || '')
       setApiKey(selectedExchange.apiKey || '')
       setSecretKey(selectedExchange.secretKey || '')
+      setApiUrl(selectedExchange.apiUrl || '')
       setPassphrase('')
       setTestnet(selectedExchange.testnet || false)
       setAsterUser(selectedExchange.asterUser || '')
@@ -314,7 +328,10 @@ export function ExchangeConfigModal({
 
     setIsSaving(true)
     try {
-      if (currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'indodax') {
+      if (currentExchangeType === 'hz') {
+        if (!apiUrl.trim() || (!editingExchangeId && (!apiKey.trim() || !secretKey.trim()))) return
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', false, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, apiUrl.trim())
+      } else if (currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'indodax') {
         if (!apiKey.trim() || !secretKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet)
       } else if (currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'kucoin') {
@@ -468,23 +485,25 @@ export function ExchangeConfigModal({
                     {selectedTemplate.type.toUpperCase()} • {selectedTemplate.exchange_type}
                   </div>
                 </div>
-                <a
-                  href={exchangeRegistrationLinks[currentExchangeType || '']?.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
-                  style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
-                >
-                  <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                  <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
-                    {t('exchangeConfig.register', language)}
-                  </span>
-                  {exchangeRegistrationLinks[currentExchangeType || '']?.hasReferral && (
-                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
-                      {t('exchangeConfig.bonus', language)}
+                {exchangeRegistrationLinks[currentExchangeType || ''] && (
+                  <a
+                    href={exchangeRegistrationLinks[currentExchangeType || ''].url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
+                    style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
+                  >
+                    <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
+                    <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
+                      {t('exchangeConfig.register', language)}
                     </span>
-                  )}
-                </a>
+                    {exchangeRegistrationLinks[currentExchangeType || ''].hasReferral && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
+                        {t('exchangeConfig.bonus', language)}
+                      </span>
+                    )}
+                  </a>
+                )}
               </div>
 
               {/* Account Name */}
@@ -505,8 +524,25 @@ export function ExchangeConfigModal({
               </div>
 
               {/* CEX Fields */}
-              {(currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'gate' || currentExchangeType === 'kucoin' || currentExchangeType === 'indodax') && (
+              {(currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'gate' || currentExchangeType === 'kucoin' || currentExchangeType === 'indodax' || currentExchangeType === 'hz') && (
                 <>
+                  {credentialFields.apiUrl && (
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
+                        <ExternalLink className="w-4 h-4" style={{ color: '#F0B90B' }} />
+                        API URL
+                      </label>
+                      <input
+                        type="url"
+                        value={apiUrl}
+                        onChange={(e) => setApiUrl(e.target.value)}
+                        placeholder="https://trade.kunai.fun/api/v1"
+                        className="w-full px-4 py-3 rounded-xl"
+                        style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                        required
+                      />
+                    </div>
+                  )}
                   {currentExchangeType === 'binance' && (
                     <div
                       className="p-4 rounded-xl cursor-pointer transition-colors"
@@ -551,7 +587,7 @@ export function ExchangeConfigModal({
                       placeholder={t('enterAPIKey', language)}
                       className="w-full px-4 py-3 rounded-xl"
                       style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-                      required
+                      required={currentExchangeType !== 'hz' || !editingExchangeId}
                     />
                   </div>
 
@@ -567,11 +603,11 @@ export function ExchangeConfigModal({
                       placeholder={t('enterSecretKey', language)}
                       className="w-full px-4 py-3 rounded-xl"
                       style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-                      required
+                      required={currentExchangeType !== 'hz' || !editingExchangeId}
                     />
                   </div>
 
-                  {(currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'kucoin') && (
+                  {credentialFields.passphrase && (
                     <div className="space-y-2">
                       <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
                         <Key className="w-4 h-4" style={{ color: '#F0B90B' }} />

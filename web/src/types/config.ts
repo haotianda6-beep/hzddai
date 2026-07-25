@@ -28,6 +28,7 @@ export interface Exchange {
   secretKey?: string
   passphrase?: string            // OKX specific
   testnet?: boolean
+  apiUrl?: string                // HZ trading API base URL
   // Hyperliquid specific
   hyperliquidWalletAddr?: string
   // Aster specific
@@ -73,6 +74,7 @@ export interface CreateExchangeRequest {
   secret_key?: string
   passphrase?: string
   testnet?: boolean
+  api_url?: string
   hyperliquid_wallet_addr?: string
   aster_user?: string
   aster_signer?: string
@@ -122,6 +124,7 @@ export interface UpdateExchangeConfigRequest {
       secret_key: string
       passphrase?: string
       testnet?: boolean
+      api_url?: string
       // Hyperliquid 特定字段
       hyperliquid_wallet_addr?: string
       // Aster 特定字段

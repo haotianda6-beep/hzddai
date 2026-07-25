@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"nofx/config"
 	"nofx/crypto"
@@ -31,6 +33,7 @@ type SafeExchangeConfig struct {
 	Type                  string `json:"type"`          // "cex" or "dex"
 	Enabled               bool   `json:"enabled"`
 	Testnet               bool   `json:"testnet,omitempty"`
+	APIURL                string `json:"apiUrl,omitempty"`
 	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"` // Hyperliquid wallet address (not sensitive)
 	AsterUser             string `json:"asterUser"`             // Aster username (not sensitive)
 	AsterSigner           string `json:"asterSigner"`           // Aster signer (not sensitive)
@@ -44,6 +47,7 @@ type UpdateExchangeConfigRequest struct {
 		SecretKey               string `json:"secret_key"`
 		Passphrase              string `json:"passphrase"` // OKX specific
 		Testnet                 bool   `json:"testnet"`
+		APIURL                  string `json:"api_url"`
 		HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 		HyperliquidUnifiedAcct  bool   `json:"hyperliquid_unified_account"` // Unified Account mode
 		AsterUser               string `json:"aster_user"`
@@ -65,6 +69,7 @@ type CreateExchangeRequest struct {
 	SecretKey               string `json:"secret_key"`
 	Passphrase              string `json:"passphrase"`
 	Testnet                 bool   `json:"testnet"`
+	APIURL                  string `json:"api_url"`
 	HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 	HyperliquidUnifiedAcct  bool   `json:"hyperliquid_unified_account"` // Unified Account mode: Spot as Perp collateral
 	AsterUser               string `json:"aster_user"`
@@ -106,6 +111,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
 			Testnet:               exchange.Testnet,
+			APIURL:                exchange.APIURL,
 			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
 			AsterUser:             exchange.AsterUser,
 			AsterSigner:           exchange.AsterSigner,
@@ -185,7 +191,19 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 			tradersToReload[t.ID] = true
 		}
 
-		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.HyperliquidWalletAddr, exchangeData.HyperliquidUnifiedAcct, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
+		exchange, err := s.store.Exchange().GetByID(userID, exchangeID)
+		if err != nil {
+			SafeInternalError(c, fmt.Sprintf("Find exchange %s", exchangeID), err)
+			return
+		}
+		if exchange.ExchangeType == "hz" {
+			exchangeData.APIURL, err = normalizeHZAPIURL(exchangeData.APIURL)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		err = s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.APIURL, exchangeData.HyperliquidWalletAddr, exchangeData.HyperliquidUnifiedAcct, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update exchange %s", exchangeID), err)
 			return
@@ -207,7 +225,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Don't return error here since exchange config was successfully updated to database
 	}
 
-	logger.Infof("✓ Exchange config updated: %+v", req.Exchanges)
+	logger.Infof("✓ Updated %d exchange config(s) for user %s", len(req.Exchanges), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
@@ -265,17 +283,28 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	// Validate exchange type
 	validTypes := map[string]bool{
 		"binance": true, "bybit": true, "okx": true, "bitget": true,
-		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true, "indodax": true,
+		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true, "indodax": true, "hz": true,
 	}
 	if !validTypes[req.ExchangeType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid exchange type: %s", req.ExchangeType)})
 		return
 	}
+	if req.ExchangeType == "hz" {
+		if strings.TrimSpace(req.APIKey) == "" || strings.TrimSpace(req.SecretKey) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "HZ API Key and API Secret are required"})
+			return
+		}
+		req.APIURL, err = normalizeHZAPIURL(req.APIURL)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 
 	// Create new exchange account
 	id, err := s.store.Exchange().Create(
 		userID, req.ExchangeType, req.AccountName, req.Enabled,
-		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet,
+		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet, req.APIURL,
 		req.HyperliquidWalletAddr, req.HyperliquidUnifiedAcct,
 		req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
@@ -353,7 +382,17 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 		{ExchangeType: "alpaca", Name: "Alpaca (US Stocks)", Type: "stock"},
 		{ExchangeType: "forex", Name: "Forex (TwelveData)", Type: "forex"},
 		{ExchangeType: "metals", Name: "Metals (TwelveData)", Type: "metals"},
+		{ExchangeType: "hz", Name: "HZ 交易账户", Type: "cex"},
 	}
 
 	c.JSON(http.StatusOK, supportedExchanges)
+}
+
+func normalizeHZAPIURL(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("HZ API URL must be a valid HTTPS address")
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
