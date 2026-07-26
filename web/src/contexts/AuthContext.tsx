@@ -5,6 +5,7 @@ import { getSystemConfig, invalidateSystemConfig } from '../lib/config'
 import { reset401Flag, httpClient } from '../lib/httpClient'
 import { setUserMode, type UserMode } from '../lib/onboarding'
 import { ROUTES } from '../router/paths'
+import { t, type Language } from '../i18n/translations'
 import { useLanguage } from './LanguageContext'
 
 export interface User {
@@ -86,6 +87,16 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export function loginErrorMessage(
+  status: number,
+  fallback: string | undefined,
+  language: Language
+) {
+  return status === 401
+    ? t('invalidCredentials', language)
+    : fallback || t('loginFailed', language)
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { language } = useLanguage()
@@ -259,11 +270,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         return {
           success: false,
-          message: data.error,
+          message: loginErrorMessage(response.status, data.error, language),
         }
       }
     } catch (error) {
-      return { success: false, message: 'Login failed, please try again' }
+      return { success: false, message: t('loginFailed', language) }
     }
   }
 
