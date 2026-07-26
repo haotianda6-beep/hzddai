@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,25 @@ func TestNormalizeHZAPIURL(t *testing.T) {
 	} {
 		if _, err := normalizeHZAPIURL(value); err == nil {
 			t.Fatalf("expected invalid HZ API URL: %q", value)
+		}
+	}
+}
+
+func TestExchangeAPIDocsIncludeHZFields(t *testing.T) {
+	previous := routeRegistry
+	routeRegistry = nil
+	t.Cleanup(func() { routeRegistry = previous })
+
+	NewServer(nil, nil, nil, 0)
+	docs := GetAPIDocs()
+	for _, required := range []string{
+		`exchange_type values: "binance","bybit","okx","bitget","gate","kucoin","indodax","hz"`,
+		`"api_url":"<HTTPS HZ API base URL, required for hz>"`,
+		`hz: api_url + api_key + secret_key`,
+		`"asset":"USD|USDT|USDC"`,
+	} {
+		if !strings.Contains(docs, required) {
+			t.Errorf("API docs missing %q", required)
 		}
 	}
 }

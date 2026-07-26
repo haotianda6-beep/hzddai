@@ -197,25 +197,26 @@ Defaults when custom fields empty: openai→api.openai.com/v1, deepseek→api.de
 
 			// Exchange configuration
 			s.routeWithSchema(protected, "GET", "/exchanges", "List exchange accounts",
-				`Returns: [{"id":"<EXACT id — use this as exchange_id when creating/updating a trader>","exchange_type":"<e.g. okx, binance>","account_name":"<user label>","enabled":<bool>}]
+				`Returns: [{"id":"<EXACT id — use this as exchange_id when creating/updating a trader>","exchange_type":"<e.g. okx, binance, hz>","account_name":"<user label>","enabled":<bool>,"api_url":"<HZ API base URL, hz only>"}]
 CRITICAL: Always use the "id" field for exchange_id. Do not use "exchange_type" as an id.`,
 				s.handleGetExchangeConfigs)
 			s.routeWithSchema(protected, "GET", "/exchanges/account-state", "Get connection and balance state for each exchange account",
-				`Returns: {"states":{"<exchange_id>":{"status":"ok|disabled|missing_credentials|invalid_credentials|permission_denied|unavailable","display_balance":"<string>","total_equity":<number>,"available_balance":<number>,"asset":"USDT|USDC","checked_at":"<RFC3339>","error_code":"<string>","error_message":"<string>"}}}
+				`Returns: {"states":{"<exchange_id>":{"status":"ok|disabled|missing_credentials|invalid_credentials|permission_denied|unavailable","display_balance":"<string>","total_equity":<number>,"available_balance":<number>,"asset":"USD|USDT|USDC","checked_at":"<RFC3339>","error_code":"<string>","error_message":"<string>"}}}
 Use this endpoint to show balance and health in the exchange list without depending on traders.`,
 				s.handleGetExchangeAccountStates)
 			s.routeWithSchema(protected, "POST", "/exchanges", "Create a new exchange account",
-				`Body: {"exchange_type":"<string>","account_name":"<string, user label>","enabled":true,"api_key":"<string>","secret_key":"<string>","passphrase":"<string, required for okx/gate/kucoin>"}
-exchange_type values: "binance","bybit","okx","bitget","gate","kucoin","indodax" (CEX) | "hyperliquid","aster","lighter" (DEX)
+				`Body: {"exchange_type":"<string>","account_name":"<string, user label>","enabled":true,"api_url":"<HTTPS HZ API base URL, required for hz>","api_key":"<string>","secret_key":"<string>","passphrase":"<string, required for okx/gate/kucoin>"}
+exchange_type values: "binance","bybit","okx","bitget","gate","kucoin","indodax","hz" (CEX/platform account) | "hyperliquid","aster","lighter" (DEX)
 Required fields by exchange:
   binance/bybit/bitget/indodax: api_key + secret_key
   okx/gate/kucoin: api_key + secret_key + passphrase
+  hz: api_url + api_key + secret_key
   hyperliquid: hyperliquid_wallet_addr
   aster: aster_user + aster_signer + aster_private_key
   lighter: lighter_wallet_addr + lighter_private_key + lighter_api_key_private_key + lighter_api_key_index`,
 				s.handleCreateExchange)
 			s.routeWithSchema(protected, "PUT", "/exchanges", "Update an existing exchange account configuration",
-				`Body: {"id":"<EXACT id from GET /api/exchanges>","exchange_type":"<string>","account_name":"<string>","enabled":<bool>,"api_key":"<string>","secret_key":"<string>","passphrase":"<string, for okx/gate/kucoin>"}
+				`Body: {"id":"<EXACT id from GET /api/exchanges>","exchange_type":"<string>","account_name":"<string>","enabled":<bool>,"api_url":"<HTTPS HZ API base URL, required for hz>","api_key":"<string>","secret_key":"<string>","passphrase":"<string, for okx/gate/kucoin>"}
 Use this to enable/disable an exchange or update API credentials. The "id" field is required to identify which exchange to update.`,
 				s.handleUpdateExchangeConfigs)
 			s.routeWithSchema(protected, "DELETE", "/exchanges/:id", "Delete exchange account",
