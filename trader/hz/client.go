@@ -58,11 +58,12 @@ func (c *client) do(
 	idempotency string,
 	out any,
 ) error {
-	err := c.doOnce(ctx, method, path, query, idempotency, nil, out)
+	call := func() error { return c.doOnce(ctx, method, path, query, idempotency, nil, out) }
+	err := retryIdempotent(ctx, idempotency, call)
 	apiErr, expired := err.(*APIError)
 	if expired && apiErr.Code == "TIMESTAMP_EXPIRED" {
 		if syncErr := c.syncTime(ctx); syncErr == nil {
-			return c.doOnce(ctx, method, path, query, idempotency, nil, out)
+			return retryIdempotent(ctx, idempotency, call)
 		}
 	}
 	return err
@@ -78,14 +79,40 @@ func (c *client) doJSON(
 	if err != nil {
 		return err
 	}
-	err = c.doOnce(ctx, method, path, nil, idempotency, raw, out)
+	call := func() error { return c.doOnce(ctx, method, path, nil, idempotency, raw, out) }
+	err = retryIdempotent(ctx, idempotency, call)
 	apiErr, expired := err.(*APIError)
 	if expired && apiErr.Code == "TIMESTAMP_EXPIRED" {
 		if syncErr := c.syncTime(ctx); syncErr == nil {
-			return c.doOnce(ctx, method, path, nil, idempotency, raw, out)
+			return retryIdempotent(ctx, idempotency, call)
 		}
 	}
 	return err
+}
+
+func retryIdempotent(ctx context.Context, idempotency string, call func() error) error {
+	err := call()
+	if idempotency == "" || !temporary(err) {
+		return err
+	}
+	timer := time.NewTimer(100 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return call()
+	}
+}
+
+func temporary(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apiErr, ok := err.(*APIError); ok {
+		return apiErr.Status >= http.StatusInternalServerError
+	}
+	return true
 }
 
 func (c *client) doOnce(

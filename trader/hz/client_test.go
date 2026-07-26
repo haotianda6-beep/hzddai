@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,5 +57,35 @@ func TestClientReturnsStableAPIError(t *testing.T) {
 	apiErr, ok := err.(*APIError)
 	if !ok || apiErr.Code != "STALE_QUOTE" || apiErr.Status != http.StatusConflict {
 		t.Fatalf("unexpected error: %#v", err)
+	}
+}
+
+func TestIdempotentWriteRetriesTemporaryFailureWithSameKey(t *testing.T) {
+	var mu sync.Mutex
+	var keys []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		keys = append(keys, r.Header.Get("X-HZ-IDEMPOTENCY-KEY"))
+		attempt := len(keys)
+		mu.Unlock()
+		if attempt == 1 {
+			http.Error(w, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "FILLED"})
+	}))
+	defer server.Close()
+
+	client, _ := newClient(server.URL+"/api/v1", "key", "secret")
+	var response map[string]string
+	err := client.doJSON(context.Background(), http.MethodPost, "/orders",
+		map[string]string{"symbol": "XAUUSD"}, &response, "fixed-idempotency")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(keys) != 2 || keys[0] != "fixed-idempotency" || keys[1] != keys[0] {
+		t.Fatalf("wrong retry keys: %#v", keys)
 	}
 }

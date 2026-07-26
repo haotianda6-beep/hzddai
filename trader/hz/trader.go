@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,8 @@ type Trader struct {
 	reconcileHealthy      atomic.Bool
 	streamOpeningStopped  atomic.Bool
 	accountOpeningStopped atomic.Bool
+	instrumentMu          sync.RWMutex
+	instrumentCache       map[string]instrument
 	cancelStream          context.CancelFunc
 }
 
@@ -52,6 +55,7 @@ func (t *Trader) GetBalance() (map[string]interface{}, error) {
 	}
 	return map[string]interface{}{
 		"total_equity":          number(value.Equity),
+		"totalEquity":           number(value.Equity),
 		"totalWalletBalance":    number(value.Balance),
 		"availableBalance":      number(value.AvailableMargin),
 		"usedMargin":            number(value.UsedMargin),
@@ -65,12 +69,26 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(positions) == 0 {
+		return []map[string]interface{}{}, nil
+	}
+	instruments, err := t.instruments()
+	if err != nil {
+		return nil, err
+	}
 	result := make([]map[string]interface{}, 0, len(positions))
 	for _, item := range positions {
+		quantity, err := quantityForLots(instruments[item.Instrument], item.Lots)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HZ position %s: %w", item.PositionID, err)
+		}
+		if item.Side == "SHORT" {
+			quantity = -quantity
+		}
 		result = append(result, map[string]interface{}{
 			"positionId":       item.PositionID,
 			"symbol":           item.Instrument,
-			"positionAmt":      number(item.Lots),
+			"positionAmt":      quantity,
 			"entryPrice":       number(item.EntryPrice),
 			"markPrice":        number(item.CurrentPrice),
 			"unRealizedProfit": number(item.UnrealizedPnL),
@@ -93,16 +111,23 @@ func (t *Trader) OpenShort(symbol string, quantity float64, leverage int) (map[s
 }
 
 func (t *Trader) open(symbol, side string, quantity float64, leverage int) (map[string]interface{}, error) {
+	if !t.IsReady() {
+		return nil, fmt.Errorf("%s", t.openingBlockReason())
+	}
+	lots, err := t.lotsForQuantity(symbol, quantity)
+	if err != nil {
+		return nil, err
+	}
 	request := createOrderRequest{
 		Instrument: strings.ToUpper(symbol), Side: side, OrderType: "MARKET",
-		SizeMode: "LOTS", Size: decimal(quantity), Leverage: leverage,
+		SizeMode: "LOTS", Size: lots, Leverage: leverage,
 		MarginMode: t.marginMode(),
 	}
 	placed, err := t.placeOrder(request)
 	if err != nil {
 		return nil, err
 	}
-	return orderResult(placed), nil
+	return orderResult(placed, quantity), nil
 }
 
 func (t *Trader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
@@ -121,21 +146,43 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 	if len(positions) == 0 {
 		return nil, fmt.Errorf("%s position not found for %s", strings.ToLower(side), symbol)
 	}
-	remaining := quantity
+	remainingLots := 0.0
+	lotPrecision := 0
+	if quantity > 0 {
+		spec, err := t.instrument(symbol)
+		if err != nil {
+			return nil, err
+		}
+		lots, err := t.lotsForQuantityWithSpec(spec, quantity)
+		if err != nil {
+			return nil, err
+		}
+		remainingLots = number(lots)
+		lotPrecision = spec.LotPrecision
+		totalLots := 0.0
+		for _, item := range positions {
+			totalLots += number(item.Lots)
+		}
+		if remainingLots > totalLots+1e-9 {
+			return nil, fmt.Errorf("close quantity exceeds %s %s position", symbol, strings.ToLower(side))
+		}
+	}
 	var last positionAction
 	for _, item := range positions {
 		size := number(item.Lots)
-		if quantity > 0 && remaining < size {
-			size = remaining
+		closeLots := item.Lots
+		if quantity > 0 && remainingLots < size {
+			size = remainingLots
+			closeLots = strconv.FormatFloat(size, 'f', lotPrecision, 64)
 		}
-		body := map[string]string{"lots": decimal(size)}
+		body := map[string]string{"lots": closeLots}
 		if err := t.client.doJSON(context.Background(), http.MethodPost,
 			"/positions/"+url.PathEscape(item.PositionID)+"/close", body, &last, randomToken()); err != nil {
 			return nil, err
 		}
 		if quantity > 0 {
-			remaining -= size
-			if remaining <= 0 {
+			remainingLots -= size
+			if remainingLots <= 1e-9 {
 				break
 			}
 		}
@@ -205,16 +252,19 @@ func (t *Trader) CancelAllOrders(symbol string) error {
 }
 
 func (t *Trader) FormatQuantity(symbol string, quantity float64) (string, error) {
-	var instruments []instrument
-	if err := t.client.do(context.Background(), http.MethodGet, "/instruments", nil, "", &instruments); err != nil {
+	spec, err := t.instrument(symbol)
+	if err != nil {
 		return "", err
 	}
-	for _, item := range instruments {
-		if item.Instrument == strings.ToUpper(symbol) {
-			return strconv.FormatFloat(quantity, 'f', item.LotPrecision, 64), nil
-		}
+	lots, err := t.lotsForQuantityWithSpec(spec, quantity)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("HZ instrument not found: %s", symbol)
+	formatted, err := quantityForLots(spec, lots)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatFloat(formatted, 'f', -1, 64), nil
 }
 
 func (t *Trader) GetOrderStatus(_ string, orderID string) (map[string]interface{}, error) {
@@ -223,7 +273,15 @@ func (t *Trader) GetOrderStatus(_ string, orderID string) (map[string]interface{
 		"/orders/"+url.PathEscape(orderID), nil, "", &value); err != nil {
 		return nil, err
 	}
-	return orderResult(value), nil
+	spec, err := t.instrument(value.Instrument)
+	if err != nil {
+		return nil, err
+	}
+	quantity, err := quantityForLots(spec, value.Lots)
+	if err != nil {
+		return nil, err
+	}
+	return orderResult(value, quantity), nil
 }
 
 func (t *Trader) GetClosedPnL(startTime time.Time, limit int) ([]types.ClosedPnLRecord, error) {
@@ -235,15 +293,26 @@ func (t *Trader) GetClosedPnL(startTime time.Time, limit int) ([]types.ClosedPnL
 	if err := t.client.do(context.Background(), http.MethodGet, "/trades", query, "", &page); err != nil {
 		return nil, err
 	}
+	if len(page.Items) == 0 {
+		return []types.ClosedPnLRecord{}, nil
+	}
+	instruments, err := t.instruments()
+	if err != nil {
+		return nil, err
+	}
 	result := make([]types.ClosedPnLRecord, 0, len(page.Items))
 	for _, item := range page.Items {
 		executed, _ := time.Parse(time.RFC3339Nano, item.ExecutedAt)
 		if executed.Before(startTime) {
 			continue
 		}
+		quantity, err := quantityForLots(instruments[item.Instrument], item.Lots)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HZ trade %s: %w", item.TradeID, err)
+		}
 		result = append(result, types.ClosedPnLRecord{
 			Symbol: item.Instrument, Side: strings.ToLower(item.Side), ExitPrice: number(item.Price),
-			Quantity: number(item.Lots), RealizedPnL: number(item.RealizedPnL),
+			Quantity: quantity, RealizedPnL: number(item.RealizedPnL),
 			Fee: number(item.Fee), ExitTime: executed, OrderID: item.OrderID,
 			CloseType: "unknown",
 		})
@@ -256,15 +325,26 @@ func (t *Trader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 	if err := t.client.do(context.Background(), http.MethodGet, "/orders/open", nil, "", &values); err != nil {
 		return nil, err
 	}
+	if len(values) == 0 {
+		return []types.OpenOrder{}, nil
+	}
+	instruments, err := t.instruments()
+	if err != nil {
+		return nil, err
+	}
 	result := make([]types.OpenOrder, 0, len(values))
 	for _, item := range values {
 		if symbol != "" && item.Instrument != strings.ToUpper(symbol) {
 			continue
 		}
+		quantity, err := quantityForLots(instruments[item.Instrument], item.Lots)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HZ order %s: %w", item.OrderID, err)
+		}
 		result = append(result, types.OpenOrder{
 			OrderID: item.OrderID, Symbol: item.Instrument, Side: orderSide(item.Side),
 			PositionSide: item.Side, Type: item.OrderType, Price: pointerNumber(item.LimitPrice),
-			StopPrice: pointerNumber(item.TriggerPrice), Quantity: number(item.Lots), Status: item.Status,
+			StopPrice: pointerNumber(item.TriggerPrice), Quantity: quantity, Status: item.Status,
 		})
 	}
 	return result, nil

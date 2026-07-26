@@ -3,6 +3,7 @@ package hz
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +17,13 @@ func (t *Trader) PlaceLimitOrder(request *types.LimitOrderRequest) (*types.Limit
 	if request.PostOnly || request.ReduceOnly {
 		return nil, fmt.Errorf("HZ API does not support Post Only or reduce-only limit orders")
 	}
+	if !t.IsReady() {
+		return nil, fmt.Errorf("%s", t.openingBlockReason())
+	}
+	lots, err := t.lotsForQuantity(request.Symbol, request.Quantity)
+	if err != nil {
+		return nil, err
+	}
 	side := strings.ToUpper(request.PositionSide)
 	if side == "" {
 		if strings.EqualFold(request.Side, "BUY") {
@@ -27,7 +35,7 @@ func (t *Trader) PlaceLimitOrder(request *types.LimitOrderRequest) (*types.Limit
 	price := decimal(request.Price)
 	placed, err := t.placeOrder(createOrderRequest{
 		ClientOrderID: request.ClientID, Instrument: strings.ToUpper(request.Symbol),
-		Side: side, OrderType: "LIMIT", SizeMode: "LOTS", Size: decimal(request.Quantity),
+		Side: side, OrderType: "LIMIT", SizeMode: "LOTS", Size: lots,
 		Leverage: request.Leverage, MarginMode: t.marginMode(), LimitPrice: &price,
 	})
 	if err != nil {
@@ -207,12 +215,89 @@ func (t *Trader) marginMode() string {
 	return "ISOLATED"
 }
 
-func orderResult(value order) map[string]interface{} {
+func orderResult(value order, quantity float64) map[string]interface{} {
 	return map[string]interface{}{
 		"orderId": value.OrderID, "clientOrderId": value.ClientOrderID,
 		"symbol": value.Instrument, "status": value.Status,
-		"avgPrice": 0.0, "executedQty": number(value.Lots), "commission": 0.0,
+		"avgPrice": 0.0, "executedQty": quantity, "commission": 0.0,
 	}
+}
+
+func (t *Trader) instruments() (map[string]instrument, error) {
+	t.instrumentMu.RLock()
+	cached := t.instrumentCache
+	t.instrumentMu.RUnlock()
+	if cached != nil {
+		return cached, nil
+	}
+	var values []instrument
+	if err := t.client.do(context.Background(), http.MethodGet, "/instruments", nil, "", &values); err != nil {
+		return nil, err
+	}
+	result := make(map[string]instrument, len(values))
+	for _, item := range values {
+		result[item.Instrument] = item
+	}
+	t.instrumentMu.Lock()
+	if t.instrumentCache == nil {
+		t.instrumentCache = result
+	}
+	cached = t.instrumentCache
+	t.instrumentMu.Unlock()
+	return cached, nil
+}
+
+func (t *Trader) instrument(symbol string) (instrument, error) {
+	values, err := t.instruments()
+	if err != nil {
+		return instrument{}, err
+	}
+	value, ok := values[strings.ToUpper(symbol)]
+	if !ok {
+		return instrument{}, fmt.Errorf("HZ instrument not found: %s", symbol)
+	}
+	return value, nil
+}
+
+func (t *Trader) lotsForQuantity(symbol string, quantity float64) (string, error) {
+	spec, err := t.instrument(symbol)
+	if err != nil {
+		return "", err
+	}
+	return t.lotsForQuantityWithSpec(spec, quantity)
+}
+
+func (t *Trader) lotsForQuantityWithSpec(spec instrument, quantity float64) (string, error) {
+	contractSize := number(spec.ContractSize)
+	minLots := number(spec.MinLots)
+	maxLots := number(spec.MaxLots)
+	if !finite(quantity) || quantity <= 0 || !finite(contractSize) || contractSize <= 0 ||
+		!finite(minLots) || minLots < 0 || !finite(maxLots) || maxLots < 0 {
+		return "", fmt.Errorf("invalid HZ quantity for %s", spec.Instrument)
+	}
+	step := number(spec.LotStep)
+	if !finite(step) || step <= 0 {
+		step = math.Pow10(-spec.LotPrecision)
+	}
+	lots := math.Floor((quantity/contractSize+step*1e-9)/step) * step
+	formatted := strconv.FormatFloat(lots, 'f', spec.LotPrecision, 64)
+	if lots < minLots || (maxLots > 0 && lots > maxLots) {
+		return "", fmt.Errorf("HZ quantity for %s is outside the allowed lot range", spec.Instrument)
+	}
+	return formatted, nil
+}
+
+func quantityForLots(spec instrument, lots string) (float64, error) {
+	contractSize := number(spec.ContractSize)
+	lotValue := number(lots)
+	if !finite(contractSize) || contractSize <= 0 || !finite(lotValue) || lotValue < 0 {
+		return 0, fmt.Errorf("invalid HZ instrument quantity")
+	}
+	return lotValue * contractSize, nil
+}
+
+func finite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func orderSide(side string) string {

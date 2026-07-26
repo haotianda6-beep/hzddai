@@ -58,7 +58,10 @@ type quote struct {
 type instrument struct {
 	Instrument   string `json:"instrument"`
 	LotPrecision int    `json:"lotPrecision"`
+	MinLots      string `json:"minLots"`
+	MaxLots      string `json:"maxLots"`
 	LotStep      string `json:"lotStep"`
+	ContractSize string `json:"contractSize"`
 	Tradable     bool   `json:"tradable"`
 }
 
