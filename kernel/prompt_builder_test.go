@@ -55,7 +55,7 @@ func TestPromptBuilder(t *testing.T) {
 		}
 
 		// 验证包含所有有效的action类型
-		actions := []string{"HOLD", "PARTIAL_CLOSE", "FULL_CLOSE", "ADD_POSITION", "OPEN_NEW", "WAIT"}
+		actions := []string{"open_long", "open_short", "close_long", "close_short", "hold", "wait"}
 		for _, action := range actions {
 			if !strings.Contains(systemPrompt, action) {
 				t.Errorf("System prompt should mention action type '%s'", action)
@@ -146,7 +146,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:          "BTCUSDT",
-				Action:          "OPEN_NEW",
+				Action:          "open_long",
 				Leverage:        3,
 				PositionSizeUSD: 1000,
 				StopLoss:        42000,
@@ -179,7 +179,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:    "", // Missing
-				Action:    "HOLD",
+				Action:    "hold",
 				Reasoning: "Test",
 			},
 		}
@@ -213,7 +213,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:    "BTCUSDT",
-				Action:    "HOLD",
+				Action:    "hold",
 				Reasoning: "", // Missing
 			},
 		}
@@ -243,11 +243,11 @@ func TestValidateDecisionFormat(t *testing.T) {
 		}
 	})
 
-	t.Run("OpenNewMissingLeverage", func(t *testing.T) {
+	t.Run("OpeningMissingLeverage", func(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:          "BTCUSDT",
-				Action:          "OPEN_NEW",
+				Action:          "open_long",
 				Leverage:        0, // Missing
 				PositionSizeUSD: 1000,
 				Reasoning:       "Test",
@@ -256,7 +256,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 
 		err := ValidateDecisionFormat(decisions)
 		if err == nil {
-			t.Error("OPEN_NEW without leverage should return error")
+			t.Error("open_long without leverage should return error")
 		}
 
 		if !strings.Contains(err.Error(), "leverage") {
@@ -264,11 +264,11 @@ func TestValidateDecisionFormat(t *testing.T) {
 		}
 	})
 
-	t.Run("OpenNewMissingPositionSize", func(t *testing.T) {
+	t.Run("OpeningMissingPositionSize", func(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:          "BTCUSDT",
-				Action:          "OPEN_NEW",
+				Action:          "open_long",
 				Leverage:        3,
 				PositionSizeUSD: 0, // Missing
 				Reasoning:       "Test",
@@ -277,7 +277,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 
 		err := ValidateDecisionFormat(decisions)
 		if err == nil {
-			t.Error("OPEN_NEW without position_size_usd should return error")
+			t.Error("open_long without position_size_usd should return error")
 		}
 
 		if !strings.Contains(err.Error(), "position_size_usd") {
@@ -289,12 +289,12 @@ func TestValidateDecisionFormat(t *testing.T) {
 		decisions := []Decision{
 			{
 				Symbol:    "BTCUSDT",
-				Action:    "HOLD",
+				Action:    "hold",
 				Reasoning: "Hold BTC",
 			},
 			{
 				Symbol:          "ETHUSDT",
-				Action:          "OPEN_NEW",
+				Action:          "open_long",
 				Leverage:        3,
 				PositionSizeUSD: 500,
 				Reasoning:       "Open ETH",
@@ -308,7 +308,7 @@ func TestValidateDecisionFormat(t *testing.T) {
 	})
 
 	t.Run("ValidActions", func(t *testing.T) {
-		validActions := []string{"HOLD", "PARTIAL_CLOSE", "FULL_CLOSE", "ADD_POSITION", "OPEN_NEW", "WAIT"}
+		validActions := []string{"hold", "close_long", "close_short", "open_long", "open_short", "wait"}
 
 		for _, action := range validActions {
 			decisions := []Decision{
@@ -319,8 +319,8 @@ func TestValidateDecisionFormat(t *testing.T) {
 				},
 			}
 
-			// OPEN_NEW需要额外字段
-			if action == "OPEN_NEW" {
+			// 开仓动作需要额外字段
+			if action == "open_long" || action == "open_short" {
 				decisions[0].Leverage = 3
 				decisions[0].PositionSizeUSD = 1000
 			}

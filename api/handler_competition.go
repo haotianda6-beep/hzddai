@@ -27,6 +27,11 @@ func (s *Server) handleDecisions(c *gin.Context) {
 		return
 	}
 
+	if isTraderDashboardDemoTrader(traderID) {
+		c.JSON(http.StatusOK, buildSilentTestDecisionRecords(traderID))
+		return
+	}
+
 	// Get all historical decision records (unlimited)
 	records, err := trader.GetStore().Decision().GetLatestRecords(trader.GetID(), 10000)
 	if err != nil {
@@ -62,6 +67,18 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 		}
 	}
 
+	if isTraderDashboardDemoTrader(traderID) {
+		recs := buildSilentTestDecisionRecords(traderID)
+		for i, j := 0, len(recs)-1; i < j; i, j = i+1, j-1 {
+			recs[i], recs[j] = recs[j], recs[i]
+		}
+		if limit > 0 && limit < len(recs) {
+			recs = recs[:limit]
+		}
+		c.JSON(http.StatusOK, recs)
+		return
+	}
+
 	records, err := trader.GetStore().Decision().GetLatestRecords(trader.GetID(), limit)
 	if err != nil {
 		SafeInternalError(c, "Get decision log", err)
@@ -91,10 +108,21 @@ func (s *Server) handleStatistics(c *gin.Context) {
 		return
 	}
 
+	if isTraderDashboardDemoTrader(traderID) {
+		c.JSON(http.StatusOK, buildSilentTestStatistics())
+		return
+	}
+
 	stats, err := trader.GetStore().Decision().GetStatistics(trader.GetID())
 	if err != nil {
 		SafeInternalError(c, "Get statistics", err)
 		return
+	}
+	if tradeStats, tsErr := s.store.Position().GetFullStats(trader.GetID()); tsErr == nil && tradeStats != nil {
+		stats.TotalTrades = tradeStats.TotalTrades
+		stats.WinTrades = tradeStats.WinTrades
+		stats.LossTrades = tradeStats.LossTrades
+		stats.WinRate = tradeStats.WinRate
 	}
 
 	c.JSON(http.StatusOK, stats)
@@ -128,9 +156,23 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 		return
 	}
 
-	// Get equity historical data from new equity table
-	// Every 3 minutes per cycle: 10000 records = about 20 days of data
-	snapshots, err := s.store.Equity().GetLatest(traderID, 10000)
+	limit := 300
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		if n, parseErr := strconv.Atoi(rawLimit); parseErr == nil && n > 0 {
+			if n > 5000 {
+				n = 5000
+			}
+			limit = n
+		}
+	}
+
+	if isTraderDashboardDemoTrader(traderID) {
+		c.JSON(http.StatusOK, buildSilentTestEquityHistoryDemo())
+		return
+	}
+
+	// 净值曲线只需要最近一段数据；限制体积，避免公网代理链路偶发中断导致前端 Network error。
+	snapshots, err := s.store.Equity().GetLatest(traderID, limit)
 	if err != nil {
 		SafeInternalError(c, "Get historical data", err)
 		return
@@ -148,6 +190,8 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 		AvailableBalance float64 `json:"available_balance"` // Available balance
 		TotalPnL         float64 `json:"total_pnl"`         // Total PnL (unrealized PnL)
 		TotalPnLPct      float64 `json:"total_pnl_pct"`     // Total PnL percentage
+		PnL              float64 `json:"pnl"`               // Frontend compatibility alias
+		PnLPct           float64 `json:"pnl_pct"`           // Frontend compatibility alias
 		PositionCount    int     `json:"position_count"`    // Position count
 		MarginUsedPct    float64 `json:"margin_used_pct"`   // Margin used percentage
 	}
@@ -172,6 +216,8 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 			AvailableBalance: snap.Balance,
 			TotalPnL:         snap.UnrealizedPnL,
 			TotalPnLPct:      totalPnLPct,
+			PnL:              snap.UnrealizedPnL,
+			PnLPct:           totalPnLPct,
 			PositionCount:    snap.PositionCount,
 			MarginUsedPct:    snap.MarginUsedPct,
 		})

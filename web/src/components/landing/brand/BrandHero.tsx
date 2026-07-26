@@ -18,8 +18,8 @@ export default function BrandHero() {
             {/* Top Marquee */}
             <div className="w-full bg-nofx-gold text-black font-bold py-2 border-y border-black z-20">
                 <Marquee speed={40}>
-                    <span className="mx-8 text-sm md:text-base uppercase tracking-widest">NOFX AI TRADING • AUTOMATED WEALTH • DECENTRALIZED INTELLIGENCE • PUNK ETHOS •</span>
-                    <span className="mx-8 text-sm md:text-base uppercase tracking-widest">NOFX AI TRADING • AUTOMATED WEALTH • DECENTRALIZED INTELLIGENCE • PUNK ETHOS •</span>
+                    <span className="mx-8 text-sm md:text-base uppercase tracking-widest">COMKUN-AI TRADING • AUTOMATED WEALTH • DECENTRALIZED INTELLIGENCE • PUNK ETHOS •</span>
+                    <span className="mx-8 text-sm md:text-base uppercase tracking-widest">COMKUN-AI TRADING • AUTOMATED WEALTH • DECENTRALIZED INTELLIGENCE • PUNK ETHOS •</span>
                 </Marquee>
             </div>
 

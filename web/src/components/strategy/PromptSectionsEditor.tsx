@@ -2,12 +2,15 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, RotateCcw, FileText } from 'lucide-react'
 import type { PromptSectionsConfig } from '../../types'
 import { promptSections as promptSectionsI18n, ts } from '../../i18n/strategy-translations'
+import type { StrategyEditorVisualTheme } from '../../lib/strategy-editor-theme'
+import { stratColors } from '../../lib/strategy-editor-theme'
 
 interface PromptSectionsEditorProps {
   config: PromptSectionsConfig | undefined
   onChange: (config: PromptSectionsConfig) => void
   disabled?: boolean
   language: string
+  visualTheme?: StrategyEditorVisualTheme
 }
 
 // Default prompt sections (same as backend defaults)
@@ -47,7 +50,10 @@ export function PromptSectionsEditor({
   onChange,
   disabled,
   language,
+  visualTheme = 'binance',
 }: PromptSectionsEditorProps) {
+  const c = stratColors(visualTheme)
+  const accentIcon = visualTheme === 'lum' ? '#d4ff33' : '#a855f7'
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     role_definition: false,
     trading_frequency: false,
@@ -87,12 +93,12 @@ export function PromptSectionsEditor({
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-2 mb-4">
-        <FileText className="w-5 h-5 mt-0.5" style={{ color: '#a855f7' }} />
+        <FileText className="mt-0.5 h-5 w-5" style={{ color: accentIcon }} />
         <div>
-          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+          <h3 className="font-medium" style={{ color: c.text }}>
             {ts(promptSectionsI18n.promptSections, language)}
           </h3>
-          <p className="text-xs mt-1" style={{ color: '#848E9C' }}>
+          <p className="mt-1 text-xs" style={{ color: c.muted }}>
             {ts(promptSectionsI18n.promptSectionsDesc, language)}
           </p>
         </div>
@@ -109,7 +115,7 @@ export function PromptSectionsEditor({
             <div
               key={key}
               className="rounded-lg overflow-hidden"
-              style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              style={{ background: c.sectionBg, border: `1px solid ${c.border}` }}
             >
               <button
                 onClick={() => toggleSection(key)}
@@ -117,30 +123,34 @@ export function PromptSectionsEditor({
               >
                 <div className="flex items-center gap-2">
                   {isExpanded ? (
-                    <ChevronDown className="w-4 h-4" style={{ color: '#848E9C' }} />
+                    <ChevronDown className="h-4 w-4" style={{ color: c.muted }} />
                   ) : (
-                    <ChevronRight className="w-4 h-4" style={{ color: '#848E9C' }} />
+                    <ChevronRight className="h-4 w-4" style={{ color: c.muted }} />
                   )}
-                  <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>
+                  <span className="text-sm font-medium" style={{ color: c.text }}>
                     {label}
                   </span>
                   {isModified && (
                     <span
                       className="px-1.5 py-0.5 text-[10px] rounded"
-                      style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#a855f7' }}
+                      style={{
+                        background:
+                          visualTheme === 'lum' ? 'rgba(212, 255, 51, 0.12)' : 'rgba(168, 85, 247, 0.15)',
+                        color: visualTheme === 'lum' ? c.accent : '#a855f7',
+                      }}
                     >
                       {ts(promptSectionsI18n.modified, language)}
                     </span>
                   )}
                 </div>
-                <span className="text-[10px]" style={{ color: '#848E9C' }}>
+                <span className="text-[10px]" style={{ color: c.muted }}>
                   {value.length} {ts(promptSectionsI18n.chars, language)}
                 </span>
               </button>
 
               {isExpanded && (
                 <div className="px-3 pb-3">
-                  <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+                  <p className="mb-2 text-xs" style={{ color: c.muted }}>
                     {desc}
                   </p>
                   <textarea
@@ -150,9 +160,9 @@ export function PromptSectionsEditor({
                     rows={6}
                     className="w-full px-3 py-2 rounded-lg resize-y font-mono text-xs"
                     style={{
-                      background: '#1E2329',
-                      border: '1px solid #2B3139',
-                      color: '#EAECEF',
+                      background: c.inputBg,
+                      border: `1px solid ${c.border}`,
+                      color: c.text,
                       minHeight: '120px',
                     }}
                   />
@@ -161,7 +171,7 @@ export function PromptSectionsEditor({
                       onClick={() => resetSection(sectionKey)}
                       disabled={disabled || !isModified}
                       className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:bg-white/5 disabled:opacity-30"
-                      style={{ color: '#848E9C' }}
+                      style={{ color: c.muted }}
                     >
                       <RotateCcw className="w-3 h-3" />
                       {ts(promptSectionsI18n.resetToDefault, language)}

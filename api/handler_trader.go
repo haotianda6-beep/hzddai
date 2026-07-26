@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"nofx/crypto"
 	"nofx/logger"
 	"nofx/store"
 
@@ -76,6 +77,29 @@ func exchangeDisplayName(exchange *store.Exchange) string {
 		return exchange.Name
 	}
 	return "所选交易所账户"
+}
+
+func (s *Server) findTraderUsingStrategyExchange(userID, exchangeID, strategyID, excludeTraderID string, onlyRunning bool) (*store.Trader, error) {
+	if strings.TrimSpace(exchangeID) == "" || strings.TrimSpace(strategyID) == "" {
+		return nil, nil
+	}
+	traders, err := s.store.Trader().List(userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, trader := range traders {
+		if trader == nil || trader.ID == excludeTraderID {
+			continue
+		}
+		if trader.ExchangeID != exchangeID || trader.StrategyID != strategyID {
+			continue
+		}
+		if onlyRunning && !trader.IsRunning {
+			continue
+		}
+		return trader, nil
+	}
+	return nil, nil
 }
 
 func missingExchangeFields(exchange *store.Exchange) []string {
@@ -213,7 +237,11 @@ func classifyTraderSetupReason(reason string) (string, string) {
 	case strings.Contains(lower, "unsupported trading platform"):
 		return "trader.reason.exchange_unsupported", "当前交易所类型暂不支持机器人初始化"
 	case strings.Contains(lower, "initial balance not set and unable to fetch balance from exchange"):
-		return "trader.reason.exchange_balance_unavailable", "系统暂时无法从交易所读取账户余额"
+		return "trader.reason.exchange_balance_unavailable", "系统暂时无法从交易所读取账户余额（请检查 API 权限、IP 白名单、代理出口与密钥是否正确）"
+	case strings.Contains(lower, "initial balance must be greater than 0"):
+		return "trader.reason.exchange_zero_balance", "合约侧可用余额为 0 或无法获取；请向币安合约账户转入资金，并确认 API 可读取余额"
+	case strings.Contains(lower, "trader id") && strings.Contains(lower, "does not exist"):
+		return "trader.reason.runtime_not_loaded", "运行实例未加载（常见于 AI 模型被停用、交易所账户被禁用，或初始化报错）。请刷新页面；仍不行则检查模型启用状态与交易所配置"
 	case strings.Contains(lower, "timeout"), strings.Contains(lower, "no such host"), strings.Contains(lower, "connection refused"):
 		return "trader.reason.exchange_service_unreachable", "系统暂时无法连接交易所服务"
 	default:
@@ -224,6 +252,25 @@ func classifyTraderSetupReason(reason string) (string, string) {
 func humanizeTraderSetupReason(reason string) string {
 	_, message := classifyTraderSetupReason(reason)
 	return message
+}
+
+// explainTraderSetupFailure 将加载/初始化错误转成用户可读中文（避免 SanitizeError 清空后只剩笼统提示）
+func explainTraderSetupFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	sanitized := SanitizeError(err, "")
+	reason := humanizeTraderSetupReason(sanitized)
+	if reason != "" {
+		return reason
+	}
+	if IsSensitiveError(err) {
+		return "连接交易所或校验 API 失败（详细错误已隐藏，多为网络或权限问题）。请重点检查：API Key 与合约权限、交易所 IP 白名单（只加专属代理出口，不要加平台服务器 IP）、账户是否在合约侧有余额。"
+	}
+	if sanitized != "" {
+		return sanitized
+	}
+	return strings.TrimSpace(err.Error())
 }
 
 func traderSetupReasonParams(err error, fallback string, kv ...string) map[string]string {
@@ -272,7 +319,7 @@ func describeTraderCreationWarning(traderName string, err error) string {
 		return fmt.Sprintf("机器人「%s」已经保存，但当前还没有通过启动前校验。请先检查模型、策略和交易所配置，修正后再点击启动。", traderName)
 	}
 
-	reason := humanizeTraderSetupReason(SanitizeError(err, ""))
+	reason := explainTraderSetupFailure(err)
 	if reason == "" {
 		return fmt.Sprintf("机器人「%s」已经保存，但当前暂时还不能启动。请先检查模型、策略和交易所配置，修正后再点击启动。", traderName)
 	}
@@ -285,7 +332,7 @@ func describeTraderStartError(traderName string, err error) string {
 		return fmt.Sprintf("这次未能启动机器人：机器人「%s」暂时还不能启动。请检查模型、策略和交易所配置后，再重新点击启动。", traderName)
 	}
 
-	reason := humanizeTraderSetupReason(SanitizeError(err, ""))
+	reason := explainTraderSetupFailure(err)
 	if reason == "" {
 		return fmt.Sprintf("这次未能启动机器人：机器人「%s」暂时还不能启动。请检查模型、策略和交易所配置后，再重新点击启动。", traderName)
 	}
@@ -298,6 +345,81 @@ func formatTraderStartError(reason, nextStep string) string {
 		return fmt.Sprintf("这次未能启动机器人：%s。", reason)
 	}
 	return fmt.Sprintf("这次未能启动机器人：%s。%s。", reason, nextStep)
+}
+
+func traderStartPlatformBalanceRequirement(fullCfg *store.TraderFullConfig, billing *store.BillingStore, userID string) (required float64, ok bool) {
+	if fullCfg == nil {
+		return 0, false
+	}
+	if fullCfg.Strategy != nil {
+		if cfg, err := fullCfg.Strategy.ParseConfig(); err == nil && store.IsComkunMarketFollowStrategy(cfg) {
+			return store.ComkunFollowScanFeeMaxUSDTOrDefault(), true
+		}
+	}
+	if fullCfg.AIModel != nil {
+		provider := strings.TrimSpace(fullCfg.AIModel.Provider)
+		if provider == "claw402" || provider == "comkun_proxy" || provider == "comkun_ai" {
+			return 0.00000001, true
+		}
+	}
+	return 0, false
+}
+
+func isPlatformBilledAIProvider(provider string) bool {
+	switch strings.TrimSpace(provider) {
+	case "comkun_ai", "comkun_proxy":
+		return true
+	default:
+		return false
+	}
+}
+
+func traderStartBalanceError(balance, required float64) string {
+	if required >= 0.01 {
+		return fmt.Sprintf("平台余额不足（当前平台余额 %.4f USDT，不足启动所需 %.4f USDT）。请先充值平台余额后再启动智能体。", balance, required)
+	}
+	return fmt.Sprintf("平台余额不足（当前平台余额 %.4f USDT）。请先充值平台余额后再启动智能体。", balance)
+}
+
+// ErrTraderMarketSourceAlreadyBound 已购策略市场源（entitlement）下已存在绑定该源副本的交易员。
+var ErrTraderMarketSourceAlreadyBound = errors.New("market purchased source already has a trader")
+
+const multipleMarketSourceTraderExemptionEmail = "2497937010@qq.com"
+
+func allowsMultipleMarketSourceTradersForEmail(email string) bool {
+	return strings.EqualFold(strings.TrimSpace(email), multipleMarketSourceTraderExemptionEmail)
+}
+
+func (s *Server) assertSingleTraderForMarketPurchasedSource(userID string, st *store.Strategy, excludeTraderID string) error {
+	if st == nil {
+		return nil
+	}
+	user, err := s.store.User().GetByID(userID)
+	if err != nil {
+		return err
+	}
+	if allowsMultipleMarketSourceTradersForEmail(user.Email) {
+		return nil
+	}
+	src := strings.TrimSpace(st.SourceStrategyID)
+	if src == "" {
+		return nil
+	}
+	has, err := s.store.Billing().HasEntitlement(userID, src)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return nil
+	}
+	n, err := s.store.Trader().CountTradersLinkedToMarketSource(userID, src, excludeTraderID)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrTraderMarketSourceAlreadyBound
+	}
+	return nil
 }
 
 // handleCreateTrader Create new AI trader
@@ -352,7 +474,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		), "trader.create.model_disabled", mapStringPairs("model_name", model.Name))
 		return
 	}
-	if model.APIKey == "" {
+	if !isPlatformBilledAIProvider(model.Provider) && model.APIKey == "" {
 		SafeBadRequestWithDetails(c, formatTraderCreationError(
 			fmt.Sprintf("AI 模型「%s」缺少 API Key 或支付凭证", model.Name),
 			"请前往「设置 > 模型配置」补全模型凭证后，再重新创建机器人",
@@ -367,25 +489,42 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	var strategyConfig *store.StrategyConfig
 	if req.StrategyID != "" {
-		strategy, strategyErr := s.store.Strategy().Get(userID, req.StrategyID)
-		err = strategyErr
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+		stObj, errSt := s.store.Strategy().Get(userID, req.StrategyID)
+		if errSt != nil {
+			if errors.Is(errSt, gorm.ErrRecordNotFound) {
 				SafeBadRequestWithDetails(c, formatTraderCreationError("你选择的策略不存在，或者已经被删除了", "请重新选择一个可用策略后，再继续创建机器人"), "trader.create.strategy_not_found", nil)
 				return
 			}
 			SafeError(c, http.StatusInternalServerError,
 				formatTraderCreationError("暂时无法读取你选择的策略配置", "请稍后重试；如果问题持续，再检查本地服务是否正常"),
-				err,
+				errSt,
 			)
 			return
 		}
-		strategyConfig, err = strategy.ParseConfig()
-		if err != nil {
-			SafeBadRequestWithDetails(c, formatTraderCreationError(
-				"你选择的策略配置不完整",
-				"请先修正策略后再创建机器人",
-			), "trader.create.strategy_invalid", nil)
+		cfg, perr := stObj.ParseConfig()
+		if perr != nil {
+			SafeBadRequestWithDetails(c, formatTraderCreationError("策略配置无效，无法解析", "请在策略实验室检查该策略的配置"), "trader.create.strategy_config_invalid", nil)
+			return
+		}
+		if err := store.ValidateComkunAIStrategyBinding(model, cfg); err != nil {
+			SafeBadRequestWithDetails(c, formatTraderCreationError(err.Error(), "请更换 AI 模型或更换策略后再创建"), "trader.create.ai_strategy_mismatch", nil)
+			return
+		}
+		strategyConfig = cfg
+		if err := s.assertSingleTraderForMarketPurchasedSource(userID, stObj, ""); err != nil {
+			if errors.Is(err, ErrTraderMarketSourceAlreadyBound) {
+				SafeBadRequestWithDetails(
+					c,
+					formatTraderCreationError(
+						"该策略来自你已购买的策略市场订阅/解锁包，同一市场源只能绑定一个交易员",
+						"请先为其他机器人更换策略，或删除、停用已占用该策略包的交易员后再创建",
+					),
+					"trader.create.market_source_already_bound",
+					nil,
+				)
+				return
+			}
+			SafeInternalError(c, formatTraderCreationError("暂时无法校验策略市场绑定规则", "请稍后重试"), err)
 			return
 		}
 	}
@@ -458,6 +597,22 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		SafeBadRequestWithDetails(c, formatTraderCreationError(
 			err.Error(), "请重新选择匹配的策略或交易账户",
 		), "trader.create.strategy_exchange_mismatch", nil)
+		return
+	}
+
+	if existing, dupErr := s.findTraderUsingStrategyExchange(userID, req.ExchangeID, req.StrategyID, "", false); dupErr != nil {
+		SafeInternalError(c, formatTraderCreationError("暂时无法检查重复机器人", "请稍后重试"), dupErr)
+		return
+	} else if existing != nil {
+		SafeBadRequestWithDetails(
+			c,
+			formatTraderCreationError(
+				fmt.Sprintf("交易所账户「%s」已经绑定过这个策略机器人「%s」", exchangeDisplayName(exchangeCfg), existing.Name),
+				"请直接编辑或启动现有机器人，不要重复创建同一套交易",
+			),
+			"trader.create.duplicate_strategy_exchange",
+			mapStringPairs("trader_id", existing.ID, "trader_name", existing.Name),
+		)
 		return
 	}
 
@@ -643,34 +798,64 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		exchangeID = existingTrader.ExchangeID
 	}
 
-	strategy, err := s.store.Strategy().Get(userID, strategyID)
-	if err != nil {
-		SafeBadRequest(c, "选择的策略不存在")
+	modelRow, errModel := s.store.AIModel().Get(userID, req.AIModelID)
+	if errModel != nil {
+		if errors.Is(errModel, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "AI model not found"})
+			return
+		}
+		SafeInternalError(c, "Failed to load AI model", errModel)
 		return
 	}
-	strategyConfig, err := strategy.ParseConfig()
-	if err != nil {
-		SafeBadRequest(c, "选择的策略配置不完整")
+	stObj, errSt := s.store.Strategy().Get(userID, strategyID)
+	if errSt != nil {
+		if errors.Is(errSt, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Strategy not found"})
+			return
+		}
+		SafeInternalError(c, "Failed to load strategy", errSt)
+		return
+	}
+	cfgUp, perr := stObj.ParseConfig()
+	if perr != nil {
+		SafeBadRequestWithDetails(c, fmt.Sprintf("策略配置无效：%v", perr), "trader.update.strategy_config_invalid", nil)
+		return
+	}
+	if err := store.ValidateComkunAIStrategyBinding(modelRow, cfgUp); err != nil {
+		SafeBadRequestWithDetails(c, err.Error(), "trader.update.ai_strategy_mismatch", nil)
 		return
 	}
 	exchanges, err := s.store.Exchange().List(userID)
 	if err != nil {
-		SafeInternalError(c, "Failed to load exchange", err)
+		SafeInternalError(c, "Failed to load exchange configs", err)
 		return
 	}
 	var exchangeCfg *store.Exchange
-	for _, item := range exchanges {
-		if item.ID == exchangeID {
-			exchangeCfg = item
+	for _, exchange := range exchanges {
+		if exchange.ID == exchangeID {
+			exchangeCfg = exchange
 			break
 		}
 	}
-	if exchangeCfg == nil {
-		SafeBadRequest(c, "选择的交易账户不存在")
+	if exchangeMsg, exchangeErrorKey, exchangeErrorParams := validateExchangeForTraderCreation(exchangeCfg); exchangeMsg != "" {
+		SafeBadRequestWithDetails(c, exchangeMsg, exchangeErrorKey, exchangeErrorParams)
 		return
 	}
-	if err := store.ValidateStrategyExchange(exchangeCfg.ExchangeType, strategyConfig); err != nil {
-		SafeBadRequest(c, err.Error())
+	if err := store.ValidateStrategyExchange(exchangeCfg.ExchangeType, cfgUp); err != nil {
+		SafeBadRequestWithDetails(c, err.Error(), "trader.update.strategy_exchange_mismatch", nil)
+		return
+	}
+	if err := s.assertSingleTraderForMarketPurchasedSource(userID, stObj, traderID); err != nil {
+		if errors.Is(err, ErrTraderMarketSourceAlreadyBound) {
+			SafeBadRequestWithDetails(
+				c,
+				"该策略来自你已购买的策略市场订阅/解锁包，同一市场源只能绑定一个交易员。请先为其他机器人更换策略，或停用已占用该包的交易员。",
+				"trader.update.market_source_already_bound",
+				nil,
+			)
+			return
+		}
+		SafeInternalError(c, "检查策略市场绑定规则失败", err)
 		return
 	}
 
@@ -754,7 +939,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		}
 	}
 
-	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
+	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, exchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"trader_id":   traderID,
@@ -776,28 +961,65 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 		return
 	}
 
-	// If trader is running, stop it first
-	if trader, err := s.traderManager.GetTrader(traderID); err == nil {
-		status := trader.GetStatus()
-		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			trader.Stop()
-			logger.Infof("⏹  Stopped running trader: %s", traderID)
-		}
-	}
-
-	// Remove trader from memory
+	// 从内存移除（内部会阻塞 Stop，等循环退出后再删，避免野指针）
 	s.traderManager.RemoveTrader(traderID)
 
 	logger.Infof("✓ Trader deleted: %s", traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "Trader deleted"})
 }
 
-// handleStartTrader Start trader
+// handleStartTrader Start trader（仅当前登录用户自己的交易员）
 func (s *Server) handleStartTrader(c *gin.Context) {
-	userID := c.GetString("user_id")
-	traderID := c.Param("id")
+	s.handleStartTraderForUser(c, c.GetString("user_id"), c.Param("id"))
+}
 
-	// Verify trader belongs to current user
+func (s *Server) expiredCEXProxyHost(fullCfg *store.TraderFullConfig) (bool, string, error) {
+	if fullCfg == nil || fullCfg.Exchange == nil || !exchangeTypeUsesOutboundProxy(fullCfg.Exchange.ExchangeType) {
+		return false, "", nil
+	}
+	bound, expiresAt, displayHost, err := s.store.ProxyPool().ProxyBindingForExchange(fullCfg.Exchange.ID)
+	if err != nil {
+		return false, "", err
+	}
+	if !bound || expiresAt == nil || expiresAt.After(time.Now().UTC()) {
+		return false, "", nil
+	}
+	return true, strings.TrimSpace(displayHost), nil
+}
+
+func (s *Server) ensureCEXOutboundProxyBeforeTraderStart(userID string, fullCfg *store.TraderFullConfig) error {
+	if fullCfg == nil || fullCfg.Exchange == nil {
+		return nil
+	}
+	ex := fullCfg.Exchange
+	if !exchangeTypeUsesOutboundProxy(ex.ExchangeType) || strings.TrimSpace(string(ex.OutboundProxyURL)) != "" {
+		return nil
+	}
+	return s.store.GormDB().Transaction(func(tx *gorm.DB) error {
+		var current store.Exchange
+		if err := tx.Where("id = ? AND user_id = ?", ex.ID, userID).First(&current).Error; err != nil {
+			return err
+		}
+		if !exchangeTypeUsesOutboundProxy(current.ExchangeType) || strings.TrimSpace(string(current.OutboundProxyURL)) != "" {
+			return nil
+		}
+		_, proxyPlain, err := s.store.ProxyPool().ClaimProxyForExchange(tx, userID, current.ID, current.ExchangeType)
+		if err != nil {
+			return err
+		}
+		logger.Infof("📌 启动交易员前自动分配 CEX 出口代理 exchange_id=%s type=%s", current.ID, current.ExchangeType)
+		return tx.Model(&store.Exchange{}).
+			Where("id = ? AND user_id = ?", current.ID, userID).
+			Updates(map[string]interface{}{
+				"outbound_proxy_url": crypto.EncryptedString(proxyPlain),
+				"updated_at":         time.Now().UTC(),
+			}).Error
+	})
+}
+
+// handleStartTraderForUser 启动交易员；userID 为交易员所属用户（管理员可代客启动）
+func (s *Server) handleStartTraderForUser(c *gin.Context, userID, traderID string) {
+	// Verify trader belongs to userID
 	fullCfg, err := s.store.Trader().GetFullConfig(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
@@ -806,6 +1028,64 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	traderName := traderID
 	if fullCfg != nil && fullCfg.Trader != nil && fullCfg.Trader.Name != "" {
 		traderName = fullCfg.Trader.Name
+	}
+
+	if fullCfg != nil {
+		var stratCfg *store.StrategyConfig
+		if fullCfg.Strategy != nil {
+			var perr error
+			stratCfg, perr = fullCfg.Strategy.ParseConfig()
+			if perr != nil {
+				SafeBadRequestWithDetails(c, fmt.Sprintf("策略配置无效：%v", perr), "trader.start.strategy_config_invalid", mapStringPairs("trader_name", traderName))
+				return
+			}
+		}
+		if err := store.ValidateComkunAIStrategyBinding(fullCfg.AIModel, stratCfg); err != nil {
+			SafeBadRequestWithDetails(c, err.Error(), "trader.start.ai_strategy_mismatch", mapStringPairs("trader_name", traderName))
+			return
+		}
+	}
+
+	if proxyExpired, expiredHost, proxyErr := s.expiredCEXProxyHost(fullCfg); proxyErr != nil {
+		SafeInternalError(c, "读取代理有效期失败", proxyErr)
+		return
+	} else if proxyExpired {
+		message := "IP已过期，请联系管理员更换代理后再启动"
+		if expiredHost != "" {
+			message = fmt.Sprintf("IP已过期（%s），请联系管理员更换代理后再启动", expiredHost)
+		}
+		SafeBadRequestWithDetails(c, message, "trader.start.proxy_expired", mapStringPairs("trader_name", traderName))
+		return
+	}
+
+	if fullCfg != nil && fullCfg.Trader != nil {
+		if existing, dupErr := s.findTraderUsingStrategyExchange(userID, fullCfg.Trader.ExchangeID, fullCfg.Trader.StrategyID, traderID, true); dupErr != nil {
+			SafeInternalError(c, "检查重复运行机器人失败", dupErr)
+			return
+		} else if existing != nil {
+			SafeBadRequestWithDetails(
+				c,
+				formatTraderStartError(
+					fmt.Sprintf("同一个交易所账户和策略已有正在运行的机器人「%s」", existing.Name),
+					"请先停止已有机器人，再启动当前机器人，避免重复扣费和重复下单",
+				),
+				"trader.start.duplicate_strategy_exchange_running",
+				mapStringPairs("trader_id", existing.ID, "trader_name", existing.Name),
+			)
+			return
+		}
+	}
+
+	if requiredBalance, needsPlatformBalance := traderStartPlatformBalanceRequirement(fullCfg, s.store.Billing(), userID); needsPlatformBalance {
+		u, uerr := s.store.User().GetByID(userID)
+		if uerr != nil {
+			SafeInternalError(c, "balance read", uerr)
+			return
+		}
+		if u.BalanceUSDT+1e-9 < requiredBalance {
+			SafeBadRequestWithDetails(c, traderStartBalanceError(u.BalanceUSDT, requiredBalance), "trader.start.platform_balance_insufficient", mapStringPairs("trader_name", traderName))
+			return
+		}
 	}
 
 	// Check if trader exists in memory and if it's running
@@ -819,6 +1099,15 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		// Trader exists but is stopped - remove from memory to reload fresh config
 		logger.Infof("🔄 Removing stopped trader %s from memory to reload config...", traderID)
 		s.traderManager.RemoveTrader(traderID)
+	}
+
+	if err := s.ensureCEXOutboundProxyBeforeTraderStart(userID, fullCfg); err != nil {
+		if errors.Is(err, store.ErrProxyPoolExhausted) {
+			SafeBadRequestWithDetails(c, "暂无可用出口代理，请联系管理员补充代理池后再启动", "trader.start.proxy_pool_exhausted", mapStringPairs("trader_name", traderName))
+			return
+		}
+		SafeInternalError(c, "启动前分配出口代理失败", err)
+		return
 	}
 
 	// Load trader from database (always reload to get latest config)
@@ -889,40 +1178,51 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Trader started"})
 }
 
-// handleStopTrader Stop trader
+// handleStopTrader Stop trader（仅当前登录用户自己的交易员）
 func (s *Server) handleStopTrader(c *gin.Context) {
-	userID := c.GetString("user_id")
-	traderID := c.Param("id")
+	s.executeStopTrader(c, c.GetString("user_id"), c.Param("id"), false)
+}
 
-	// Verify trader belongs to current user
+// executeStopTrader 停止交易员。adminForceDB：管理员在内存找不到实例时仍将数据库标为已停止（修复异常状态）
+func (s *Server) executeStopTrader(c *gin.Context, userID, traderID string, adminForceDB bool) {
 	_, err := s.store.Trader().GetFullConfig(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
 		return
 	}
 
-	trader, err := s.traderManager.GetTrader(traderID)
+	at, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
+		_ = s.traderManager.LoadUserTradersFromStore(s.store, userID)
+		at, err = s.traderManager.GetTrader(traderID)
+	}
+	if err != nil {
+		if adminForceDB {
+			_ = s.store.Trader().UpdateStatus(userID, traderID, false)
+			logger.Infof("⏹ Admin stop: trader %s not in memory, DB marked stopped", traderID)
+			c.JSON(http.StatusOK, gin.H{
+				"message": "已将数据库标为停止（本机未加载该交易员进程，可能从未启动或已卸载）",
+				"warning": "memory_instance_not_found",
+			})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
 		return
 	}
 
-	// Check if trader is running
-	status := trader.GetStatus()
+	status := at.GetStatus()
 	if isRunning, ok := status["is_running"].(bool); ok && !isRunning {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already stopped"})
 		return
 	}
 
-	// Stop trader
-	trader.Stop()
+	at.StopAsync()
 
-	// Update running status in database
 	err = s.store.Trader().UpdateStatus(userID, traderID, false)
 	if err != nil {
 		logger.Infof("⚠️  Failed to update trader status: %v", err)
 	}
 
-	logger.Infof("⏹  Trader %s stopped", trader.GetName())
+	logger.Infof("⏹  Trader %s stopped", at.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader stopped"})
 }

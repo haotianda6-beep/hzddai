@@ -40,6 +40,14 @@ export interface Exchange {
   lighterPrivateKey?: string
   lighterApiKeyPrivateKey?: string
   lighterApiKeyIndex?: number
+  /** CEX：是否在服务端配置了 REST 出口代理（地址不回显） */
+  outbound_proxy_configured?: boolean
+  /** CEX：出口是否由管理员代理池分配 */
+  outbound_proxy_from_pool?: boolean
+  /** 池条目到期时间（RFC3339），仅 from_pool 时可能有 */
+  outbound_proxy_pool_expires_at?: string
+  /** CEX：需在 API 白名单中添加的出口地址（与管理员代理池展示主机一致） */
+  outbound_proxy_whitelist_host?: string
 }
 
 export type ExchangeAccountStatus =
@@ -83,6 +91,10 @@ export interface CreateExchangeRequest {
   lighter_private_key?: string
   lighter_api_key_private_key?: string
   lighter_api_key_index?: number
+  /** CEX：REST 出口代理 URL（http(s)/socks5） */
+  outbound_proxy_url?: string
+  /** CEX：未填 outbound_proxy_url 时是否从管理员代理池自动分配（默认 true） */
+  auto_assign_outbound_proxy?: boolean
 }
 
 export interface CreateTraderRequest {
@@ -136,6 +148,10 @@ export interface UpdateExchangeConfigRequest {
       lighter_private_key?: string
       lighter_api_key_private_key?: string
       lighter_api_key_index?: number
+      outbound_proxy_url?: string
+      outbound_proxy_clear?: boolean
+      /** CEX：从管理员代理池重新分配一条（需清空手动代理或与清除配合） */
+      outbound_proxy_auto_assign?: boolean
     }
   }
 }

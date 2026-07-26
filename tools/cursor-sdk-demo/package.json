@@ -1,0 +1,23 @@
+{
+  "name": "@nofx/cursor-sdk-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NOFX 部署后冒烟检查 + Cursor Agent 诊断（@cursor/sdk 示例）",
+  "type": "module",
+  "scripts": {
+    "smoke": "tsx src/post-deploy-smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

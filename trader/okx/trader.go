@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"nofx/logger"
+	"nofx/trader/proxyhttp"
 	"strings"
 	"sync"
 	"time"
@@ -109,12 +110,14 @@ func genOkxClOrdID() string {
 }
 
 // NewOKXTrader creates OKX trader
-func NewOKXTrader(apiKey, secretKey, passphrase string) *OKXTrader {
-	// Use default transport which respects system proxy settings
-	// OKX requires proxy in China due to DNS pollution
-	httpClient := &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: http.DefaultTransport,
+func NewOKXTrader(apiKey, secretKey, passphrase string, outboundProxyURL ...string) *OKXTrader {
+	proxyURL := ""
+	if len(outboundProxyURL) > 0 {
+		proxyURL = strings.TrimSpace(outboundProxyURL[0])
+	}
+	httpClient, err := proxyhttp.Client(proxyURL, 30*time.Second)
+	if err != nil {
+		logger.Warnf("OKX 出口代理 URL 无效，忽略: %v", err)
 	}
 
 	trader := &OKXTrader{

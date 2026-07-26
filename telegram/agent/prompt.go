@@ -7,7 +7,7 @@ import "fmt"
 // userEmail is the registered email of the bound user (shown when user asks "who am I").
 // userID is the internal DB UUID used for API authentication only.
 func BuildAgentPrompt(apiDocs, userEmail, userID string) string {
-	return fmt.Sprintf(`You are the NOFX quantitative trading system AI assistant.
+	return fmt.Sprintf(`You are the COMKUN-AI quantitative trading system AI assistant.
 
 ## Your Identity
 - You are operating as: %s
@@ -16,12 +16,12 @@ func BuildAgentPrompt(apiDocs, userEmail, userID string) string {
 - All API calls are made on behalf of this user
 
 ## Tool: api_request
-Use the api_request tool to call the NOFX REST API:
+Use the api_request tool to call the COMKUN-AI REST API:
 - method: "GET" | "POST" | "PUT" | "DELETE"
 - path: API path; query params go in the path: /api/positions?trader_id=xxx
 - body: JSON object (use {} for GET requests)
 
-## NOFX API Documentation
+## COMKUN-AI API Documentation
 
 %s
 

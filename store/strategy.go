@@ -22,6 +22,20 @@ const (
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
 func (c *StrategyConfig) ClampLimits() {
 	// Clamp coin source limits
+	// 重要：limit=0 在后端会被当成“默认更大值”（如 AI500 默认 30），会导致候选币暴增。
+	// 这里把 0/负数统一归一到产品默认值（3），再做上限裁剪。
+	if c.CoinSource.AI500Limit <= 0 {
+		c.CoinSource.AI500Limit = 3
+	}
+	if c.CoinSource.OITopLimit <= 0 {
+		c.CoinSource.OITopLimit = 3
+	}
+	if c.CoinSource.OILowLimit <= 0 {
+		c.CoinSource.OILowLimit = 3
+	}
+	if c.CoinSource.HyperMainLimit <= 0 {
+		c.CoinSource.HyperMainLimit = 20
+	}
 	if c.CoinSource.AI500Limit > MaxCandidateCoins {
 		c.CoinSource.AI500Limit = MaxCandidateCoins
 	}
@@ -58,6 +72,13 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.MaxPositions = MaxPositions
 	}
 
+	if c.ComkunMirrorMasterMarginLeverage > 125 {
+		c.ComkunMirrorMasterMarginLeverage = 125
+	}
+	if c.ComkunMirrorFollowerMarginLeverage > 125 {
+		c.ComkunMirrorFollowerMarginLeverage = 125
+	}
+
 }
 
 // StrategyStore strategy storage
@@ -67,24 +88,33 @@ type StrategyStore struct {
 
 // Strategy strategy configuration
 type Strategy struct {
-	ID            string    `gorm:"primaryKey" json:"id"`
-	UserID        string    `gorm:"column:user_id;not null;default:'';index" json:"user_id"`
-	Name          string    `gorm:"not null" json:"name"`
-	Description   string    `gorm:"default:''" json:"description"`
-	IsActive      bool      `gorm:"column:is_active;default:false;index" json:"is_active"`
-	IsDefault     bool      `gorm:"column:is_default;default:false" json:"is_default"`
-	IsPublic      bool      `gorm:"column:is_public;default:false;index" json:"is_public"`    // whether visible in strategy market
-	ConfigVisible bool      `gorm:"column:config_visible;default:true" json:"config_visible"` // whether config details are visible
-	Config        string    `gorm:"not null;default:'{}'" json:"config"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string `gorm:"primaryKey" json:"id"`
+	UserID        string `gorm:"column:user_id;not null;default:'';index" json:"user_id"`
+	Name          string `gorm:"not null" json:"name"`
+	Description   string `gorm:"default:''" json:"description"`
+	IsActive      bool   `gorm:"column:is_active;default:false;index" json:"is_active"`
+	IsDefault     bool   `gorm:"column:is_default;default:false" json:"is_default"`
+	IsPublic      bool   `gorm:"column:is_public;default:false;index" json:"is_public"`         // 兼容旧逻辑：与 market_access 同步
+	ConfigVisible bool   `gorm:"column:config_visible;default:true" json:"config_visible"`      // 兼容：仅 public 时为 true
+	MarketAccess  string `gorm:"column:market_access;default:'off';index" json:"market_access"` // off/private/subscription/public/open_source
+	// 策略市场展示用：该策略「建议/使用」的 AI 模型标识（仅用于市场卡片展示，不影响交易员实际模型选择）
+	MarketAIModel string `gorm:"column:market_ai_model;default:'';index" json:"market_ai_model"`
+	// 用户曾修改过策略名称：允许在 market_access=off 时仍出现在策略市场（按仅展示处理）
+	ShowAfterRename    bool      `gorm:"column:show_after_rename;default:false;index" json:"show_after_rename"`
+	SourceStrategyID   string    `gorm:"column:source_strategy_id;default:'';index" json:"source_strategy_id,omitempty"`
+	SourceMarketAccess string    `gorm:"column:source_market_access;default:''" json:"source_market_access,omitempty"`
+	ContentLocked      bool      `gorm:"column:content_locked;default:false" json:"content_locked,omitempty"`
+	Config             string    `gorm:"not null;default:'{}'" json:"config"`
+	MarketRevision     uint      `gorm:"column:market_revision;default:0" json:"market_revision"` // 每次「更新到策略市场」递增，便于订阅方对比版本
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 func (Strategy) TableName() string { return "strategies" }
 
 // StrategyConfig strategy configuration details (JSON structure)
 type StrategyConfig struct {
-	// Strategy type: "ai_trading" (default) or "grid_trading"
+	// Strategy type: "ai_trading" (default), "grid_trading", or "program_martingale"
 	StrategyType string `json:"strategy_type,omitempty"`
 
 	// language setting: "zh" for Chinese, "en" for English
@@ -96,13 +126,77 @@ type StrategyConfig struct {
 	Indicators IndicatorConfig `json:"indicators"`
 	// custom prompt (appended at the end)
 	CustomPrompt string `json:"custom_prompt,omitempty"`
+	// single user-authored strategy narrative (preferred over legacy prompt_sections)
+	StrategyPrompt string `json:"strategy_prompt,omitempty"`
 	// risk control configuration
 	RiskControl RiskControlConfig `json:"risk_control"`
-	// editable sections of System Prompt
+	// legacy editable sections (ignored when strategy_prompt is non-empty)
 	PromptSections PromptSectionsConfig `json:"prompt_sections,omitempty"`
 
 	// Grid trading configuration (only used when StrategyType == "grid_trading")
 	GridConfig *GridStrategyConfig `json:"grid_config,omitempty"`
+
+	// 程序化马丁（COMKUN-AI 占位、不走 LLM；StrategyType=program_martingale）
+	MartingaleProgram *MartingaleProgramConfig `json:"martingale_program,omitempty"`
+
+	// Strategy market listing price in USDT (optional, frontend-only contract until market checkout wired)
+	MarketSalePriceUSDT float64 `json:"market_sale_price_usdt,omitempty"`
+	// Strategy market admin review state for customer-created listings.
+	MarketReviewStatus          string `json:"market_review_status,omitempty"`           // pending/approved/rejected
+	MarketReviewRequestedAccess string `json:"market_review_requested_access,omitempty"` // requested market_access while pending
+	MarketReviewRequestedAt     string `json:"market_review_requested_at,omitempty"`
+	MarketReviewReviewedAt      string `json:"market_review_reviewed_at,omitempty"`
+	MarketReviewReviewedBy      string `json:"market_review_reviewed_by,omitempty"`
+
+	// Comkun 合规跟单：为 true 时交易员周期不走真实 LLM 下单，而消费主账户广播 + 虚拟 comkun token
+	ComkunMarketFollow bool `json:"comkun_market_follow,omitempty"`
+	// 对应策略市场「源策略」的 strategies.id（主账户发布广播时使用同一 ID）
+	ComkunMarketSourceStrategyID string `json:"comkun_market_source_strategy_id,omitempty"`
+	// 每轮扫描消耗的虚拟 token，0 表示使用后端默认 ComkunFollowDefaultTokensPerScan
+	ComkunFollowTokensPerScan int `json:"comkun_follow_tokens_per_scan,omitempty"`
+	// 上架模板：为 true 表示「策略市场跟单开关」官方策略；他人从市场复制时自动打开 comkun_market_follow
+	ComkunFollowListingTemplate bool `json:"comkun_follow_listing_template,omitempty"`
+	// 历史兼容：曾用「是否允许主控执行」表达；新逻辑请用 comkun_listing_master_skip_exchange_execution。
+	ComkunListingTemplateMasterAllowExecute bool `json:"comkun_listing_template_master_allow_execute,omitempty"`
+	// 为 true 时：主控「上架模板」不向交易所执行 AI 决策（仅分析与广播），避免 AI 平掉/撤掉你在交易所的挂单与仓位。
+	ComkunListingMasterSkipExchangeExecution bool `json:"comkun_listing_master_skip_exchange_execution,omitempty"`
+	// 为 true 时（仅主控上架模板、且非 comkun_market_follow）：广播前强制「无 SOLUSDT 持仓 → 决策仅 wait」；
+	// 有持仓则去掉 open_long/open_short，并仅保留 SOLUSDT 相关决策；同时在 AI 用户提示末尾附加 SOL 人工解读规则。
+	ComkunListingMasterSolManualBroadcastMode bool `json:"comkun_listing_master_sol_manual_broadcast_mode,omitempty"`
+	// 已废弃：镜像引擎固定 v2；保留 JSON 字段仅兼容旧数据。
+	ComkunListingMasterMirrorReconcileEngine string `json:"comkun_listing_master_mirror_reconcile_engine,omitempty"`
+	// 历史字段：跟单子策略在广播含 master_state_json 时由后端自动镜像，不再依赖本开关；保留 JSON 兼容旧数据。
+	ComkunFollowMirrorMasterExchange bool `json:"comkun_follow_mirror_master_exchange,omitempty"`
+	// 镜像跟单：用「初始保证金 ≈ 名义/杠杆」占主控权益的比例同步到被控。主控侧写入广播 mirror_margin；默认 20。
+	ComkunMirrorMasterMarginLeverage int `json:"comkun_mirror_master_margin_leverage,omitempty"`
+	// 被控镜像还原名义时使用的杠杆（SetLeverage 与数量公式）；默认 20。跟单子策略可在 JSON 中单独改。
+	ComkunMirrorFollowerMarginLeverage int `json:"comkun_mirror_follower_margin_leverage,omitempty"`
+}
+
+// MartingaleProgramConfig 程序化马丁：大趋势开仓 + 1～N 层按权益比例补仓（非网格）。
+type MartingaleProgramConfig struct {
+	Symbol              string    `json:"symbol"`
+	Leverage            int       `json:"leverage"`
+	MaxLayers           int       `json:"max_layers"`
+	LayerWeights        []float64 `json:"layer_weights,omitempty"`
+	MarginBudgetPct     float64   `json:"margin_budget_pct"`
+	AddStepPct          float64   `json:"add_step_pct"`
+	BasketTakeProfitROE float64   `json:"basket_take_profit_roe"`
+	TrendMinSepPct      float64   `json:"trend_min_sep_pct"`
+	AllowShort          bool      `json:"allow_short"`
+	// 整篮浮亏/已用保证金 ≤ -该值则止损全平（如 0.12 = -12% ROE）
+	MaxBasketLossROE float64 `json:"max_basket_loss_roe,omitempty"`
+	// 当日净值回撤 % 达限则暂停开新仓；有仓可继续风控平仓
+	DailyLossLimitPct float64 `json:"daily_loss_limit_pct,omitempty"`
+	// true：保证金预算按可用余额而非净值
+	BudgetUseAvailableOnly bool `json:"budget_use_available_only,omitempty"`
+	// 单层下单初始保证金下限（币安 20x XAU 约 0.46U）；按保证金校验，非名义 12U
+	MinLayerMarginUSDT float64 `json:"min_layer_margin_usdt,omitempty"`
+}
+
+// IsComkunProgramMartingaleStrategy 使用 COMKUN-AI 程序化执行（无真实 LLM）。
+func IsComkunProgramMartingaleStrategy(c *StrategyConfig) bool {
+	return c != nil && strings.TrimSpace(c.StrategyType) == "program_martingale" && c.MartingaleProgram != nil
 }
 
 // GridStrategyConfig grid trading specific configuration
@@ -139,7 +233,7 @@ type GridStrategyConfig struct {
 	DirectionBiasRatio float64 `json:"direction_bias_ratio"`
 }
 
-// PromptSectionsConfig editable sections of System Prompt
+// PromptSectionsConfig legacy editable sections of System Prompt (superseded by StrategyPrompt)
 type PromptSectionsConfig struct {
 	// role definition (title + description)
 	RoleDefinition string `json:"role_definition,omitempty"`
@@ -149,6 +243,38 @@ type PromptSectionsConfig struct {
 	EntryStandards string `json:"entry_standards,omitempty"`
 	// decision process
 	DecisionProcess string `json:"decision_process,omitempty"`
+}
+
+// MergedStrategyNarrative returns one user-authored narrative: strategy_prompt if set,
+// otherwise non-empty legacy prompt_sections joined in order.
+func (c *StrategyConfig) MergedStrategyNarrative() string {
+	if c == nil {
+		return ""
+	}
+	s := strings.TrimSpace(c.StrategyPrompt)
+	if s != "" {
+		return s
+	}
+	ps := c.PromptSections
+	parts := []string{
+		strings.TrimSpace(ps.RoleDefinition),
+		strings.TrimSpace(ps.TradingFrequency),
+		strings.TrimSpace(ps.EntryStandards),
+		strings.TrimSpace(ps.DecisionProcess),
+	}
+	var b strings.Builder
+	first := true
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if !first {
+			b.WriteString("\n\n")
+		}
+		first = false
+		b.WriteString(p)
+	}
+	return b.String()
 }
 
 // CoinSourceConfig coin source configuration
@@ -290,8 +416,25 @@ func NewStrategyStore(db *gorm.DB) *StrategyStore {
 }
 
 func (s *StrategyStore) initTables() error {
-	// AutoMigrate will add missing columns without dropping existing data
-	return s.db.AutoMigrate(&Strategy{})
+	if err := s.db.AutoMigrate(&Strategy{}); err != nil {
+		return err
+	}
+	// 从旧字段回填 market_access（顺序重要：先处理上架，再把仍为空置为 off）
+	_ = s.db.Exec(`
+		UPDATE strategies SET market_access = ?
+		WHERE (market_access IS NULL OR TRIM(market_access) = '' OR market_access = ?)
+		  AND is_public = 1 AND config_visible = 1
+	`, MarketAccessPublic, MarketAccessOff).Error
+	_ = s.db.Exec(`
+		UPDATE strategies SET market_access = ?
+		WHERE (market_access IS NULL OR TRIM(market_access) = '' OR market_access = ?)
+		  AND is_public = 1 AND config_visible = 0
+	`, MarketAccessSubscription, MarketAccessOff).Error
+	_ = s.db.Exec(`
+		UPDATE strategies SET market_access = ?
+		WHERE market_access IS NULL OR TRIM(market_access) = '' OR market_access = ?
+	`, MarketAccessOff, MarketAccessOff).Error
+	return nil
 }
 
 func (s *StrategyStore) initDefaultData() error {
@@ -340,8 +483,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
 			BOLLPeriods:       []int{20},
-			// NofxOS unified API key
-			NofxOSAPIKey: "cm_568c67eae410d912c54c",
+			// NofxOS key：公共 key 已废弃；平台模式默认走 claw402-data 网关，因此这里不再默认填充。
+			NofxOSAPIKey: "",
 			// Quant data
 			EnableQuantData:    true,
 			EnableQuantOI:      true,
@@ -370,48 +513,52 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
 			MinConfidence:                75,  // Min 75% confidence (AI guided)
 		},
+		ComkunMirrorMasterMarginLeverage:   20,
+		ComkunMirrorFollowerMarginLeverage: 20,
 	}
 
 	if lang == "zh" {
-		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# 你是一个专业的加密货币交易AI
+		config.StrategyPrompt = `# 你是一个专业的加密货币交易AI
 
-你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。`,
-			TradingFrequency: `# ⏱️ 交易频率意识
+你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。
+
+# ⏱️ 交易频率意识
 
 - 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔
 - 每小时超过2笔 = 过度交易
 - 单笔持仓时间 ≥ 30-60分钟
-如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
-			EntryStandards: `# 🎯 入场标准（严格）
+如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。
 
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
-			DecisionProcess: `# 📋 决策流程
+# 🎯 入场标准（严格）
+
+只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。
+
+# 📋 决策流程
 
 1. 检查持仓 → 是否止盈/止损
 2. 扫描候选币种 + 多时间框架 → 是否存在强信号
-3. 先写思维链，再输出结构化JSON`,
-		}
+3. 先写思维链，再输出结构化JSON`
 	} else {
-		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# You are a professional cryptocurrency trading AI
+		config.StrategyPrompt = `# You are a professional cryptocurrency trading AI
 
-Your task is to make trading decisions based on the provided market data. You are an experienced quantitative trader skilled in technical analysis and risk management.`,
-			TradingFrequency: `# ⏱️ Trading Frequency Awareness
+Your task is to make trading decisions based on the provided market data. You are an experienced quantitative trader skilled in technical analysis and risk management.
+
+# ⏱️ Trading Frequency Awareness
 
 - Excellent trader: 2-4 trades per day ≈ 0.1-0.2 trades per hour
 - >2 trades per hour = overtrading
 - Single position holding time ≥ 30-60 minutes
-If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
-			EntryStandards: `# 🎯 Entry Standards (Strict)
+If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.
 
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
-			DecisionProcess: `# 📋 Decision Process
+# 🎯 Entry Standards (Strict)
+
+Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.
+
+# 📋 Decision Process
 
 1. Check positions → whether to take profit/stop loss
 2. Scan candidate coins + multi-timeframe → whether strong signals exist
-3. Write chain of thought first, then output structured JSON`,
-		}
+3. Write chain of thought first, then output structured JSON`
 	}
 
 	return config
@@ -427,12 +574,37 @@ func (s *StrategyStore) Update(strategy *Strategy) error {
 	return s.db.Model(&Strategy{}).
 		Where("id = ? AND user_id = ?", strategy.ID, strategy.UserID).
 		Updates(map[string]interface{}{
-			"name":           strategy.Name,
-			"description":    strategy.Description,
-			"config":         strategy.Config,
-			"is_public":      strategy.IsPublic,
-			"config_visible": strategy.ConfigVisible,
-			"updated_at":     time.Now().UTC(),
+			"name":                 strategy.Name,
+			"description":          strategy.Description,
+			"config":               strategy.Config,
+			"is_public":            strategy.IsPublic,
+			"config_visible":       strategy.ConfigVisible,
+			"market_access":        strategy.MarketAccess,
+			"show_after_rename":    strategy.ShowAfterRename,
+			"source_strategy_id":   strategy.SourceStrategyID,
+			"source_market_access": strategy.SourceMarketAccess,
+			"content_locked":       strategy.ContentLocked,
+			"updated_at":           time.Now().UTC(),
+		}).Error
+}
+
+// UpdateAndIncrementMarketRevision 与 Update 相同，但额外将 market_revision +1（用于已上架策略的「市场更新」）
+func (s *StrategyStore) UpdateAndIncrementMarketRevision(strategy *Strategy) error {
+	return s.db.Model(&Strategy{}).
+		Where("id = ? AND user_id = ?", strategy.ID, strategy.UserID).
+		Updates(map[string]interface{}{
+			"name":                 strategy.Name,
+			"description":          strategy.Description,
+			"config":               strategy.Config,
+			"is_public":            strategy.IsPublic,
+			"config_visible":       strategy.ConfigVisible,
+			"market_access":        strategy.MarketAccess,
+			"show_after_rename":    strategy.ShowAfterRename,
+			"source_strategy_id":   strategy.SourceStrategyID,
+			"source_market_access": strategy.SourceMarketAccess,
+			"content_locked":       strategy.ContentLocked,
+			"updated_at":           time.Now().UTC(),
+			"market_revision":      gorm.Expr("COALESCE(market_revision, 0) + 1"),
 		}).Error
 }
 
@@ -472,11 +644,44 @@ func (s *StrategyStore) List(userID string) ([]*Strategy, error) {
 	return strategies, nil
 }
 
-// ListPublic get all public strategies for the strategy market
+// GetByIDForMarket 按 ID 加载「已上架策略市场」的策略（不限所属用户，用于购买校验）
+func (s *StrategyStore) GetByIDForMarket(id string) (*Strategy, error) {
+	var st Strategy
+	if err := s.db.Where("id = ?", id).First(&st).Error; err != nil {
+		return nil, err
+	}
+	if !IsVisibleOnPublicMarket(&st) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &st, nil
+}
+
+// GetByIDAny 按策略 ID 加载（仅服务内部使用，如 comkun 跟单读取源策略主控配置）。不校验调用者身份、不要求已上架市场。
+func (s *StrategyStore) GetByIDAny(id string) (*Strategy, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var st Strategy
+	if err := s.db.Where("id = ?", id).First(&st).Error; err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// ListPublic get all strategies listed on the strategy market
 func (s *StrategyStore) ListPublic() ([]*Strategy, error) {
 	var strategies []*Strategy
-	err := s.db.Where("is_public = ?", true).
-		Order("created_at DESC").
+	err := s.db.Where(
+		"market_access IN ? AND is_default = ?",
+		[]string{
+			MarketAccessPrivate,
+			MarketAccessSubscription,
+			MarketAccessPublic,
+			MarketAccessOpenSource,
+		},
+		false,
+	).Order("created_at DESC").
 		Find(&strategies).Error
 	if err != nil {
 		return nil, err
@@ -533,28 +738,6 @@ func (s *StrategyStore) SetActive(userID, strategyID string) error {
 			Where("id = ? AND (user_id = ? OR is_default = ?)", strategyID, userID, true).
 			Update("is_active", true).Error
 	})
-}
-
-// Duplicate duplicate a strategy (used to create custom strategy based on default strategy)
-func (s *StrategyStore) Duplicate(userID, sourceID, newID, newName string) error {
-	// get source strategy
-	source, err := s.Get(userID, sourceID)
-	if err != nil {
-		return fmt.Errorf("failed to get source strategy: %w", err)
-	}
-
-	// create new strategy
-	newStrategy := &Strategy{
-		ID:          newID,
-		UserID:      userID,
-		Name:        newName,
-		Description: "Created based on [" + source.Name + "]",
-		IsActive:    false,
-		IsDefault:   false,
-		Config:      source.Config,
-	}
-
-	return s.Create(newStrategy)
 }
 
 // ParseConfig parse strategy configuration JSON
@@ -627,6 +810,9 @@ var ModelContextLimits = map[string]int{
 	"grok":     contextLimitGrok,
 	"kimi":     contextLimitKimi,
 	"minimax":  contextLimitMinimax,
+	// comkun_ai 为平台跟单占位通道，真实推理可走多路由；若此处填过小（如 8k），
+	// 策略实验室会取全表最小值作进度条分母，导致「预估预算」恒满，与 AI_MAX_TOKENS 无关。
+	"comkun_ai": contextLimitDeepSeek,
 }
 
 // GetContextLimit returns the context limit for a given provider
@@ -676,11 +862,7 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	if c.Language == "zh" {
 		baseChars = 3000
 	}
-	// Add prompt sections
-	baseChars += len(c.PromptSections.RoleDefinition)
-	baseChars += len(c.PromptSections.TradingFrequency)
-	baseChars += len(c.PromptSections.EntryStandards)
-	baseChars += len(c.PromptSections.DecisionProcess)
+	baseChars += len(c.MergedStrategyNarrative())
 	baseChars += len(c.CustomPrompt)
 
 	if c.Language == "zh" {

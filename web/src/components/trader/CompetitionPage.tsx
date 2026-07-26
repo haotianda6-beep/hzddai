@@ -46,10 +46,10 @@ export function CompetitionPage() {
   if (!competition) {
     return (
       <DeepVoidBackground className="py-8" disableAnimation>
-        <div className="container mx-auto max-w-7xl px-4 md:px-8">
+        <div className="container mx-auto max-w-7xl px-3 sm:px-4 md:px-8">
           <div className="space-y-6">
             <div className="animate-pulse bg-black/40 border border-white/10 rounded-xl p-8 backdrop-blur-md">
-              <div className="flex items-center justify-between mb-6">
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-3 flex-1">
                   <div className="h-8 w-64 bg-white/5 rounded"></div>
                   <div className="h-4 w-48 bg-white/5 rounded"></div>
@@ -57,7 +57,7 @@ export function CompetitionPage() {
                 <div className="h-12 w-32 bg-white/5 rounded"></div>
               </div>
             </div>
-            <div className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md">
+            <div className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md sm:p-6">
               <div className="h-6 w-40 mb-4 bg-white/5 rounded"></div>
               <div className="space-y-3">
                 <div className="h-20 w-full bg-white/5 rounded"></div>
@@ -74,7 +74,7 @@ export function CompetitionPage() {
   if (!competition.traders || competition.traders.length === 0) {
     return (
       <DeepVoidBackground className="py-8" disableAnimation>
-        <div className="container mx-auto max-w-7xl px-4 md:px-8 space-y-8 animate-fade-in">
+        <div className="container mx-auto max-w-7xl px-3 sm:px-4 md:px-8 space-y-8 animate-fade-in">
           {/* Competition Header - 精简版 */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-0">
             <div className="flex items-center gap-3 md:gap-4">
@@ -104,7 +104,7 @@ export function CompetitionPage() {
           </div>
 
           {/* Empty State */}
-          <div className="bg-black/40 border border-white/10 rounded-xl p-16 text-center backdrop-blur-md">
+          <div className="bg-black/40 border border-white/10 rounded-xl p-8 text-center backdrop-blur-md sm:p-16">
             <Trophy
               className="w-16 h-16 mx-auto mb-4 text-zinc-700"
             />
@@ -130,7 +130,7 @@ export function CompetitionPage() {
 
   return (
     <DeepVoidBackground className="py-8" disableAnimation>
-      <div className="w-full px-4 md:px-8 space-y-8 animate-fade-in">
+      <div className="w-full px-3 sm:px-4 md:px-8 space-y-8 animate-fade-in">
         {/* Competition Header - 精简版 */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-0">
           <div className="flex items-center gap-3 md:gap-4">
@@ -182,10 +182,10 @@ export function CompetitionPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Performance Comparison Chart */}
           <div
-            className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
+            className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors sm:p-6"
             style={{ animationDelay: '0.1s' }}
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2
                 className="text-lg font-bold flex items-center gap-2 text-white"
               >
@@ -200,10 +200,10 @@ export function CompetitionPage() {
 
           {/* Right: Leaderboard */}
           <div
-            className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors"
+            className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md animate-slide-in hover:border-white/20 transition-colors sm:p-6"
             style={{ animationDelay: '0.1s' }}
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="mb-6 flex items-center justify-between">
               <h2
                 className="text-lg font-bold flex items-center gap-2 text-white"
               >
@@ -230,17 +230,17 @@ export function CompetitionPage() {
                     className="rounded p-3 transition-all duration-300 hover:translate-y-[-1px] cursor-pointer hover:shadow-lg"
                     style={{
                       background: isLeader
-                        ? 'linear-gradient(135deg, rgba(240, 185, 11, 0.08) 0%, #0B0E11 100%)'
-                        : '#0B0E11',
+                        ? 'linear-gradient(135deg, rgba(240, 185, 11, 0.08) 0%, #0b0b0b 100%)'
+                        : '#0b0b0b',
                       border: `1px solid ${isLeader ? 'rgba(240, 185, 11, 0.4)' : '#2B3139'}`,
                       boxShadow: isLeader
                         ? '0 3px 15px rgba(240, 185, 11, 0.12), 0 0 0 1px rgba(240, 185, 11, 0.15)'
                         : '0 1px 4px rgba(0, 0, 0, 0.3)',
                     }}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       {/* Rank & Avatar & Name */}
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         {/* Rank Badge */}
                         <div
                           className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
@@ -263,27 +263,27 @@ export function CompetitionPage() {
                           size={36}
                           className="rounded-lg"
                         />
-                        <div>
+                        <div className="min-w-0">
                           <div
-                            className="font-bold text-sm"
+                            className="truncate font-bold text-sm"
                             style={{ color: '#EAECEF' }}
                           >
                             {trader.trader_name}
                           </div>
                           <div
-                            className="text-xs mono font-semibold"
+                            className="truncate text-xs mono font-semibold"
                             style={{ color: traderColor }}
                           >
-                            {trader.ai_model.toUpperCase()} +{' '}
-                            {trader.exchange.toUpperCase()}
+                            {(trader.ai_model ?? '—').toUpperCase()} +{' '}
+                            {(trader.exchange ?? '—').toUpperCase()}
                           </div>
                         </div>
                       </div>
 
                       {/* Stats */}
-                      <div className="flex items-center gap-4 md:gap-6">
+                      <div className="grid w-full grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 sm:flex sm:w-auto sm:gap-4 md:gap-6">
                         {/* Total Equity */}
-                        <div className="text-right min-w-[60px] md:min-w-[80px]">
+                        <div className="min-w-0 text-right sm:min-w-[60px] md:min-w-[80px]">
                           <div className="text-[10px] mb-0.5" style={{ color: '#848E9C' }}>
                             {t('equity', language)}
                           </div>
@@ -296,7 +296,7 @@ export function CompetitionPage() {
                         </div>
 
                         {/* P&L */}
-                        <div className="text-right min-w-[70px] md:min-w-[90px]">
+                        <div className="min-w-0 text-right sm:min-w-[70px] md:min-w-[90px]">
                           <div className="text-[10px] mb-0.5" style={{ color: '#848E9C' }}>
                             {t('pnl', language)}
                           </div>
@@ -322,7 +322,7 @@ export function CompetitionPage() {
                         </div>
 
                         {/* Positions */}
-                        <div className="text-right min-w-[40px] md:min-w-[50px]">
+                        <div className="min-w-0 text-right sm:min-w-[40px] md:min-w-[50px]">
                           <div className="text-[10px] mb-0.5" style={{ color: '#848E9C' }}>
                             {t('pos', language)}
                           </div>
@@ -368,7 +368,7 @@ export function CompetitionPage() {
         {/* Head-to-Head Stats */}
         {competition.traders.length === 2 && (
           <div
-            className="bg-black/40 border border-white/10 rounded-xl p-6 backdrop-blur-md animate-slide-in"
+            className="bg-black/40 border border-white/10 rounded-xl p-4 backdrop-blur-md animate-slide-in sm:p-6"
             style={{ animationDelay: '0.3s' }}
           >
             <h2
@@ -376,7 +376,7 @@ export function CompetitionPage() {
             >
               {t('headToHead', language)}
             </h2>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {sortedTraders.map((trader, index) => {
                 const isWinning = index === 0
                 const opponent = sortedTraders[1 - index]
@@ -405,7 +405,7 @@ export function CompetitionPage() {
                           boxShadow: '0 3px 15px rgba(14, 203, 129, 0.12)',
                         }
                         : {
-                          background: '#0B0E11',
+                          background: '#0b0b0b',
                           border: '1px solid #2B3139',
                           boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3)',
                         }

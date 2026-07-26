@@ -7,7 +7,6 @@ interface RiskControlEditorProps {
   onChange: (config: RiskControlConfig) => void
   disabled?: boolean
   language: string
-  hzMode?: boolean
 }
 
 export function RiskControlEditor({
@@ -15,7 +14,6 @@ export function RiskControlEditor({
   onChange,
   disabled,
   language,
-  hzMode,
 }: RiskControlEditorProps) {
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
@@ -40,7 +38,7 @@ export function RiskControlEditor({
         <div className="grid grid-cols-1 gap-4 mb-4">
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.maxPositions, language)}
@@ -59,7 +57,7 @@ export function RiskControlEditor({
               max={3}
               className="w-32 px-3 py-2 rounded"
               style={{
-                background: '#1E2329',
+                background: '#1c1c1c',
                 border: '1px solid #2B3139',
                 color: '#EAECEF',
               }}
@@ -75,58 +73,39 @@ export function RiskControlEditor({
         </div>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div
-            className={`p-4 rounded-lg ${hzMode ? 'col-span-2' : ''}`}
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            className="p-4 rounded-lg"
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {hzMode ? 'HZ 杠杆' : ts(riskControl.btcEthLeverage, language)}
+              {ts(riskControl.btcEthLeverage, language)}
             </label>
             <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {hzMode
-                ? '适用于黄金、白银和原油，范围 100 到 2000 倍'
-                : ts(riskControl.btcEthLeverageDesc, language)}
+              {ts(riskControl.btcEthLeverageDesc, language)}
             </p>
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={
-                  hzMode
-                    ? (config.altcoin_max_leverage ?? 500)
-                    : (config.btc_eth_max_leverage ?? 5)
+                value={config.btc_eth_max_leverage ?? 5}
+                onChange={(e) =>
+                  updateField('btc_eth_max_leverage', parseInt(e.target.value))
                 }
-                onChange={(e) => {
-                  const value = parseInt(e.target.value)
-                  if (hzMode && !disabled) {
-                    onChange({
-                      ...config,
-                      btc_eth_max_leverage: value,
-                      altcoin_max_leverage: value,
-                    })
-                  } else {
-                    updateField('btc_eth_max_leverage', value)
-                  }
-                }}
                 disabled={disabled}
-                min={hzMode ? 100 : 1}
-                max={hzMode ? 2000 : 20}
-                step={hzMode ? 100 : 1}
+                min={1}
+                max={20}
                 className="flex-1 accent-yellow-500"
               />
               <span
                 className="w-12 text-center font-mono"
                 style={{ color: '#F0B90B' }}
               >
-                {hzMode
-                  ? (config.altcoin_max_leverage ?? 500)
-                  : (config.btc_eth_max_leverage ?? 5)}
-                x
+                {config.btc_eth_max_leverage ?? 5}x
               </span>
             </div>
           </div>
 
           <div
-            className={hzMode ? 'hidden' : 'p-4 rounded-lg'}
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            className="p-4 rounded-lg"
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.altcoinLeverage, language)}
@@ -168,7 +147,7 @@ export function RiskControlEditor({
         <div className="grid grid-cols-2 gap-4">
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #0ECB81' }}
+            style={{ background: '#0b0b0b', border: '1px solid #0ECB81' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.btcEthPositionValueRatio, language)}
@@ -181,10 +160,7 @@ export function RiskControlEditor({
                 type="range"
                 value={config.btc_eth_max_position_value_ratio ?? 5}
                 onChange={(e) =>
-                  updateField(
-                    'btc_eth_max_position_value_ratio',
-                    parseFloat(e.target.value)
-                  )
+                  updateField('btc_eth_max_position_value_ratio', parseFloat(e.target.value))
                 }
                 disabled={disabled}
                 min={0.5}
@@ -203,7 +179,7 @@ export function RiskControlEditor({
 
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #0ECB81' }}
+            style={{ background: '#0b0b0b', border: '1px solid #0ECB81' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.altcoinPositionValueRatio, language)}
@@ -216,10 +192,7 @@ export function RiskControlEditor({
                 type="range"
                 value={config.altcoin_max_position_value_ratio ?? 1}
                 onChange={(e) =>
-                  updateField(
-                    'altcoin_max_position_value_ratio',
-                    parseFloat(e.target.value)
-                  )
+                  updateField('altcoin_max_position_value_ratio', parseFloat(e.target.value))
                 }
                 disabled={disabled}
                 min={0.5}
@@ -250,7 +223,7 @@ export function RiskControlEditor({
         <div className="grid grid-cols-2 gap-4">
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.minRiskReward, language)}
@@ -264,10 +237,7 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_risk_reward_ratio ?? 3}
                 onChange={(e) =>
-                  updateField(
-                    'min_risk_reward_ratio',
-                    parseFloat(e.target.value) || 3
-                  )
+                  updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
                 }
                 disabled={disabled}
                 min={1}
@@ -275,7 +245,7 @@ export function RiskControlEditor({
                 step={0.5}
                 className="w-20 px-3 py-2 rounded ml-2"
                 style={{
-                  background: '#1E2329',
+                  background: '#1c1c1c',
                   border: '1px solid #2B3139',
                   color: '#EAECEF',
                 }}
@@ -285,7 +255,7 @@ export function RiskControlEditor({
 
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #0ECB81' }}
+            style={{ background: '#0b0b0b', border: '1px solid #0ECB81' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.maxMarginUsage, language)}
@@ -298,20 +268,14 @@ export function RiskControlEditor({
                 type="range"
                 value={(config.max_margin_usage ?? 0.9) * 100}
                 onChange={(e) =>
-                  updateField(
-                    'max_margin_usage',
-                    parseInt(e.target.value) / 100
-                  )
+                  updateField('max_margin_usage', parseInt(e.target.value) / 100)
                 }
                 disabled={disabled}
                 min={10}
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span
-                className="w-12 text-center font-mono"
-                style={{ color: '#0ECB81' }}
-              >
+              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
               </span>
             </div>
@@ -331,7 +295,7 @@ export function RiskControlEditor({
         <div className="grid grid-cols-2 gap-4">
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.minPositionSize, language)}
@@ -344,17 +308,14 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_position_size ?? 12}
                 onChange={(e) =>
-                  updateField(
-                    'min_position_size',
-                    parseFloat(e.target.value) || 12
-                  )
+                  updateField('min_position_size', parseFloat(e.target.value) || 12)
                 }
                 disabled={disabled}
                 min={10}
                 max={1000}
                 className="w-24 px-3 py-2 rounded"
                 style={{
-                  background: '#1E2329',
+                  background: '#1c1c1c',
                   border: '1px solid #2B3139',
                   color: '#EAECEF',
                 }}
@@ -367,7 +328,7 @@ export function RiskControlEditor({
 
           <div
             className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.minConfidence, language)}
@@ -387,10 +348,7 @@ export function RiskControlEditor({
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span
-                className="w-12 text-center font-mono"
-                style={{ color: '#0ECB81' }}
-              >
+              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {config.min_confidence ?? 75}
               </span>
             </div>

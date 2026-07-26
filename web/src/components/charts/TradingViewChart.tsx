@@ -169,7 +169,7 @@ function TradingViewChartComponent({
           ? 'fixed inset-0 z-50 rounded-none flex flex-col'
           : ''
         }`}
-      style={isFullscreen ? { background: '#0B0E11' } : undefined}
+      style={isFullscreen ? { background: '#0b0b0b' } : undefined}
     >
       {/* Header */}
       <div
@@ -199,7 +199,7 @@ function TradingViewChartComponent({
               }}
               className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium transition-all"
               style={{
-                background: '#1E2329',
+                background: '#1c1c1c',
                 border: '1px solid #2B3139',
                 color: '#EAECEF',
               }}
@@ -212,7 +212,7 @@ function TradingViewChartComponent({
               <div
                 className="absolute top-full left-0 mt-1 py-1 rounded-lg shadow-xl z-20 min-w-[120px]"
                 style={{
-                  background: '#1E2329',
+                  background: '#1c1c1c',
                   border: '1px solid #2B3139',
                 }}
               >
@@ -261,7 +261,7 @@ function TradingViewChartComponent({
               <div
                 className="absolute top-full left-0 mt-1 py-2 rounded-lg shadow-xl z-20 w-[280px]"
                 style={{
-                  background: '#1E2329',
+                  background: '#1c1c1c',
                   border: '1px solid #2B3139',
                 }}
               >
@@ -276,7 +276,7 @@ function TradingViewChartComponent({
                       placeholder={t('enterSymbol', language)}
                       className="flex-1 px-3 py-1.5 rounded text-sm"
                       style={{
-                        background: '#0B0E11',
+                        background: '#0b0b0b',
                         border: '1px solid #2B3139',
                         color: '#EAECEF',
                       }}
@@ -286,7 +286,7 @@ function TradingViewChartComponent({
                       className="px-3 py-1.5 rounded text-sm font-medium"
                       style={{
                         background: '#F0B90B',
-                        color: '#0B0E11',
+                        color: '#000000',
                       }}
                     >
                       OK
@@ -331,7 +331,7 @@ function TradingViewChartComponent({
           {/* Interval Selector */}
           <div
             className="flex gap-0.5 p-0.5 rounded"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
           >
             {INTERVALS.map((int) => (
               <button
@@ -340,7 +340,7 @@ function TradingViewChartComponent({
                 className="px-2 py-1 rounded text-xs font-medium transition-all"
                 style={{
                   background: timeInterval === int.id ? '#F0B90B' : 'transparent',
-                  color: timeInterval === int.id ? '#0B0E11' : '#848E9C',
+                  color: timeInterval === int.id ? '#000000' : '#848E9C',
                 }}
               >
                 {int.label}
@@ -354,7 +354,7 @@ function TradingViewChartComponent({
             className="p-1.5 rounded transition-all"
             style={{
               background: isFullscreen ? '#F0B90B' : 'transparent',
-              color: isFullscreen ? '#0B0E11' : '#848E9C',
+              color: isFullscreen ? '#000000' : '#848E9C',
               border: '1px solid #2B3139',
             }}
             title={isFullscreen ? t('exitFullscreen', language) : t('fullscreen', language)}
@@ -375,7 +375,7 @@ function TradingViewChartComponent({
         ref={containerRef}
         style={{
           height: isFullscreen ? 'calc(100vh - 65px)' : height,
-          background: '#0B0E11',
+          background: '#0b0b0b',
           overflow: 'hidden',
         }}
       />

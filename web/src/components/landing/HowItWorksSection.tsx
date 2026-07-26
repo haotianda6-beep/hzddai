@@ -38,7 +38,13 @@ export default function HowItWorksSection({ language }: HowItWorksSectionProps) 
   ]
 
   return (
-    <section className="py-24 relative overflow-hidden" style={{ background: '#0D1117' }}>
+    <section
+      className="relative overflow-hidden py-24"
+      style={{
+        background:
+          'linear-gradient(180deg, #0b0b0b 0%, #131313 10%, #1c1c1c 20%, #1c1c1c 80%, #131313 90%, #0b0b0b 100%)',
+      }}
+    >
       {/* Background Decoration */}
       <div
         className="absolute left-0 top-1/2 -translate-y-1/2 w-96 h-96 rounded-full blur-3xl opacity-20"

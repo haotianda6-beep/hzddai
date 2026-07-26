@@ -45,6 +45,58 @@ interface OpenOrder {
   status: string
 }
 
+function isLimitLikeOrderType(typ: string): boolean {
+  const t = (typ || '').toUpperCase()
+  if (t === 'LIMIT' || t === 'LIMIT_MAKER') return true
+  return (t.includes('STOP') && t.includes('LIMIT')) || (t.includes('TAKE_PROFIT') && t.includes('LIMIT'))
+}
+
+function inferredPositionSideForLimit(o: OpenOrder): string {
+  const ps = (o.position_side || '').toUpperCase()
+  if (ps && ps !== 'BOTH') return ps
+  return (o.side || '').toUpperCase() === 'SELL' ? 'SHORT' : 'LONG'
+}
+
+function limitLinePrice(o: OpenOrder): number {
+  if (o.price > 0) return o.price
+  if (isLimitLikeOrderType(o.type) && o.stop_price > 0) return o.stop_price
+  return o.stop_price > 0 ? o.stop_price : o.price
+}
+
+function isTpOrderType(t: string): boolean {
+  return (t || '').toUpperCase().includes('TAKE_PROFIT')
+}
+function isSlOrderType(t: string): boolean {
+  const u = (t || '').toUpperCase()
+  if (u.includes('TAKE_PROFIT')) return false
+  return u.includes('STOP') || u.includes('TRAILING')
+}
+
+/** 与同交易对条件单推断 SL/TP（与后端 kernel.FindSLTPFromPendingOrders 对齐） */
+function findSLTPFromOpenOrders(orders: OpenOrder[], sym: string, posSide: string): { sl: number; tp: number } {
+  const su = (sym || '').toUpperCase().trim()
+  const ps = (posSide || '').toUpperCase().trim()
+  let sl = 0
+  let tp = 0
+  for (const o of orders) {
+    if ((o.symbol || '').toUpperCase().trim() !== su) continue
+    const typ = (o.type || '').toUpperCase()
+    const os = (o.side || '').toUpperCase()
+    const ops = (o.position_side || '').toUpperCase()
+    if (ops && ops !== 'BOTH' && ops !== ps) continue
+    const trigger = o.stop_price > 0 ? o.stop_price : o.price
+    if (trigger <= 0) continue
+    if (ps === 'LONG') {
+      if (os === 'SELL' && isSlOrderType(typ)) sl = trigger
+      if (os === 'SELL' && isTpOrderType(typ)) tp = trigger
+    } else if (ps === 'SHORT') {
+      if (os === 'BUY' && isSlOrderType(typ)) sl = trigger
+      if (os === 'BUY' && isTpOrderType(typ)) tp = trigger
+    }
+  }
+  return { sl, tp }
+}
+
 interface AdvancedChartProps {
   symbol: string
   interval?: string
@@ -356,7 +408,7 @@ export function AdvancedChart({
       width: chartContainerRef.current.clientWidth || 800,
       height: chartContainerRef.current.clientHeight || height,
       layout: {
-        background: { color: '#0B0E11' },
+        background: { color: '#0b0b0b' },
         textColor: '#B7BDC6',
         fontSize: 12,
       },
@@ -770,14 +822,14 @@ export function AdvancedChart({
 
         if (openOrders.length > 0 && candlestickSeriesRef.current) {
           openOrders.forEach(order => {
-            // Get trigger price (SL/TP use stop_price, limit orders use price)
-            const linePrice = order.stop_price > 0 ? order.stop_price : order.price
+            const typU = (order.type || '').toUpperCase()
+            const linePrice = limitLinePrice(order)
             if (linePrice <= 0) return
 
             // Determine order type
-            const isStopLoss = order.type.includes('STOP') || order.type.includes('SL')
-            const isTakeProfit = order.type.includes('TAKE_PROFIT') || order.type.includes('TP')
-            const isLimit = order.type === 'LIMIT'
+            const isTakeProfit = isTpOrderType(typU)
+            const isStopLoss = isSlOrderType(typU) || typU.includes('SL')
+            const isLimit = isLimitLikeOrderType(order.type)
 
             // Set price line style
             let lineColor = '#F0B90B' // Default yellow
@@ -792,7 +844,12 @@ export function AdvancedChart({
               title = `TP ${order.quantity}`
             } else if (isLimit) {
               lineColor = '#F0B90B' // yellow - limit order
-              title = `Limit ${order.side} ${order.quantity}`
+              const ps = inferredPositionSideForLimit(order)
+              const { sl, tp } = findSLTPFromOpenOrders(openOrders, order.symbol, ps)
+              const parts: string[] = [`限价 ${order.side} ${order.quantity}`]
+              if (sl > 0) parts.push(`止损@${sl.toFixed(4)}`)
+              if (tp > 0) parts.push(`止盈@${tp.toFixed(4)}`)
+              title = parts.join(' · ')
             } else {
               title = `${order.type} ${order.quantity}`
             }
@@ -820,8 +877,8 @@ export function AdvancedChart({
     // Initial load (delay 1s to wait for chart initialization)
     const initialTimeout = setTimeout(loadOpenOrders, 1000)
 
-    // Refresh open orders every 60 seconds
-    const openOrdersInterval = setInterval(loadOpenOrders, 60000)
+    // 与「订单与挂单」面板接近的刷新节奏，手工限价更快出现在图上
+    const openOrdersInterval = setInterval(loadOpenOrders, 15000)
 
     return () => {
       clearTimeout(initialTimeout)
@@ -918,7 +975,7 @@ export function AdvancedChart({
     <div
       className="relative shadow-xl"
       style={{
-        background: 'linear-gradient(180deg, #0F1215 0%, #0B0E11 100%)',
+        background: 'linear-gradient(180deg, #131313 0%, #0b0b0b 100%)',
         borderRadius: '12px',
         overflow: 'hidden',
         border: '1px solid rgba(43, 49, 57, 0.5)',
@@ -930,7 +987,7 @@ export function AdvancedChart({
       {/* Compact Professional Header */}
       <div
         className="flex items-center justify-between px-4 py-2"
-        style={{ borderBottom: '1px solid rgba(43, 49, 57, 0.6)', background: '#0D1117', flexShrink: 0 }}
+        style={{ borderBottom: '1px solid rgba(43, 49, 57, 0.6)', background: '#131313', flexShrink: 0 }}
       >
         {/* Left: Symbol Info + Price */}
         <div className="flex items-center gap-4">
@@ -1021,7 +1078,7 @@ export function AdvancedChart({
         <div
           className="absolute top-16 right-4 z-10 rounded-lg shadow-2xl backdrop-blur-sm"
           style={{
-            background: 'linear-gradient(135deg, #1A1E23 0%, #0F1215 100%)',
+            background: 'linear-gradient(135deg, #1c1c1c 0%, #131313 100%)',
             border: '1px solid rgba(240, 185, 11, 0.2)',
             maxHeight: '500px',
             minWidth: '280px',
@@ -1158,7 +1215,7 @@ export function AdvancedChart({
           </div>
         )}
 
-        {/* NOFX watermark */}
+        {/* COMKUN watermark */}
         <div
           style={{
             position: 'absolute',
@@ -1179,7 +1236,7 @@ export function AdvancedChart({
               textShadow: '0 2px 30px rgba(240, 185, 11, 0.2)',
             }}
           >
-            NOFX
+            COMKUN
           </div>
         </div>
       </div>

@@ -35,6 +35,10 @@ func NewClaw402DataClient(claw402URL, privateKeyHex string, logger mcp.Logger) (
 	if privateKeyHex == "" {
 		privateKeyHex = os.Getenv("CLAW402_WALLET_KEY")
 	}
+	// 平台统一托管场景：优先使用平台私钥（用户不需要有 nofxos key）
+	if privateKeyHex == "" {
+		privateKeyHex = os.Getenv("PLATFORM_CLAW402_WALLET_KEY")
+	}
 	if privateKeyHex == "" {
 		return nil, fmt.Errorf("claw402 wallet private key not set")
 	}

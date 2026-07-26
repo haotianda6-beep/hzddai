@@ -98,7 +98,7 @@ export default function CommunitySection({ language }: CommunitySectionProps) {
   const tweets: TweetProps[] = []
 
   return (
-    <section className="py-24 relative" style={{ background: '#0B0E11' }}>
+    <section className="relative py-24" style={{ background: '#0b0b0b' }}>
       {/* Background Decoration */}
       <div
         className="absolute right-0 top-1/2 -translate-y-1/2 w-96 h-96 rounded-full blur-3xl opacity-20"

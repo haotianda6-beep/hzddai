@@ -3,6 +3,8 @@ package gate
 import (
 	"context"
 	"fmt"
+	"nofx/logger"
+	"nofx/trader/proxyhttp"
 	"nofx/trader/types"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 type GateTrader struct {
 	apiKey    string
 	secretKey string
+	basePath  string
 	client    *gateapi.APIClient
 	ctx       context.Context
 
@@ -27,12 +30,38 @@ type GateTrader struct {
 	positionsCacheMutex sync.RWMutex
 	contractsCache      map[string]*gateapi.Contract
 	contractsCacheMutex sync.RWMutex
+	marginModeBySymbol  map[string]bool
+	marginModeMutex     sync.RWMutex
 	cacheDuration       time.Duration
 }
 
+const gateFuturesTestnetBasePath = "https://api-testnet.gateapi.io/api/v4"
+
 // NewGateTrader creates a new Gate trader instance
-func NewGateTrader(apiKey, secretKey string) *GateTrader {
+func NewGateTrader(apiKey, secretKey string, outboundProxyURL ...string) *GateTrader {
+	return newGateTrader(apiKey, secretKey, false, outboundProxyURL...)
+}
+
+// NewGateTraderWithTestnet creates a Gate futures trader against the selected environment.
+func NewGateTraderWithTestnet(apiKey, secretKey string, testnet bool, outboundProxyURL ...string) *GateTrader {
+	return newGateTrader(apiKey, secretKey, testnet, outboundProxyURL...)
+}
+
+func newGateTrader(apiKey, secretKey string, testnet bool, outboundProxyURL ...string) *GateTrader {
 	config := gateapi.NewConfiguration()
+	if testnet {
+		config.BasePath = gateFuturesTestnetBasePath
+	}
+	basePath := config.BasePath
+	proxyURL := ""
+	if len(outboundProxyURL) > 0 {
+		proxyURL = strings.TrimSpace(outboundProxyURL[0])
+	}
+	if httpClient, err := proxyhttp.Client(proxyURL, 30*time.Second); err == nil {
+		config.HTTPClient = httpClient
+	} else {
+		logger.Warnf("Gate 出口代理 URL 无效，忽略: %v", err)
+	}
 	config.AddDefaultHeader("X-Gate-Channel-Id", "nofx")
 	client := gateapi.NewAPIClient(config)
 
@@ -45,12 +74,14 @@ func NewGateTrader(apiKey, secretKey string) *GateTrader {
 	)
 
 	return &GateTrader{
-		apiKey:         apiKey,
-		secretKey:      secretKey,
-		client:         client,
-		ctx:            ctx,
-		contractsCache: make(map[string]*gateapi.Contract),
-		cacheDuration:  15 * time.Second,
+		apiKey:             apiKey,
+		secretKey:          secretKey,
+		basePath:           basePath,
+		client:             client,
+		ctx:                ctx,
+		contractsCache:     make(map[string]*gateapi.Contract),
+		marginModeBySymbol: make(map[string]bool),
+		cacheDuration:      15 * time.Second,
 	}
 }
 

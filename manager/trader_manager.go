@@ -7,6 +7,7 @@ import (
 	"nofx/store"
 	"nofx/trader"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,6 +43,31 @@ func (tm *TraderManager) GetLoadError(traderID string) error {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.loadErrors[traderID]
+}
+
+func (tm *TraderManager) hasTrader(id string) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	_, exists := tm.traders[id]
+	return exists
+}
+
+func (tm *TraderManager) traderCount() int {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	return len(tm.traders)
+}
+
+func (tm *TraderManager) setLoadError(traderID string, err error) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.loadErrors[traderID] = err
+}
+
+func (tm *TraderManager) clearLoadError(traderID string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	delete(tm.loadErrors, traderID)
 }
 
 // GetTrader retrieves a trader by ID
@@ -387,27 +413,28 @@ func (tm *TraderManager) GetTopTradersData() (map[string]interface{}, error) {
 // RemoveTrader removes a trader from memory (does not affect database)
 // Used to force reload when updating trader configuration
 // If the trader is running, it will be stopped first
+//
+// 注意：Stop() 可能阻塞较久（等当前 AI 周期结束）。若在整个过程中一直持有 tm.mu，
+// 其它请求里的 GetTrader（RLock）会全部卡住，导致 /api/my-traders、看板状态等「整站假死」。
+// 因此先从 map 摘掉引用、释放锁，再在锁外等待 Run 退出。
 func (tm *TraderManager) RemoveTrader(traderID string) {
+	var at *trader.AutoTrader
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	if t, exists := tm.traders[traderID]; exists {
-		// Stop the trader if it's running (this ensures the goroutine exits)
-		status := t.GetStatus()
-		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			logger.Infof("⏹ Stopping trader %s before removing from memory...", traderID)
-			t.Stop()
-		}
+		at = t
 		delete(tm.traders, traderID)
-		logger.Infof("✓ Trader %s removed from memory", traderID)
+		logger.Infof("⏹ Trader %s detached from manager map; stopping runtime (may block until loop exits)...", traderID)
+	}
+	tm.mu.Unlock()
+
+	if at != nil {
+		at.Stop()
+		logger.Infof("✓ Trader %s stopped and removed from memory", traderID)
 	}
 }
 
 // LoadUserTradersFromStore loads traders from store for a specific user to memory
 func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	// Get all traders for the specified user
 	traders, err := st.Trader().List(userID)
 	if err != nil {
@@ -432,7 +459,7 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 	// Load configuration for each trader
 	for _, traderCfg := range traders {
 		// Check if this trader is already loaded
-		if _, exists := tm.traders[traderCfg.ID]; exists {
+		if tm.hasTrader(traderCfg.ID) {
 			// Trader already loaded - this is normal, no need to log
 			continue
 		}
@@ -487,12 +514,15 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		logger.Infof("📦 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				continue
+			}
 			logger.Infof("❌ Failed to load trader %s: %v", traderCfg.Name, err)
 			// Save error for later retrieval
-			tm.loadErrors[traderCfg.ID] = err
+			tm.setLoadError(traderCfg.ID, err)
 		} else {
 			// Clear any previous error on success
-			delete(tm.loadErrors, traderCfg.ID)
+			tm.clearLoadError(traderCfg.ID)
 		}
 	}
 
@@ -501,9 +531,6 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 
 // LoadTradersFromStore loads all traders from store to memory (new API)
 func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	// Get all users
 	userIDs, err := st.User().GetAllIDs()
 	if err != nil {
@@ -589,6 +616,14 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 			continue
 		}
 
+		if bound, expiresAt, _, proxyErr := st.ProxyPool().ProxyBindingForExchange(exchangeCfg.ID); proxyErr != nil {
+			logger.Warnf("⚠️ 读取交易员 %s 的出口代理状态失败，跳过加载: %v", traderCfg.Name, proxyErr)
+			continue
+		} else if bound && expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+			logger.Infof("⏭️ 交易员 %s 绑定的出口 IP 已过期，跳过加载并等待管理员更换代理", traderCfg.Name)
+			continue
+		}
+
 		// Add to TraderManager (ai500APIURL/oiTopAPIURL already obtained from strategy config)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
@@ -597,13 +632,13 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		}
 	}
 
-	logger.Infof("✓ Successfully loaded %d traders to memory", len(tm.traders))
+	logger.Infof("✓ Successfully loaded %d traders to memory", tm.traderCount())
 	return nil
 }
 
 // addTraderFromStore internal method: adds trader from store configuration
 func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg *store.AIModel, exchangeCfg *store.Exchange, st *store.Store) error {
-	if _, exists := tm.traders[traderCfg.ID]; exists {
+	if tm.hasTrader(traderCfg.ID) {
 		return fmt.Errorf("trader ID '%s' already exists", traderCfg.ID)
 	}
 
@@ -634,6 +669,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		AIModel:               aiModelCfg.Provider,
 		Exchange:              exchangeCfg.ExchangeType, // Exchange type: binance/bybit/okx/etc
 		ExchangeID:            exchangeCfg.ID,           // Exchange account UUID (for multi-account)
+		OutboundProxyURL:      strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
@@ -648,6 +684,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		ShowInCompetition:     traderCfg.ShowInCompetition,
 		StrategyConfig:        strategyConfig,
+		StrategyID:            traderCfg.StrategyID,
 	}
 
 	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",
@@ -658,6 +695,8 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	case "binance":
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
+		traderConfig.BinanceTestnet = exchangeCfg.Testnet
+		traderConfig.BinanceOutboundProxyURL = strings.TrimSpace(string(exchangeCfg.OutboundProxyURL))
 	case "bybit":
 		traderConfig.BybitAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BybitSecretKey = string(exchangeCfg.SecretKey)
@@ -672,6 +711,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	case "gate":
 		traderConfig.GateAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.GateSecretKey = string(exchangeCfg.SecretKey)
+		traderConfig.GateTestnet = exchangeCfg.Testnet
 	case "kucoin":
 		traderConfig.KuCoinAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.KuCoinSecretKey = string(exchangeCfg.SecretKey)
@@ -727,7 +767,14 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		}
 	}
 
+	tm.mu.Lock()
+	if _, exists := tm.traders[traderCfg.ID]; exists {
+		tm.mu.Unlock()
+		return fmt.Errorf("trader ID '%s' already exists", traderCfg.ID)
+	}
 	tm.traders[traderCfg.ID] = at
+	tm.mu.Unlock()
+
 	logger.Infof("✓ Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
 
 	// Auto-start if trader was running before shutdown

@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,9 +40,9 @@ const (
 
 // X402v2PaymentRequired is the structure of the Payment-Required header (x402 v2).
 type X402v2PaymentRequired struct {
-	X402Version int              `json:"x402Version"`
+	X402Version int                `json:"x402Version"`
 	Accepts     []X402AcceptOption `json:"accepts"`
-	Resource    *X402Resource    `json:"resource"`
+	Resource    *X402Resource      `json:"resource"`
 }
 
 // X402AcceptOption is a payment option from the x402 v2 header.
@@ -79,6 +80,39 @@ func X402DecodeHeader(b64 string) ([]byte, error) {
 		}
 	}
 	return decoded, nil
+}
+
+// X402CostUSDCFromHeader parses the first accepted payment option amount.
+// claw402/Base USDC amount is normally expressed in 6-decimal USDC base units.
+func X402CostUSDCFromHeader(paymentHeaderB64 string) (float64, error) {
+	decoded, err := X402DecodeHeader(paymentHeaderB64)
+	if err != nil {
+		return 0, err
+	}
+	var req X402v2PaymentRequired
+	if err := json.Unmarshal(decoded, &req); err != nil {
+		return 0, fmt.Errorf("failed to parse x402 v2 payment header: %w", err)
+	}
+	if len(req.Accepts) == 0 {
+		return 0, fmt.Errorf("no payment options in x402 response")
+	}
+	amount := strings.TrimSpace(req.Accepts[0].Amount)
+	if amount == "" {
+		return 0, fmt.Errorf("empty payment amount")
+	}
+	if strings.Contains(amount, ".") {
+		v, err := strconv.ParseFloat(amount, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid decimal payment amount %q: %w", amount, err)
+		}
+		return v, nil
+	}
+	i, ok := new(big.Int).SetString(amount, 10)
+	if !ok {
+		return 0, fmt.Errorf("invalid integer payment amount %q", amount)
+	}
+	f, _ := new(big.Float).SetInt(i).Float64()
+	return f / 1_000_000, nil
 }
 
 // MakeClaw402SignFunc creates an X402SignFunc from a private key for claw402 payments.
@@ -466,13 +500,106 @@ func X402CallStream(c *mcp.Client, signFn X402SignFunc, tag string, systemPrompt
 		if jsonErr == nil && jsonText != "" {
 			return jsonText, nil
 		}
-		c.Log.Warnf("⚠️  [%s] JSON fallback also failed: %v", tag, jsonErr)
+		// Last-resort: try extracting from common JSON envelopes.
+		if best := extractLLMTextBestEffort(bodyBuf.Bytes()); strings.TrimSpace(best) != "" {
+			c.Log.Warnf("⚠️  [%s] JSON fallback failed (%v), but best-effort extraction succeeded", tag, jsonErr)
+			return best, nil
+		}
+
+		// Log a short prefix for debugging (avoid huge logs).
+		prefix := bodyBuf.Bytes()
+		const maxLog = 600
+		if len(prefix) > maxLog {
+			prefix = prefix[:maxLog]
+		}
+		c.Log.Warnf("⚠️  [%s] JSON fallback also failed: %v; body_prefix=%q", tag, jsonErr, string(prefix))
 	}
 
 	if sseErr != nil {
 		return "", fmt.Errorf("[%s] stream failed: %w", tag, sseErr)
 	}
 	return "", fmt.Errorf("[%s] no content received (SSE empty, body %d bytes)", tag, bodyBuf.Len())
+}
+
+// extractLLMTextBestEffort tries to extract assistant text from common JSON envelopes.
+// This is a last-resort fallback to avoid failing the whole cycle when upstream returns
+// a non-standard or partially compatible response.
+func extractLLMTextBestEffort(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	trim := strings.TrimSpace(string(body))
+	if trim == "" || (!strings.HasPrefix(trim, "{") && !strings.HasPrefix(trim, "[")) {
+		return ""
+	}
+
+	var anyVal any
+	if err := json.Unmarshal(body, &anyVal); err != nil {
+		return ""
+	}
+
+	getStr := func(m map[string]any, key string) string {
+		if v, ok := m[key]; ok {
+			if s, ok2 := v.(string); ok2 {
+				return s
+			}
+		}
+		return ""
+	}
+
+	// OpenAI-like: { choices: [ { message: { content: "..." } } ] }
+	if m, ok := anyVal.(map[string]any); ok {
+		if choices, ok := m["choices"].([]any); ok && len(choices) > 0 {
+			if c0, ok := choices[0].(map[string]any); ok {
+				if msg, ok := c0["message"].(map[string]any); ok {
+					if s := getStr(msg, "content"); s != "" {
+						return s
+					}
+				}
+				if s := getStr(c0, "text"); s != "" {
+					return s
+				}
+			}
+		}
+
+		// Anthropic-like: { content: [ { type:"text", text:"..." }, ... ] }
+		if contentArr, ok := m["content"].([]any); ok && len(contentArr) > 0 {
+			var b strings.Builder
+			for _, it := range contentArr {
+				im, ok := it.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, _ := im["type"].(string); t != "" && t != "text" {
+					continue
+				}
+				if s, _ := im["text"].(string); s != "" {
+					if b.Len() > 0 {
+						b.WriteString("\n")
+					}
+					b.WriteString(s)
+				}
+			}
+			if b.Len() > 0 {
+				return b.String()
+			}
+		}
+
+		// Generic: { message: "..." } or { content: "..." }
+		if s := getStr(m, "message"); s != "" {
+			return s
+		}
+		if s := getStr(m, "content"); s != "" {
+			return s
+		}
+		if errObj, ok := m["error"].(map[string]any); ok {
+			if s := getStr(errObj, "message"); s != "" {
+				return "❌ 上游返回错误: " + s
+			}
+		}
+	}
+
+	return ""
 }
 
 // X402BuildRequest creates a POST request with Content-Type but no auth header.

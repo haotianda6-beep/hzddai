@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { Suspense, lazy, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import useSWR from 'swr'
 import {
@@ -11,27 +11,16 @@ import {
 } from 'react-router-dom'
 import HeaderBar from '../components/common/HeaderBar'
 import { SiteFooter } from '../components/common/SiteFooter'
-import { LoginRequiredOverlay } from '../components/auth/LoginRequiredOverlay'
 import { LoginPage } from '../components/auth/LoginPage'
 import { RegisterPage } from '../components/auth/RegisterPage'
 import { ResetPasswordPage } from '../components/auth/ResetPasswordPage'
 import { SetupPage } from '../components/modals/SetupPage'
-import { CompetitionPage } from '../components/trader/CompetitionPage'
-import { AITradersPage } from '../components/trader/AITradersPage'
-import { FAQPage } from '../pages/FAQPage'
 import { LandingPage } from '../pages/LandingPage'
-import { BeginnerOnboardingPage } from '../pages/BeginnerOnboardingPage'
-import { DataPage } from '../pages/DataPage'
-import { SettingsPage } from '../pages/SettingsPage'
-import { StrategyMarketPage } from '../pages/StrategyMarketPage'
-import { StrategyStudioPage } from '../pages/StrategyStudioPage'
-import { TraderDashboardPage } from '../pages/TraderDashboardPage'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useSystemConfig } from '../hooks/useSystemConfig'
 import { t } from '../i18n/translations'
 import { api } from '../lib/api'
-import { getUserMode } from '../lib/onboarding'
 import type {
   AccountInfo,
   DecisionRecord,
@@ -45,8 +34,66 @@ import {
   buildDashboardPath,
   LEGACY_HASH_ROUTES,
   ROUTES,
+  TRADERS_WIZARD_ENTRY,
   type Page,
 } from './paths'
+
+const ThemePreviewPage = lazy(() =>
+  import('../pages/ThemePreviewPage').then((mod) => ({
+    default: mod.ThemePreviewPage,
+  }))
+)
+const CompetitionPage = lazy(() =>
+  import('../components/trader/CompetitionPage').then((mod) => ({ default: mod.CompetitionPage }))
+)
+const TraderDeployWizardPage = lazy(() =>
+  import('../pages/TraderDeployWizardPage').then((mod) => ({ default: mod.TraderDeployWizardPage }))
+)
+const FAQPage = lazy(() =>
+  import('../pages/FAQPage').then((mod) => ({ default: mod.FAQPage }))
+)
+const DataPage = lazy(() =>
+  import('../pages/DataPage').then((mod) => ({ default: mod.DataPage }))
+)
+const CryptoNewsPage = lazy(() =>
+  import('../pages/CryptoNewsPage').then((mod) => ({ default: mod.CryptoNewsPage }))
+)
+const SettingsPage = lazy(() =>
+  import('../pages/SettingsPage').then((mod) => ({ default: mod.SettingsPage }))
+)
+const ProfilePage = lazy(() =>
+  import('../pages/ProfilePage').then((mod) => ({ default: mod.ProfilePage }))
+)
+const InviteFissionPage = lazy(() =>
+  import('../pages/InviteFissionPage').then((mod) => ({ default: mod.InviteFissionPage }))
+)
+const StrategyMarketPage = lazy(() =>
+  import('../pages/StrategyMarketPage').then((mod) => ({ default: mod.StrategyMarketPage }))
+)
+const StrategyMarketDetailPage = lazy(() =>
+  import('../pages/StrategyMarketDetailPage').then((mod) => ({ default: mod.StrategyMarketDetailPage }))
+)
+const AdminDashboardPage = lazy(() =>
+  import('../pages/AdminDashboardPage').then((mod) => ({ default: mod.AdminDashboardPage }))
+)
+const FinanceDashboardPage = lazy(() =>
+  import('../pages/FinanceDashboardPage').then((mod) => ({ default: mod.FinanceDashboardPage }))
+)
+const RechargePage = lazy(() =>
+  import('../pages/RechargePage').then((mod) => ({ default: mod.RechargePage }))
+)
+const WalletPage = lazy(() =>
+  import('../pages/WalletPage').then((mod) => ({ default: mod.WalletPage }))
+)
+const StrategyStudioPage = lazy(() =>
+  import('../pages/StrategyStudioPage').then((mod) => ({ default: mod.StrategyStudioPage }))
+)
+const TraderDashboardPage = lazy(() =>
+  import('../pages/TraderDashboardPage').then((mod) => ({ default: mod.TraderDashboardPage }))
+)
+const AutoArbitragePage = lazy(() =>
+  import('../pages/AutoArbitragePage').then((mod) => ({ default: mod.AutoArbitragePage }))
+)
 
 function getTraderSlug(trader: TraderInfo) {
   const idPrefix = trader.trader_id.slice(0, 4)
@@ -69,22 +116,38 @@ function findTraderBySlug(slug: string, traderList: TraderInfo[]) {
 
 function LoadingScreen() {
   const { language } = useLanguage()
+  const [slowHint, setSlowHint] = useState(false)
+  useEffect(() => {
+    const id = window.setTimeout(() => setSlowHint(true), 10_000)
+    return () => window.clearTimeout(id)
+  }, [])
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center"
-      style={{ background: '#0B0E11' }}
-    >
-      <div className="text-center">
-        <img
-          src="/icons/nofx.svg"
-          alt="NoFx Logo"
-          className="w-16 h-16 mx-auto mb-4 animate-pulse"
-        />
-        <p style={{ color: '#EAECEF' }}>{t('loading', language)}</p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-nofx-bg text-nofx-text">
+      <div className="flex flex-col items-center text-center">
+        <div className="mb-3 flex items-center justify-center gap-2.5 text-lg leading-none text-nofx-text-main">
+          <img
+            src="/icons/comkun-logo.png"
+            alt=""
+            className="h-8 w-8 shrink-0 animate-pulse rounded-lg object-cover"
+            aria-hidden
+          />
+          <p className="font-medium leading-none">{t('loading', language)}</p>
+        </div>
+        {slowHint ? (
+          <p className="max-w-sm px-4 text-center text-[11px] leading-relaxed text-nofx-text-muted">
+            {language === 'zh'
+              ? '若长时间停在此页，多半是浏览器访问不到后端的 /api（例如反代未转发、或 nofx 容器未启动）。可先在本机 curl 域名下的 /api/config 排查。'
+              : 'If this stays too long, the browser may be unable to reach /api (reverse proxy or backend down). Try curling /api/config on this host.'}
+          </p>
+        ) : null}
       </div>
     </div>
   )
+}
+
+function PageLoader({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<LoadingScreen />}>{children}</Suspense>
 }
 
 function LegacyHashRedirect() {
@@ -131,24 +194,23 @@ function AppChrome({
   extraContent,
 }: AppChromeProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const { language, setLanguage } = useLanguage()
   const { user, logout } = useAuth()
-  const [loginOverlayOpen, setLoginOverlayOpen] = useState(false)
-  const [loginOverlayFeature, setLoginOverlayFeature] = useState('')
 
-  const handleLoginRequired = (featureName: string) => {
-    setLoginOverlayFeature(featureName)
-    setLoginOverlayOpen(true)
+  const handleLoginRequired = (_featureLabel?: string) => {
+    navigate(ROUTES.login, { replace: true })
   }
 
   const content = animateContent ? (
-    <AnimatePresence mode="wait">
+    <AnimatePresence initial={false}>
       <motion.div
         key={`${location.pathname}${location.search}`}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.15, ease: 'easeOut' }}
+        className="w-full min-w-0"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
       >
         {children}
       </motion.div>
@@ -158,10 +220,7 @@ function AppChrome({
   )
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: '#0B0E11', color: '#EAECEF' }}
-    >
+    <div className="flex min-h-screen flex-col bg-nofx-bg text-nofx-text">
       <HeaderBar
         isLoggedIn={!!user}
         currentPage={currentPage}
@@ -173,57 +232,30 @@ function AppChrome({
       />
 
       {wrapInMain ? (
-        <main className="min-h-screen pt-16">{content}</main>
+        <main className="min-h-0 w-full min-w-0 flex-1">{content}</main>
       ) : (
         content
       )}
 
       {showFooter ? <SiteFooter language={language} /> : null}
 
-      <LoginRequiredOverlay
-        isOpen={loginOverlayOpen}
-        onClose={() => setLoginOverlayOpen(false)}
-        featureName={loginOverlayFeature}
-      />
-
       {extraContent}
     </div>
   )
 }
 
-function TradersRoute({
-  showBeginnerOnboarding = false,
-}: {
-  showBeginnerOnboarding?: boolean
-}) {
-  const navigate = useNavigate()
-  const { user, token } = useAuth()
-  const { data: traders } = useSWR<TraderInfo[]>(
-    user && token ? 'traders-route' : null,
-    api.getTraders,
-    {
-      refreshInterval: 5000,
-      shouldRetryOnError: false,
-    }
-  )
-
+function TradersRoute() {
   return (
-    <AppChrome
-      currentPage="traders"
-      animateContent
-      extraContent={showBeginnerOnboarding ? <BeginnerOnboardingPage /> : null}
-    >
-      <AITradersPage
-        onTraderSelect={(traderId) => {
-          const trader = traders?.find((item) => item.trader_id === traderId)
-          navigate(
-            buildDashboardPath(trader ? getTraderSlug(trader) : undefined)
-          )
-        }}
-      />
+    <AppChrome currentPage="traders" animateContent showFooter={false}>
+      <PageLoader>
+        <TraderDeployWizardPage />
+      </PageLoader>
     </AppChrome>
   )
 }
+
+/** 仪表盘右侧「最近决策」拉取条数（界面不再提供切换，固定值） */
+const DASHBOARD_DECISIONS_LIMIT = 20
 
 function DashboardRoute() {
   const { language } = useLanguage()
@@ -232,17 +264,9 @@ function DashboardRoute() {
   const [searchParams] = useSearchParams()
   const selectedTraderSlug = searchParams.get('trader') || undefined
   const [selectedTraderId, setSelectedTraderId] = useState<string | undefined>()
-  const [lastUpdate, setLastUpdate] = useState<string>('--:--:--')
-  const [decisionsLimit, setDecisionsLimit] = useState(5)
   const [accountPollOff, setAccountPollOff] = useState(false)
   const [positionsPollOff, setPositionsPollOff] = useState(false)
   const [decisionsPollOff, setDecisionsPollOff] = useState(false)
-
-  useEffect(() => {
-    setAccountPollOff(false)
-    setPositionsPollOff(false)
-    setDecisionsPollOff(false)
-  }, [selectedTraderId])
 
   const { data: traders, error: tradersError } = useSWR<TraderInfo[]>(
     user && token ? 'traders-dashboard' : null,
@@ -250,8 +274,41 @@ function DashboardRoute() {
     {
       refreshInterval: 10000,
       shouldRetryOnError: false,
+      keepPreviousData: true,
     }
   )
+
+  /** 列表刷新、slug 失效时仍能对上交易员，避免整页骨架把「看板」卡没 */
+  const stableSelectedId = useMemo(() => {
+    if (!traders?.length) return undefined
+    if (selectedTraderSlug) {
+      const by = findTraderBySlug(selectedTraderSlug, traders)
+      return (by ?? traders[0]).trader_id
+    }
+    if (selectedTraderId && traders.some((t) => t.trader_id === selectedTraderId)) {
+      return selectedTraderId
+    }
+    return traders[0].trader_id
+  }, [traders, selectedTraderId, selectedTraderSlug])
+
+  useEffect(() => {
+    setAccountPollOff(false)
+    setPositionsPollOff(false)
+    setDecisionsPollOff(false)
+  }, [stableSelectedId])
+
+  useEffect(() => {
+    if (stableSelectedId && stableSelectedId !== selectedTraderId) {
+      setSelectedTraderId(stableSelectedId)
+    }
+  }, [stableSelectedId, selectedTraderId])
+
+  useEffect(() => {
+    if (!traders?.length || !selectedTraderSlug) return
+    if (!findTraderBySlug(selectedTraderSlug, traders)) {
+      navigate(buildDashboardPath(getTraderSlug(traders[0])), { replace: true })
+    }
+  }, [traders, selectedTraderSlug, navigate])
 
   const { data: exchanges } = useSWR<Exchange[]>(
     user && token ? 'exchanges-dashboard' : null,
@@ -262,28 +319,9 @@ function DashboardRoute() {
     }
   )
 
-  useEffect(() => {
-    if (!traders || traders.length === 0) {
-      return
-    }
-
-    if (selectedTraderSlug) {
-      const trader = findTraderBySlug(selectedTraderSlug, traders)
-      const nextTraderId = trader?.trader_id || traders[0].trader_id
-      if (nextTraderId !== selectedTraderId) {
-        setSelectedTraderId(nextTraderId)
-      }
-      return
-    }
-
-    if (!selectedTraderId) {
-      setSelectedTraderId(traders[0].trader_id)
-    }
-  }, [selectedTraderId, selectedTraderSlug, traders])
-
   const { data: status } = useSWR<SystemStatus>(
-    selectedTraderId ? `status-${selectedTraderId}` : null,
-    () => api.getStatus(selectedTraderId, true),
+    stableSelectedId ? `status-${stableSelectedId}` : null,
+    () => api.getStatus(stableSelectedId!, true),
     {
       refreshInterval: 15000,
       revalidateOnFocus: false,
@@ -292,11 +330,11 @@ function DashboardRoute() {
   )
 
   const { data: account } = useSWR<AccountInfo>(
-    selectedTraderId ? `account-${selectedTraderId}` : null,
-    () => api.getAccount(selectedTraderId, true),
+    stableSelectedId ? `account-${stableSelectedId}` : null,
+    () => api.getAccount(stableSelectedId!, true),
     {
-      refreshInterval: accountPollOff ? 0 : 15000,
-      revalidateOnFocus: false,
+      refreshInterval: 15000,
+      revalidateOnFocus: true,
       dedupingInterval: 10000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) {
@@ -314,11 +352,11 @@ function DashboardRoute() {
   )
 
   const { data: positions } = useSWR<Position[]>(
-    selectedTraderId ? `positions-${selectedTraderId}` : null,
-    () => api.getPositions(selectedTraderId, true),
+    stableSelectedId ? `positions-${stableSelectedId}` : null,
+    () => api.getPositions(stableSelectedId!, true),
     {
-      refreshInterval: positionsPollOff ? 0 : 15000,
-      revalidateOnFocus: false,
+      refreshInterval: 15000,
+      revalidateOnFocus: true,
       dedupingInterval: 10000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) {
@@ -336,12 +374,12 @@ function DashboardRoute() {
   )
 
   const { data: decisions } = useSWR<DecisionRecord[]>(
-    selectedTraderId
-      ? `decisions/latest-${selectedTraderId}-${decisionsLimit}`
+    stableSelectedId
+      ? `decisions/latest-${stableSelectedId}-${DASHBOARD_DECISIONS_LIMIT}`
       : null,
-    () => api.getLatestDecisions(selectedTraderId, decisionsLimit, true),
+    () => api.getLatestDecisions(stableSelectedId!, DASHBOARD_DECISIONS_LIMIT, true),
     {
-      refreshInterval: decisionsPollOff ? 0 : 30000,
+      refreshInterval: decisionsPollOff ? 0 : 10000,
       revalidateOnFocus: false,
       dedupingInterval: 20000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
@@ -360,8 +398,8 @@ function DashboardRoute() {
   )
 
   const { data: stats } = useSWR<Statistics>(
-    selectedTraderId ? `statistics-${selectedTraderId}` : null,
-    () => api.getStatistics(selectedTraderId, true),
+    stableSelectedId ? `statistics-${stableSelectedId}` : null,
+    () => api.getStatistics(stableSelectedId!, true),
     {
       refreshInterval: 30000,
       revalidateOnFocus: false,
@@ -369,48 +407,53 @@ function DashboardRoute() {
     }
   )
 
-  useEffect(() => {
-    if (account) {
-      setLastUpdate(new Date().toLocaleTimeString())
-    }
-  }, [account])
+  const selectedTrader = traders?.find((trader) => trader.trader_id === stableSelectedId)
 
-  const selectedTrader = traders?.find(
-    (trader) => trader.trader_id === selectedTraderId
-  )
+  useEffect(() => {
+    if (!stableSelectedId) return
+    try {
+      localStorage.setItem('nofx_notification_trader_id', stableSelectedId)
+    } catch {
+      /* ignore */
+    }
+  }, [stableSelectedId])
 
   return (
     <AppChrome currentPage="trader" animateContent>
-      <TraderDashboardPage
-        selectedTrader={selectedTrader}
-        status={status}
-        account={account}
-        accountFailed={accountPollOff}
-        positions={positions}
-        positionsFailed={positionsPollOff}
-        decisions={decisions}
-        decisionsFailed={decisionsPollOff}
-        decisionsLimit={decisionsLimit}
-        onDecisionsLimitChange={setDecisionsLimit}
-        stats={stats}
-        lastUpdate={lastUpdate}
-        language={language}
-        traders={traders}
-        tradersError={tradersError}
-        selectedTraderId={selectedTraderId}
-        onTraderSelect={(traderId) => {
-          setSelectedTraderId(traderId)
-          const trader = traders?.find((item) => item.trader_id === traderId)
-          navigate(
-            buildDashboardPath(trader ? getTraderSlug(trader) : undefined),
-            {
-              replace: true,
+      <PageLoader>
+        <TraderDashboardPage
+          selectedTrader={selectedTrader}
+          status={status}
+          account={account}
+          accountFailed={accountPollOff}
+          positions={positions}
+          positionsFailed={positionsPollOff}
+          decisions={decisions}
+          decisionsFailed={decisionsPollOff}
+          stats={stats}
+          language={language}
+          traders={traders}
+          tradersError={tradersError}
+          selectedTraderId={stableSelectedId}
+          onTraderSelect={(traderId) => {
+            try {
+              localStorage.setItem('nofx_notification_trader_id', traderId)
+            } catch {
+              /* ignore */
             }
-          )
-        }}
-        onNavigateToTraders={() => navigate(ROUTES.traders)}
-        exchanges={exchanges}
-      />
+            setSelectedTraderId(traderId)
+            const trader = traders?.find((item) => item.trader_id === traderId)
+            navigate(
+              buildDashboardPath(trader ? getTraderSlug(trader) : undefined),
+              {
+                replace: true,
+              }
+            )
+          }}
+          onNavigateToTraders={() => navigate(TRADERS_WIZARD_ENTRY)}
+          exchanges={exchanges}
+        />
+      </PageLoader>
     </AppChrome>
   )
 }
@@ -433,6 +476,14 @@ export function AppRoutes() {
       <LegacyHashRedirect />
       <Routes>
         <Route path={ROUTES.home} element={<LandingPage />} />
+        <Route
+          path={ROUTES.themePreview}
+          element={
+            <Suspense fallback={<LoadingScreen />}>
+              <ThemePreviewPage />
+            </Suspense>
+          }
+        />
         <Route path={ROUTES.login} element={<LoginPage />} />
         <Route path={ROUTES.register} element={<RegisterPage />} />
         <Route path={ROUTES.resetPassword} element={<ResetPasswordPage />} />
@@ -450,7 +501,9 @@ export function AppRoutes() {
           path={ROUTES.faq}
           element={
             <AppChrome currentPage="faq" showFooter={false} wrapInMain={false}>
-              <FAQPage />
+              <PageLoader>
+                <FAQPage />
+              </PageLoader>
             </AppChrome>
           }
         />
@@ -458,8 +511,24 @@ export function AppRoutes() {
           path={ROUTES.data}
           element={
             <AppChrome currentPage="data" showFooter={false}>
-              <DataPage />
+              <PageLoader>
+                <DataPage />
+              </PageLoader>
             </AppChrome>
+          }
+        />
+        <Route
+          path={ROUTES.news}
+          element={
+            isAuthenticated ? (
+              <AppChrome currentPage="news" showFooter={false}>
+                <PageLoader>
+                  <CryptoNewsPage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
           }
         />
         <Route
@@ -467,7 +536,37 @@ export function AppRoutes() {
           element={
             isAuthenticated ? (
               <AppChrome showFooter={false}>
-                <SettingsPage />
+                <PageLoader>
+                  <SettingsPage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.profile}
+          element={
+            isAuthenticated ? (
+              <AppChrome showFooter={false}>
+                <PageLoader>
+                  <ProfilePage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.invite}
+          element={
+            isAuthenticated ? (
+              <AppChrome showFooter={false}>
+                <PageLoader>
+                  <InviteFissionPage />
+                </PageLoader>
               </AppChrome>
             ) : (
               <Navigate to={ROUTES.login} replace />
@@ -478,11 +577,7 @@ export function AppRoutes() {
           path={ROUTES.welcome}
           element={
             isAuthenticated ? (
-              getUserMode() === 'beginner' ? (
-                <TradersRoute showBeginnerOnboarding />
-              ) : (
-                <Navigate to={ROUTES.traders} replace />
-              )
+              <TradersRoute />
             ) : (
               <Navigate to={ROUTES.login} replace />
             )
@@ -493,7 +588,23 @@ export function AppRoutes() {
           element={
             isAuthenticated ? (
               <AppChrome currentPage="competition" animateContent>
-                <CompetitionPage />
+                <PageLoader>
+                  <CompetitionPage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <LandingPage />
+            )
+          }
+        />
+        <Route
+          path={`${ROUTES.strategyMarket}/:strategyId`}
+          element={
+            isAuthenticated ? (
+              <AppChrome currentPage="strategy-market" animateContent>
+                <PageLoader>
+                  <StrategyMarketDetailPage />
+                </PageLoader>
               </AppChrome>
             ) : (
               <LandingPage />
@@ -505,12 +616,86 @@ export function AppRoutes() {
           element={
             isAuthenticated ? (
               <AppChrome currentPage="strategy-market" animateContent>
-                <StrategyMarketPage />
+                <PageLoader>
+                  <StrategyMarketPage />
+                </PageLoader>
               </AppChrome>
             ) : (
               <LandingPage />
             )
           }
+        />
+        <Route
+          path={ROUTES.wallet}
+          element={
+            isAuthenticated ? (
+              <AppChrome currentPage="wallet" showFooter={false}>
+                <PageLoader>
+                  <WalletPage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.recharge}
+          element={
+            isAuthenticated ? (
+              <AppChrome showFooter={false}>
+                <PageLoader>
+                  <RechargePage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.comkunOfficialToken}
+          element={<Navigate to={isAuthenticated ? ROUTES.recharge : ROUTES.login} replace />}
+        />
+        <Route
+          path={ROUTES.admin}
+          element={
+            isAuthenticated ? (
+              user?.is_admin ? (
+                <AppChrome showFooter={false} wrapInMain={false}>
+                  <PageLoader>
+                    <AdminDashboardPage />
+                  </PageLoader>
+                </AppChrome>
+              ) : (
+                <Navigate to={ROUTES.profile} replace />
+              )
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.finance}
+          element={
+            isAuthenticated ? (
+              user?.is_finance ? (
+                <AppChrome showFooter={false} wrapInMain={false}>
+                  <PageLoader>
+                    <FinanceDashboardPage />
+                  </PageLoader>
+                </AppChrome>
+              ) : (
+                <Navigate to={ROUTES.profile} replace />
+              )
+            ) : (
+              <Navigate to={ROUTES.login} replace />
+            )
+          }
+        />
+        <Route
+          path="/traders/create"
+          element={<Navigate to={TRADERS_WIZARD_ENTRY} replace />}
         />
         <Route
           path={ROUTES.traders}
@@ -524,8 +709,24 @@ export function AppRoutes() {
           path={ROUTES.strategy}
           element={
             isAuthenticated ? (
-              <AppChrome currentPage="strategy" animateContent>
-                <StrategyStudioPage />
+              <AppChrome currentPage="strategy" animateContent showFooter={false}>
+                <PageLoader>
+                  <StrategyStudioPage />
+                </PageLoader>
+              </AppChrome>
+            ) : (
+              <LandingPage />
+            )
+          }
+        />
+        <Route
+          path={ROUTES.autoArbitrage}
+          element={
+            isAuthenticated ? (
+              <AppChrome currentPage="auto-arbitrage" animateContent showFooter={false}>
+                <PageLoader>
+                  <AutoArbitragePage />
+                </PageLoader>
               </AppChrome>
             ) : (
               <LandingPage />

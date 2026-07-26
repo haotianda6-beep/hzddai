@@ -1,0 +1,53 @@
+/* Luminescent 首页：与策略构建器同一套主色 #d4ff33 / hover #d4ff33、surface 体系 */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0');
+
+/* 与 Google Material Symbols 文档一致，图标用文字 ligature 显示 */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.5rem;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lum-glass-panel {
+  background: rgba(23, 23, 23, 0.78);
+  backdrop-filter: blur(20px);
+}
+
+/* 与 StrategyStudioPage 保存按钮一致：实色主色 + 悬停略提亮 */
+.lum-signature-gradient {
+  background-color: #d4ff33;
+  transition: background-color 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 12px rgba(212, 255, 51, 0.12);
+}
+
+.lum-signature-gradient:hover {
+  background-color: #d4ff33;
+  box-shadow: 0 0 18px rgba(212, 255, 51, 0.18);
+}
+
+.lum-bg-grid-subtle {
+  background-size: 40px 40px;
+  background-image:
+    linear-gradient(to right, rgba(212, 255, 51, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(212, 255, 51, 0.045) 1px, transparent 1px);
+}
+
+.lum-page ::selection {
+  background-color: rgba(212, 255, 51, 0.32);
+  color: #000000;
+}

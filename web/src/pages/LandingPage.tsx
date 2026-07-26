@@ -1,64 +1,25 @@
-import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import HeaderBar from '../components/common/HeaderBar'
-import LoginModal from '../components/landing/LoginModal'
-import { LoginRequiredOverlay } from '../components/auth/LoginRequiredOverlay'
-import FooterSection from '../components/landing/FooterSection'
-import TerminalHero from '../components/landing/core/TerminalHero'
-import LiveFeed from '../components/landing/core/LiveFeed'
-import AgentGrid from '../components/landing/core/AgentGrid'
-import DeploymentHub from '../components/landing/core/DeploymentHub'
 import { useAuth } from '../contexts/AuthContext'
-import { useLanguage } from '../contexts/LanguageContext'
+import { LuminescentHome } from './landing/LuminescentHome'
+import { ROUTES } from '../router/paths'
+import './landing/luminescent.css'
 
+/** 首页：与静态 crypto-home.html 1:1（芥末绿暗色 + 顶栏固定） */
 export function LandingPage() {
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [loginOverlayOpen, setLoginOverlayOpen] = useState(false)
-  const [loginOverlayFeature, setLoginOverlayFeature] = useState('')
   const { user, logout } = useAuth()
-  const { language, setLanguage } = useLanguage()
-  const isLoggedIn = !!user
-
-  const handleLoginRequired = (featureName: string) => {
-    setLoginOverlayFeature(featureName)
-    setLoginOverlayOpen(true)
-  }
+  const navigate = useNavigate()
 
   return (
-    <>
+    <div className="min-h-screen bg-[#0a0a0a] font-lumbody selection:bg-[#c5d83e]/30 selection:text-black">
       <HeaderBar
-        onLoginClick={() => setShowLoginModal(true)}
-        isLoggedIn={isLoggedIn}
-        isHomePage={true}
-        language={language}
-        onLanguageChange={setLanguage}
+        isHomePage
+        isLoggedIn={!!user}
         user={user}
         onLogout={logout}
-        onLoginRequired={handleLoginRequired}
+        onLoginRequired={() => navigate(ROUTES.login)}
       />
-      <div className="min-h-screen bg-nofx-bg text-nofx-text font-sans selection:bg-nofx-gold selection:text-black">
-        <TerminalHero />
-
-        <LiveFeed />
-
-        <AgentGrid />
-
-        <DeploymentHub />
-
-        <FooterSection language={language} />
-
-        {showLoginModal && (
-          <LoginModal
-            onClose={() => setShowLoginModal(false)}
-            language={language}
-          />
-        )}
-
-        <LoginRequiredOverlay
-          isOpen={loginOverlayOpen}
-          onClose={() => setLoginOverlayOpen(false)}
-          featureName={loginOverlayFeature}
-        />
-      </div>
-    </>
+      <LuminescentHome />
+    </div>
   )
 }

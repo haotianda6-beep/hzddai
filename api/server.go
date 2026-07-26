@@ -10,6 +10,7 @@ import (
 	"nofx/logger"
 	"nofx/manager"
 	"nofx/store"
+	"nofx/trader/binance"
 	"strings"
 	"time"
 
@@ -49,6 +50,16 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
 		port:                      port,
 	}
+
+	store.SetAgentRebateSpendCallback(func(userID string, spendUSDT float64, walletLedgerID uint64, ledgerReason string) {
+		s.NotifyAgentRebateAfterWalletSpend(userID, spendUSDT, walletLedgerID, ledgerReason)
+	})
+
+	binance.SetProxyFaultRecorder(func(in store.RecordFaultInput) {
+		if err := st.ProxyFault().RecordFault(in); err != nil {
+			logger.Warnf("record outbound proxy fault: %v", err)
+		}
+	})
 
 	// Setup routes
 	s.setupRoutes()
@@ -109,19 +120,28 @@ func (s *Server) setupRoutes() {
 		// Market data (no authentication required)
 		s.route(api, "GET", "/klines", "Candlestick data (?symbol=&interval=&limit=)", s.handleKlines)
 		s.route(api, "GET", "/symbols", "Available trading symbols", s.handleSymbols)
+		s.route(api, "GET", "/market/board", "Aggregated free market board (crypto, forex, delayed equities)", s.handleMarketBoard)
 
 		// Public strategy market (no authentication required)
 		s.route(api, "GET", "/strategies/public", "Public strategy market", s.handlePublicStrategies)
+		s.route(api, "GET", "/strategies/public/:id", "Public strategy market detail", s.handlePublicStrategyDetail)
 		s.route(api, "POST", "/strategies/estimate-tokens", "Estimate token usage for a strategy config", s.handleEstimateTokens)
 
 		// Authentication related routes (no authentication required)
+		s.route(api, "POST", "/auth/send-register-code", "Send email OTP for first-time registration", s.handleSendRegisterEmailCode)
+		s.route(api, "POST", "/auth/send-reset-password-code", "Send email OTP for password reset", s.handleSendResetPasswordEmailCode)
 		s.route(api, "POST", "/register", "Register new user", s.handleRegister)
 		s.route(api, "POST", "/login", "User login, returns JWT token", s.handleLogin)
 		s.route(api, "POST", "/reset-password", "Reset password", s.handleResetPassword)
 		s.route(api, "POST", "/reset-account", "Clear all users and reset system to allow re-registration", s.handleResetAccount)
 
 		// Routes requiring authentication
-		protected := api.Group("/", s.authMiddleware())
+		s.route(api, "POST", "/send_signal_strategy", "MT4 EA strategy signal webhook", s.handleMT4StrategySignal)
+		s.route(api, "POST", "/news/gold-market-snapshot", "MT4 gold and dollar index market snapshot", s.handleGoldMarketSnapshot)
+		s.route(api, "POST", "/comkun/screen-broadcast", "Screen monitor: publish master state from OCR detection", s.handleScreenMonitorBroadcast)
+		s.route(api, "POST", "/okx-scraper-relay", "OKX Tampermonkey → local okx_dom_scraper relay", s.handleOkxScraperRelay)
+		s.route(api, "OPTIONS", "/okx-scraper-relay", "CORS preflight for OKX scraper relay", s.handleOkxScraperRelay)
+		protected := api.Group("/", s.authMiddleware(), s.accountLockMiddleware())
 		{
 			// Logout (add to blacklist)
 			s.route(protected, "POST", "/logout", "Logout (blacklist token)", s.handleLogout)
@@ -132,6 +152,21 @@ func (s *Server) setupRoutes() {
 			s.routeWithSchema(protected, "PUT", "/user/password", "Change current user password",
 				`Body: {"new_password":"<string, min 8 chars>"}`,
 				s.handleChangePassword)
+			s.route(protected, "GET", "/user/me", "Current user profile (display name, avatar)", s.handleGetMe)
+			s.route(protected, "GET", "/news/crypto", "Internal news intelligence monitor feed", s.handleCryptoNews)
+			s.routeWithSchema(protected, "PUT", "/user/profile", "Update display name",
+				`Body: {"display_name":"<string, 1-32 chars>"}`,
+				s.handleUpdateProfile)
+
+			// 平台站内余额（策略市场消费 / 演示充值）
+			s.route(protected, "GET", "/wallet", "Platform wallet balance and ledger", s.handleGetWallet)
+			s.route(protected, "POST", "/wallet/recharge", "Recharge platform USDT balance (demo)", s.handlePostWalletRecharge)
+			s.route(protected, "GET", "/notifications", "User in-app notifications (recharge, admin credit)", s.handleListUserNotifications)
+			s.route(protected, "GET", "/invite/me", "Current user's invite code, link and invited users", s.handleInviteMe)
+			s.route(protected, "GET", "/invite/network", "Invite umbrella tree + eligible spend + rebate metrics", s.handleInviteNetwork)
+			s.route(protected, "GET", "/user/agent-rebate-balance", "Proxy: agent rebate recharge/rebate balances", s.handleAgentRebateBalance)
+			s.route(protected, "POST", "/user/agent-rebate/transfer-to-recharge", "Proxy: rebate→recharge on agent rebate service", s.handleAgentRebateTransferToRecharge)
+			s.route(protected, "GET", "/user/agent-rebate-dividends", "Proxy: VIP5 weekly dividend payout history", s.handleAgentRebateDividends)
 
 			// Server IP query (requires authentication, for whitelist configuration)
 			s.route(protected, "GET", "/server-ip", "Get server public IP (for exchange whitelist)", s.handleGetServerIP)
@@ -179,10 +214,10 @@ Body: {"show_in_competition":<bool>}`,
 			s.routeWithSchema(protected, "GET", "/traders/:id/grid-risk", "Get grid trading risk info",
 				`:id = trader_id from GET /api/my-traders.`,
 				s.handleGetGridRiskInfo)
-
 			// AI cost tracking
 			s.route(protected, "GET", "/ai-costs", "Get AI call costs for a trader (?trader_id=xxx&period=today)", s.handleGetAICosts)
 			s.route(protected, "GET", "/ai-costs/summary", "Get AI cost summary (?period=today)", s.handleGetAICostsSummary)
+			s.route(protected, "GET", "/ai-platform-usage", "Get current user's AI platform billing ledger", s.handleGetAIPlatformUsage)
 
 			// AI model configuration
 			s.routeWithSchema(protected, "GET", "/models", "List AI model configs",
@@ -191,8 +226,8 @@ CRITICAL: The "id" field (e.g. "abc123_deepseek") is what you must use for ai_mo
 				s.handleGetModelConfigs)
 			s.routeWithSchema(protected, "PUT", "/models", "Configure an AI model provider",
 				`Body: {"models":{"<model_id>":{"enabled":<bool>,"api_key":"<string>","custom_api_url":"<string, leave empty to use provider default>","custom_model_name":"<string, leave empty to use provider default>"}}}
-model_id values: "openai","deepseek","qwen","kimi","grok","gemini","claude"
-Defaults when custom fields empty: openai→api.openai.com/v1, deepseek→api.deepseek.com, qwen→dashscope.aliyuncs.com/compatible-mode/v1, kimi→api.moonshot.ai/v1, grok→api.x.ai/v1, gemini→generativelanguage.googleapis.com/v1beta/openai, claude→api.anthropic.com/v1`,
+model_id values: "openai","deepseek","qwen","kimi","grok","gemini","claude","minimax"
+Defaults when custom fields empty: openai→api.openai.com/v1 (gpt-5.5), deepseek→api.deepseek.com (deepseek-v4-flash), qwen→dashscope.aliyuncs.com/compatible-mode/v1 (qwen3.7-max), kimi→api.moonshot.ai/v1 (kimi-k2.6), grok→api.x.ai/v1 (grok-4.3-latest), gemini→generativelanguage.googleapis.com/v1beta/openai (gemini-flash-latest), claude→api.anthropic.com/v1 (claude-opus-4-8), minimax→api.minimax.io/v1 (MiniMax-M3)`,
 				s.handleUpdateModelConfigs)
 
 			// Exchange configuration
@@ -222,6 +257,9 @@ Use this to enable/disable an exchange or update API credentials. The "id" field
 				`:id = EXACT id from GET /api/exchanges. Permanently removes the exchange account and disconnects any traders using it.`,
 				s.handleDeleteExchange)
 
+			// ED25519 key pair generation for exchange API authentication
+			s.route(protected, "POST", "/crypto/generate-ed25519-keypair", "Generate ED25519 key pair for exchange API", s.cryptoHandler.HandleGenerateED25519KeyPair)
+
 			// Telegram bot configuration
 			s.routeWithSchema(protected, "GET", "/telegram", "Get Telegram bot configuration",
 				`Returns: {"bot_token":"<string>","model_id":"<EXACT id of configured AI model>","chat_id":"<bound Telegram chat id, empty if not bound>"}`,
@@ -250,6 +288,10 @@ CRITICAL: Always use the "id" field for strategy_id.`,
 				s.handleGetDefaultStrategyConfig)
 			s.route(protected, "POST", "/strategies/preview-prompt", "Preview the AI prompt that will be generated from a config", s.handlePreviewPrompt)
 			s.route(protected, "POST", "/strategies/test-run", "Test-run strategy AI analysis", s.handleStrategyTestRun)
+			s.route(protected, "GET", "/strategies/market/owned/:id", "Get purchased or self-owned market strategy full config", s.handleMarketOwnedStrategy)
+			s.route(protected, "GET", "/strategies/market/entitlements", "List strategy market purchase entitlements", s.handleMarketEntitlements)
+			s.route(protected, "POST", "/strategies/market/purchase", "Purchase market strategy with platform balance", s.handleMarketStrategyPurchase)
+			s.route(protected, "GET", "/strategies/:id/comkun-master-board", "Comkun listing template: master broadcasts + bound trader orders for studio board", s.handleGetStrategyComkunMasterBoard)
 			s.route(protected, "GET", "/strategies/:id", "Get strategy by ID", s.handleGetStrategy)
 			s.routeWithSchema(protected, "POST", "/strategies", "Create a new trading strategy",
 				`Body: {"name":"<string, required>","description":"<string, optional>","lang":"zh|en","config":<StrategyConfig object, OPTIONAL — if omitted the system applies complete working defaults automatically (ai500 top coins, all standard indicators, standard risk control)>}
@@ -293,16 +335,17 @@ StrategyConfig fields:
   risk_control.min_position_size: minimum USDT per trade (default 12)
   risk_control.min_risk_reward_ratio: minimum profit/loss ratio required (default 3 = 3:1)
   risk_control.min_confidence: minimum AI confidence to open position (default 75, range 60-90)
-  prompt_sections.role_definition: describe the AI's trading persona and goal
-  prompt_sections.trading_frequency: guidelines on how often to trade
-  prompt_sections.entry_standards: conditions that must align before entering a position
-  prompt_sections.decision_process: step-by-step decision-making framework`,
+  strategy_prompt: single string — full user-authored strategy narrative injected into the system prompt (preferred)
+  prompt_sections: legacy four-field split; used only when strategy_prompt is empty`,
 				s.handleCreateStrategy)
 			s.routeWithSchema(protected, "PUT", "/strategies/:id", "Update an existing strategy — WORKFLOW: 1) GET /api/strategies/:id first to read current config 2) Merge your changes into the full config 3) PUT with complete merged config 4) GET again to verify saved values",
 				`Body: {"name":"<string>","description":"<string>","config":<complete StrategyConfig — same structure as POST /api/strategies>}
 IMPORTANT: config is merged with existing values server-side, but always send the complete section you are modifying.
 After updating, always GET /api/strategies/:id to verify and show the user actual saved values.`,
 				s.handleUpdateStrategy)
+			s.routeWithSchema(protected, "POST", "/strategies/:id/market-update", "Publish strategy content to the market and bump market_revision (for subscribers)",
+				`Body same as PUT /strategies/:id. Requires is_public=true on the strategy. Keeps listing public and increments market_revision.`,
+				s.handlePublishMarketUpdate)
 			s.routeWithSchema(protected, "DELETE", "/strategies/:id", "Delete strategy",
 				`:id = EXACT id from GET /api/strategies. Cannot delete a strategy that is currently assigned to a running trader.`,
 				s.handleDeleteStrategy)
@@ -342,7 +385,8 @@ Returns: [{"symbol":"<string>","side":"long|short","size":<float>,"entry_price":
 				`:id = order id from GET /api/orders`,
 				s.handleOrderFills)
 			s.routeWithSchema(protected, "GET", "/open-orders", "Open orders currently on exchange",
-				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>`,
+				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&symbol=<optional, e.g. BTCUSDT>
+Omit symbol to fetch all symbols' pending orders (limits, TP/SL, etc.).`,
 				s.handleOpenOrders)
 			s.routeWithSchema(protected, "GET", "/decisions", "AI trading decisions (decision records)",
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&limit=<int, default 20>
@@ -356,6 +400,39 @@ Returns the most recent AI decision for each symbol analyzed in the last scan cy
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>
 Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_pnl":<float>,"sharpe_ratio":<float>,"max_drawdown":<float>}`,
 				s.handleStatistics)
+
+			s.route(protected, "GET", "/comkun/follow-balance", "Comkun compliant follow: platform wallet balance", s.handleComkunFollowBalance)
+
+			admin := protected.Group("/admin", s.adminMiddleware())
+			{
+				s.route(admin, "GET", "/users-overview", "Admin: list users with balance and Binance positions", s.handleAdminUsersOverview)
+				s.route(admin, "GET", "/invites-overview", "Admin: list invite partners and their customers", s.handleAdminInviteOverview)
+				s.route(admin, "GET", "/ai-platform-usage", "Admin: AI platform usage billing ledger", s.handleAdminAIPlatformUsage)
+				s.route(admin, "GET", "/binance-broker-rebates", "Admin: Binance broker rebate records", s.handleAdminBinanceBrokerRebates)
+				s.route(admin, "GET", "/users/:id", "Admin: user detail and wallet ledger", s.handleAdminUserDetail)
+				s.route(admin, "POST", "/users/:id/wallet-adjust", "Admin: adjust user platform balance", s.handleAdminUserWalletAdjust)
+				s.route(admin, "POST", "/traders/:id/start", "Admin: start trader on behalf of owner", s.handleAdminStartTrader)
+				s.route(admin, "POST", "/traders/:id/stop", "Admin: stop trader on behalf of owner", s.handleAdminStopTrader)
+				s.route(admin, "POST", "/traders/:id/sync-positions-from-exchange", "Admin: rebuild OPEN positions from exchange (fix stale DB)", s.handleAdminSyncTraderPositionsFromExchange)
+				s.route(admin, "POST", "/comkun/flatten-all-follow-traders", "Admin: market-close positions for all comkun market-follow traders", s.handleAdminFlattenAllComkunFollowTraders)
+				s.route(admin, "POST", "/comkun/master-broadcast", "Admin: publish master analysis+decisions for comkun follow subscribers", s.handleAdminComkunMasterBroadcast)
+				s.route(admin, "POST", "/comkun/trader-token-credit", "Admin: credit comkun virtual follow tokens to a trader", s.handleAdminComkunTraderTokenCredit)
+				s.route(admin, "POST", "/notifications/broadcast", "Admin: publish in-app broadcast visible to all logged-in users", s.handleAdminBroadcastNotification)
+				s.route(admin, "POST", "/strategies/:id/market-review", "Admin: approve or reject a customer strategy market listing request", s.handleAdminStrategyMarketReview)
+				s.route(admin, "POST", "/rebate/set-user-attrs", "Admin: set rebate VIP/studio on agent service", s.handleAdminRebateSetUserAttrs)
+				s.route(admin, "GET", "/outbound-proxy-pool", "Admin: SOCKS5 outbound proxy pool + assignments", s.handleAdminOutboundProxyPoolList)
+				s.route(admin, "POST", "/outbound-proxy-pool/import", "Admin: bulk import SOCKS5 proxy lines", s.handleAdminOutboundProxyPoolImport)
+				s.route(admin, "DELETE", "/outbound-proxy-pool/:id", "Admin: delete unassigned pool entry", s.handleAdminOutboundProxyPoolDelete)
+				s.route(admin, "POST", "/outbound-proxy-pool/:id/release", "Admin: force release pool assignment and clear exchange proxy", s.handleAdminOutboundProxyPoolRelease)
+				s.route(admin, "POST", "/outbound-proxy-pool/:id/assign", "Admin: bind unassigned pool entry to exchange + set outbound proxy", s.handleAdminOutboundProxyPoolAssign)
+				s.route(admin, "GET", "/outbound-proxy-faults", "Admin: recent outbound proxy REST failures", s.handleAdminOutboundProxyFaults)
+			}
+
+			finance := protected.Group("/finance", s.financeMiddleware())
+			{
+				s.route(finance, "GET", "/users-lite", "Finance: list users id/email/balance for crediting customers", s.handleFinanceUsersLite)
+				s.route(finance, "POST", "/users/:id/wallet-adjust", "Finance: positive balance credit for a customer (same rebate path as admin positive adjust)", s.handleFinanceUserWalletAdjust)
+			}
 
 		}
 	}
@@ -371,9 +448,9 @@ func (s *Server) handleHealth(c *gin.Context) {
 
 // handleGetSystemConfig Get system configuration (configuration that client needs to know)
 func (s *Server) handleGetSystemConfig(c *gin.Context) {
-	userCount, _ := s.store.User().Count()
+	initialized := true
 	c.JSON(http.StatusOK, gin.H{
-		"initialized":      userCount > 0,
+		"initialized":      initialized,
 		"btc_eth_leverage": 10,
 		"altcoin_leverage": 5,
 	})
@@ -513,25 +590,18 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	userID := c.GetString("user_id")
 	traderID := c.Query("trader_id")
 
-	// Ensure user's traders are loaded into memory
-	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
-		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
-	}
-
 	if traderID == "" {
-		// If no trader_id specified, return first trader for this user
-		ids := s.traderManager.GetTraderIDs()
-		if len(ids) == 0 {
-			return nil, "", fmt.Errorf("No available traders")
-		}
-
-		// Get user's trader list, prioritize returning user's own traders
+		// 仅使用当前登录用户自己的交易员；禁止回退到全局内存里的第一个 id（否则会串号、看到别人 AI 动态）
 		userTraders, err := s.store.Trader().List(userID)
-		if err == nil && len(userTraders) > 0 {
-			traderID = userTraders[0].ID
-		} else {
-			traderID = ids[0]
+		if err != nil || len(userTraders) == 0 {
+			return nil, "", fmt.Errorf("trader_id is required (no traders for this account)")
+		}
+		traderID = userTraders[0].ID
+	}
+	if _, err := s.traderManager.GetTrader(traderID); err != nil {
+		// 只有内存里缺这个交易员时才加载，避免数据看板每个接口都反复重载交易员造成卡顿。
+		if loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID); loadErr != nil {
+			logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, loadErr)
 		}
 	}
 

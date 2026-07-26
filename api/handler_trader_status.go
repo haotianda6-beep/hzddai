@@ -158,7 +158,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
+		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)), exchangeCfg.Testnet)
 	case "hyperliquid":
 		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
@@ -176,23 +176,28 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		tempTrader = bybit.NewBybitTrader(
 			string(exchangeCfg.APIKey),
 			string(exchangeCfg.SecretKey),
+			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
 		)
 	case "okx":
 		tempTrader = okx.NewOKXTrader(
 			string(exchangeCfg.APIKey),
 			string(exchangeCfg.SecretKey),
 			string(exchangeCfg.Passphrase),
+			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
 		)
 	case "bitget":
 		tempTrader = bitget.NewBitgetTrader(
 			string(exchangeCfg.APIKey),
 			string(exchangeCfg.SecretKey),
 			string(exchangeCfg.Passphrase),
+			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
 		)
 	case "gate":
-		tempTrader = gate.NewGateTrader(
+		tempTrader = gate.NewGateTraderWithTestnet(
 			string(exchangeCfg.APIKey),
 			string(exchangeCfg.SecretKey),
+			exchangeCfg.Testnet,
+			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
 		)
 	case "kucoin":
 		tempTrader = kucoin.NewKuCoinTrader(

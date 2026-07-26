@@ -1,0 +1,286 @@
+/* 找回密码：与 index/crypto-recover.html 布局一致，壳层与 crypto-login 共用 */
+
+.crypto-recover-root.crypto-login-root .crypto-login-scanline {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.012) 2px,
+    rgba(0, 0, 0, 0.012) 4px
+  );
+}
+
+.crypto-recover-card.crypto-login-card {
+  width: 460px;
+  max-width: 95vw;
+}
+
+.crypto-recover-card-static .crypto-login-card-body {
+  padding: 44px 40px 36px;
+}
+.crypto-recover-card-static .crypto-login-logo-area {
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.crypto-recover-card-static .crypto-login-coin-logo {
+  width: 42px;
+  height: 42px;
+  box-shadow:
+    0 0 20px rgba(197, 216, 62, 0.3),
+    0 0 40px rgba(197, 216, 62, 0.15),
+    inset 0 0 0 3px var(--cl-surface);
+}
+.crypto-recover-card-static .crypto-login-coin-logo::after {
+  content: 'C';
+  font-size: 22px;
+}
+.crypto-recover-card-static .crypto-login-logo-text {
+  font-size: 13px;
+}
+.crypto-recover-card-static .crypto-login-title {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.crypto-recover-card-static .crypto-login-subtitle {
+  font-size: 11px;
+  margin-bottom: 24px;
+}
+
+/* 步骤圆点与下方文案略收紧；整块与第一步表单拉开，避免和「邮箱」贴死 */
+.crypto-recover-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 6px;
+}
+.crypto-recover-step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(197, 216, 62, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--cl-text-dim, #71717a);
+  background: var(--cl-surface2, #18181d);
+  transition: all 0.35s ease;
+  font-weight: 600;
+}
+.crypto-recover-step-dot.crypto-recover-done {
+  border-color: var(--wasabi, #d4ff33);
+  background: rgba(197, 216, 62, 0.08);
+  color: var(--wasabi, #d4ff33);
+}
+.crypto-recover-step-dot.crypto-recover-active {
+  border-color: var(--wasabi, #d4ff33);
+  background: var(--wasabi, #d4ff33);
+  color: var(--cl-bg, #0a0a0a);
+  box-shadow: 0 0 16px rgba(197, 216, 62, 0.35);
+}
+.crypto-recover-step-line {
+  width: 50px;
+  height: 1px;
+  background: rgba(197, 216, 62, 0.1);
+  transition: background 0.35s;
+}
+.crypto-recover-step-line.crypto-recover-done {
+  background: var(--wasabi, #d4ff33);
+}
+.crypto-recover-step-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  margin-bottom: 14px;
+  padding: 0 18px;
+}
+.crypto-recover-step-label {
+  font-size: 10px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  transition: color 0.35s;
+}
+.crypto-recover-step-label.crypto-recover-active,
+.crypto-recover-step-label.crypto-recover-done {
+  color: var(--wasabi, #d4ff33);
+}
+
+.crypto-recover-panel {
+  display: none;
+  animation: crypto-recover-panel-in 0.4s ease;
+}
+.crypto-recover-panel.crypto-recover-panel-active {
+  display: block;
+}
+@keyframes crypto-recover-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.crypto-recover-btn-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+.crypto-recover-btn-row .crypto-login-btn {
+  flex: 1;
+  margin-top: 0;
+}
+.crypto-login-btn.crypto-recover-btn-secondary {
+  border-color: rgba(197, 216, 62, 0.22);
+  color: var(--cl-text-dim, #a1a1aa);
+}
+.crypto-login-btn.crypto-recover-btn-secondary:hover:not(:disabled)::before {
+  background: rgba(197, 216, 62, 0.08);
+}
+.crypto-login-btn.crypto-recover-btn-secondary:hover:not(:disabled) {
+  color: var(--cl-text, #e8e8ec);
+  box-shadow: none;
+}
+
+/* 验证码行内按钮（与静态 .code-btn 一致） */
+.crypto-recover-code-wrap {
+  display: flex;
+  align-items: center;
+  background: var(--cl-surface2, #18181d);
+  border: 1px solid rgba(197, 216, 62, 0.08);
+  transition:
+    border-color 0.3s,
+    box-shadow 0.3s;
+}
+.crypto-recover-code-wrap:focus-within {
+  border-color: var(--wasabi, #d4ff33);
+  box-shadow:
+    0 0 0 1px rgba(197, 216, 62, 0.2),
+    0 0 20px rgba(197, 216, 62, 0.08);
+}
+.crypto-recover-code-wrap input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 12px 12px 8px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--cl-text, #e8e8ec);
+  font-size: 13px;
+  font-family: inherit;
+}
+.crypto-recover-code-btn {
+  flex-shrink: 0;
+  margin-right: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--wasabi, #d4ff33);
+  background: transparent;
+  color: var(--wasabi, #d4ff33);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 1px;
+  white-space: nowrap;
+  transition: all 0.25s;
+}
+.crypto-recover-code-btn:hover:not(:disabled) {
+  background: rgba(197, 216, 62, 0.1);
+  box-shadow: 0 0 12px rgba(197, 216, 62, 0.15);
+}
+.crypto-recover-code-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.crypto-recover-code-btn.crypto-recover-code-sent {
+  border-color: rgba(197, 216, 62, 0.22);
+  color: var(--cl-text-dim, #71717a);
+  pointer-events: none;
+}
+
+.crypto-recover-switch {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 1px;
+}
+.crypto-recover-switch a {
+  color: var(--wasabi, #d4ff33);
+  text-decoration: none;
+  margin-left: 6px;
+}
+.crypto-recover-switch a:hover {
+  text-decoration: underline;
+}
+
+.crypto-recover-terminal {
+  text-align: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 0.5px;
+}
+
+.crypto-recover-coin-fast .crypto-login-coin-logo {
+  animation-duration: 0.35s !important;
+}
+
+/* 成功火花（与注册页一致） */
+.crypto-recover-spark {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  width: 2px;
+  background: var(--wasabi, #d4ff33);
+  border-radius: 50%;
+  box-shadow:
+    0 0 6px var(--wasabi, #d4ff33),
+    0 0 14px var(--wasabi-glow, #d4e64a);
+}
+@keyframes crypto-recover-spark-line {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0);
+  }
+}
+
+.crypto-login-btn.crypto-recover-btn-success {
+  border-color: #4ade80;
+  color: #4ade80;
+  pointer-events: none;
+  animation: crypto-recover-btn-glow 1.5s ease-in-out infinite alternate;
+}
+@keyframes crypto-recover-btn-glow {
+  0% {
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
+  }
+  100% {
+    box-shadow:
+      0 0 28px rgba(74, 222, 128, 0.45),
+      0 0 56px rgba(74, 222, 128, 0.18);
+  }
+}
+
+@media (max-width: 500px) {
+  .crypto-recover-card-static .crypto-login-card-body {
+    padding: 32px 22px 28px;
+  }
+  .crypto-recover-btn-row {
+    flex-direction: column;
+  }
+  .crypto-recover-step-line {
+    width: 28px;
+  }
+  .crypto-recover-step-labels {
+    padding: 0 8px;
+  }
+}

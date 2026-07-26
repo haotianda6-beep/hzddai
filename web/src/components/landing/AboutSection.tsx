@@ -26,7 +26,7 @@ export default function AboutSection({ language }: AboutSectionProps) {
   ]
 
   return (
-    <section className="py-24 relative overflow-hidden" style={{ background: '#0B0E11' }}>
+    <section className="relative overflow-hidden py-24" style={{ background: '#0b0b0b' }}>
       {/* Background Decoration */}
       <div
         className="absolute top-0 right-0 w-96 h-96 rounded-full blur-3xl opacity-30"
@@ -107,8 +107,8 @@ export default function AboutSection({ language }: AboutSectionProps) {
             <div
               className="rounded-2xl overflow-hidden"
               style={{
-                background: '#0D1117',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                background: '#1c1c1c',
+                border: '1px solid rgba(255, 255, 255, 0.07)',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
               }}
             >

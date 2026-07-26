@@ -215,6 +215,8 @@ export class HttpClient {
       params?: any
       headers?: Record<string, string>
       silent?: boolean
+      /** 覆盖默认 30s；主控看板接口在跟单用户多时会较慢 */
+      timeout?: number
     } = {}
   ): Promise<ApiResponse<T>> {
     try {
@@ -224,6 +226,7 @@ export class HttpClient {
         data: options.data,
         params: options.params,
         headers: options.headers,
+        ...(options.timeout != null && { timeout: options.timeout }),
         ...(options.silent && { silentError: true }),
       })
 
@@ -258,9 +261,10 @@ export class HttpClient {
   async get<T = any>(
     url: string,
     params?: any,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    options?: { timeout?: number; silent?: boolean }
   ): Promise<ApiResponse<T>> {
-    return this.request<T>(url, { method: 'GET', params, headers })
+    return this.request<T>(url, { method: 'GET', params, headers, ...options })
   }
 
   /**

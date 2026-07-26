@@ -143,15 +143,18 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
   }
 
   return (
-    <div className={`nofx-glass rounded-lg border border-white/5 relative z-10 w-full flex flex-col transition-all duration-300 ${typeof window !== 'undefined' && window.innerWidth < 768 ? 'h-[500px]' : 'h-[600px]'
-      }`}>
+    <div
+      className={`nofx-glass relative z-10 flex w-full flex-col rounded-lg border border-white/5 transition-all duration-300 ${
+        typeof window !== 'undefined' && window.innerWidth < 768 ? 'h-[320px]' : 'h-[360px]'
+      }`}
+    >
       {/* 
         Premium Professional Toolbar 
         Mobile: Single row, horizontal scroll with gradient mask
         Desktop: Standard flex-wrap/nowrap
       */}
       <div
-        className="relative z-20 flex flex-wrap md:flex-nowrap items-center justify-between gap-y-2 px-3 py-2 shrink-0 backdrop-blur-md bg-[#0B0E11]/80 rounded-t-lg"
+        className="relative z-20 flex flex-wrap md:flex-nowrap items-center justify-between gap-y-2 px-3 py-2 shrink-0 backdrop-blur-md bg-nofx-bg-tertiary/80 rounded-t-lg"
         style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}
       >
         {/* Left: Tab Switcher */}
@@ -159,7 +162,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
           <button
             onClick={() => setActiveTab('equity')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${activeTab === 'equity'
-              ? 'bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 shadow-[0_0_10px_rgba(240,185,11,0.1)]'
+              ? 'bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/25 shadow-[0_0_10px_rgba(212,255,51,0.14)]'
               : 'text-nofx-text-muted hover:text-nofx-text-main hover:bg-white/5'
               }`}
           >
@@ -171,7 +174,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
           <button
             onClick={() => setActiveTab('kline')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${activeTab === 'kline'
-              ? 'bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 shadow-[0_0_10px_rgba(240,185,11,0.1)]'
+              ? 'bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/25 shadow-[0_0_10px_rgba(212,255,51,0.14)]'
               : 'text-nofx-text-muted hover:text-nofx-text-main hover:bg-white/5'
               }`}
           >
@@ -219,7 +222,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
                     <ChevronDown className={`w-3 h-3 text-nofx-text-muted transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
                   </button>
                   {showDropdown && (
-                    <div className="absolute top-full right-0 mt-2 w-64 bg-[#0B0E11] border border-white/10 rounded-lg shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] z-50 overflow-hidden nofx-glass ring-1 ring-white/5">
+                    <div className="absolute top-full right-0 mt-2 w-64 bg-nofx-bg-tertiary border border-white/10 rounded-lg shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] z-50 overflow-hidden nofx-glass ring-1 ring-white/5">
                       <div className="p-2 border-b border-white/5">
                         <div className="flex items-center gap-2 px-2 py-1.5 bg-black/40 rounded border border-white/10 focus-within:border-nofx-gold/50 transition-colors">
                           <Search className="w-3.5 h-3.5 text-nofx-text-muted" />
@@ -297,7 +300,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
       </div>
 
       {/* Tab Content - Chart autosizes to this container */}
-      <div className="relative flex-1 bg-[#0B0E11]/50 rounded-b-lg overflow-hidden h-full min-h-0">
+      <div className="relative flex-1 bg-nofx-bg-tertiary/50 rounded-b-lg overflow-hidden h-full min-h-0">
         <AnimatePresence mode="wait">
           {activeTab === 'equity' ? (
             <motion.div

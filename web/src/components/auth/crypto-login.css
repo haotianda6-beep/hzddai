@@ -1,0 +1,641 @@
+/* COMKUN 加密风格登录页（由 index/crypto-login.html 迁入，仅登录路由使用） */
+.crypto-login-root {
+  --wasabi: #d4ff33;
+  --wasabi-glow: #d4e64a;
+  --wasabi-deep: #9aaf1c;
+  --wasabi-dim: rgba(197, 216, 62, 0.12);
+  --cl-bg: #0a0a0a;
+  --cl-surface: #111114;
+  --cl-surface2: #18181d;
+  --cl-text: #e8e8ec;
+  --cl-text-dim: #71717a;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cl-bg);
+  font-family:
+    'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'PingFang SC', 'Microsoft YaHei', monospace;
+  overflow-x: hidden;
+  cursor: default;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.crypto-login-root *,
+.crypto-login-root *::before,
+.crypto-login-root *::after {
+  box-sizing: border-box;
+}
+
+.crypto-login-grid-bg {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(197, 216, 62, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(197, 216, 62, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  z-index: 0;
+}
+
+.crypto-login-scanline {
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.crypto-login-ticker {
+  position: fixed;
+  top: 24px;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 8px 0;
+  border-top: 1px solid rgba(197, 216, 62, 0.1);
+  border-bottom: 1px solid rgba(197, 216, 62, 0.1);
+}
+
+.crypto-login-ticker-inner {
+  display: inline-flex;
+  gap: 48px;
+  animation: crypto-login-ticker-scroll 30s linear infinite;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+@keyframes crypto-login-ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.crypto-login-ticker-item {
+  color: var(--cl-text-dim);
+  white-space: nowrap;
+}
+.crypto-login-ticker-sym {
+  color: var(--wasabi);
+  font-weight: 600;
+}
+.crypto-login-ticker-up {
+  color: #4ade80;
+}
+.crypto-login-ticker-down {
+  color: #f87171;
+}
+
+.crypto-login-nodes-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.crypto-login-node {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: var(--wasabi);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--wasabi), 0 0 20px var(--wasabi-glow);
+  animation: crypto-login-node-pulse 3s ease-in-out infinite;
+}
+@keyframes crypto-login-node-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(2.5);
+  }
+}
+
+.crypto-login-chart-bars {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.crypto-login-candle {
+  position: absolute;
+  bottom: -40px;
+  width: 3px;
+  background: var(--wasabi);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(197, 216, 62, 0.4);
+  animation: crypto-login-candle-rise linear infinite;
+}
+@keyframes crypto-login-candle-rise {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.7;
+  }
+  90% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(-110vh);
+    opacity: 0;
+  }
+}
+
+.crypto-login-card {
+  position: relative;
+  z-index: 5;
+  width: 440px;
+  max-width: 93vw;
+  background: var(--cl-surface);
+  border: 1px solid rgba(197, 216, 62, 0.1);
+  border-radius: 2px;
+  padding: 0;
+  animation: crypto-login-card-entry 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 0 0 1px rgba(197, 216, 62, 0.04),
+    0 20px 60px rgba(0, 0, 0, 0.6),
+    0 0 80px rgba(197, 216, 62, 0.03);
+  clip-path: polygon(
+    0 20px,
+    20px 0,
+    calc(100% - 20px) 0,
+    100% 20px,
+    100% calc(100% - 20px),
+    calc(100% - 20px) 100%,
+    20px 100%,
+    0 calc(100% - 20px)
+  );
+}
+@keyframes crypto-login-card-entry {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+    filter: blur(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.crypto-login-card::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 1px solid rgba(197, 216, 62, 0.06);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.crypto-login-card-accent {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--wasabi-deep),
+    var(--wasabi),
+    var(--wasabi-glow),
+    var(--wasabi),
+    var(--wasabi-deep),
+    transparent
+  );
+  position: relative;
+}
+.crypto-login-card-accent::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  filter: blur(8px);
+  opacity: 0.6;
+}
+
+.crypto-login-card-body {
+  padding: 48px 44px 40px;
+  position: relative;
+}
+
+.crypto-login-logo-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 36px;
+}
+.crypto-login-coin-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    var(--wasabi-glow) 0deg,
+    var(--wasabi) 45deg,
+    var(--wasabi-deep) 90deg,
+    var(--wasabi) 180deg,
+    var(--wasabi-glow) 225deg,
+    var(--wasabi-deep) 270deg,
+    var(--wasabi) 315deg,
+    var(--wasabi-glow) 360deg
+  );
+  animation: crypto-login-coin-spin 4s linear infinite;
+  box-shadow:
+    0 0 20px rgba(197, 216, 62, 0.3),
+    0 0 40px rgba(197, 216, 62, 0.15),
+    inset 0 0 0 4px var(--cl-surface);
+  position: relative;
+}
+@keyframes crypto-login-coin-spin {
+  0% {
+    transform: rotateY(0deg);
+    filter: brightness(1);
+  }
+  50% {
+    transform: rotateY(180deg);
+    filter: brightness(1.3);
+  }
+  100% {
+    transform: rotateY(360deg);
+    filter: brightness(1);
+  }
+}
+.crypto-login-coin-logo::after {
+  content: '₿';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cl-bg);
+  font-size: 28px;
+  font-weight: 900;
+  z-index: 2;
+  animation: crypto-login-coin-symbol 4s linear infinite;
+}
+@keyframes crypto-login-coin-symbol {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(-1);
+  }
+}
+
+.crypto-login-logo-text {
+  color: var(--cl-text);
+  font-size: 14px;
+  letter-spacing: 2px;
+  font-weight: 300;
+}
+
+.crypto-login-title {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--cl-text);
+  margin-bottom: 6px;
+  text-shadow: 0 0 40px rgba(197, 216, 62, 0.3);
+}
+
+.crypto-login-subtitle {
+  text-align: center;
+  font-size: 12px;
+  color: var(--wasabi-deep);
+  letter-spacing: 3px;
+  margin-bottom: 38px;
+  text-transform: uppercase;
+}
+
+.crypto-login-input-group {
+  position: relative;
+  margin-bottom: 20px;
+}
+.crypto-login-input-group label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cl-text-dim);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.crypto-login-input-wrap {
+  position: relative;
+  background: var(--cl-surface2);
+  border: 1px solid rgba(197, 216, 62, 0.08);
+  border-radius: 2px;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+.crypto-login-input-wrap:focus-within {
+  border-color: var(--wasabi);
+  box-shadow:
+    0 0 0 1px rgba(197, 216, 62, 0.2),
+    0 0 20px rgba(197, 216, 62, 0.08);
+}
+.crypto-login-input-wrap input {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--cl-text);
+  font-size: 14px;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+}
+.crypto-login-input-wrap input::placeholder {
+  color: rgba(113, 113, 122, 0.45);
+  letter-spacing: 1px;
+}
+.crypto-login-input-wrap::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: var(--wasabi);
+  transform: scaleX(0);
+  transition: transform 0.4s ease;
+  opacity: 0.5;
+}
+.crypto-login-input-wrap:focus-within::after {
+  transform: scaleX(1);
+}
+
+.crypto-login-btn {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--wasabi);
+  border-radius: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: var(--wasabi);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s ease;
+  text-transform: uppercase;
+  margin-top: 10px;
+}
+.crypto-login-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--wasabi);
+  transform: translateX(-101%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 0;
+}
+.crypto-login-btn:hover:not(:disabled)::before {
+  transform: translateX(0);
+}
+.crypto-login-btn:hover:not(:disabled) {
+  color: var(--cl-bg);
+  box-shadow:
+    0 0 30px rgba(197, 216, 62, 0.25),
+    0 0 60px rgba(197, 216, 62, 0.1);
+}
+.crypto-login-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.crypto-login-btn span {
+  position: relative;
+  z-index: 1;
+}
+.crypto-login-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.crypto-login-extras {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 24px;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.crypto-login-extras a {
+  color: var(--cl-text-dim);
+  text-decoration: none;
+  transition: color 0.3s;
+  position: relative;
+}
+.crypto-login-extras a::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--wasabi);
+  transform: scaleX(0);
+  transition: transform 0.3s;
+}
+.crypto-login-extras a:hover {
+  color: var(--wasabi);
+}
+.crypto-login-extras a:hover::after {
+  transform: scaleX(1);
+}
+
+.crypto-login-shake {
+  animation: crypto-login-shake 0.5s ease;
+}
+@keyframes crypto-login-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-8px);
+  }
+  30% {
+    transform: translateX(8px);
+  }
+  50% {
+    transform: translateX(-5px);
+  }
+  65% {
+    transform: translateX(5px);
+  }
+  80% {
+    transform: translateX(-2px);
+  }
+}
+
+.crypto-login-terminal-line {
+  text-align: center;
+  margin-top: 32px;
+  font-size: 11px;
+  color: var(--cl-text-dim);
+  letter-spacing: 1px;
+}
+.crypto-login-terminal-blink {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--wasabi);
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  animation: crypto-login-cursor-blink 0.8s step-end infinite;
+  box-shadow: 0 0 6px var(--wasabi);
+}
+@keyframes crypto-login-cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.crypto-login-err {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 480px) {
+  .crypto-login-card-body {
+    padding: 36px 24px 32px;
+  }
+  .crypto-login-title {
+    font-size: 22px;
+    letter-spacing: 3px;
+  }
+}
+
+@media (max-width: 640px) {
+  .crypto-login-root {
+    min-height: 100dvh;
+    align-items: flex-start;
+    padding: max(16px, env(safe-area-inset-top)) 12px max(24px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    cursor: auto;
+  }
+
+  .crypto-login-grid-bg {
+    background-size: 42px 42px;
+  }
+
+  .crypto-login-node,
+  .crypto-login-candle {
+    opacity: 0.55;
+  }
+
+  .crypto-login-card {
+    width: 100%;
+    max-width: 440px;
+    margin: 8px 0 16px;
+  }
+
+  .crypto-login-card-body {
+    padding: 34px 22px 28px;
+  }
+
+  .crypto-login-logo-area {
+    margin-bottom: 24px;
+  }
+
+  .crypto-login-coin-logo {
+    width: 44px;
+    height: 44px;
+  }
+
+  .crypto-login-title {
+    font-size: 24px;
+    letter-spacing: 3px;
+  }
+
+  .crypto-login-subtitle {
+    margin-bottom: 28px;
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  .crypto-login-input-group {
+    margin-bottom: 16px;
+  }
+
+  .crypto-login-input-wrap input {
+    min-height: 46px;
+    padding: 12px;
+    font-size: 16px;
+    letter-spacing: 0;
+  }
+
+  .crypto-login-input-wrap input::placeholder {
+    letter-spacing: 0;
+  }
+
+  .crypto-login-btn {
+    min-height: 48px;
+    padding: 13px;
+  }
+
+  .crypto-login-extras {
+    margin-top: 18px;
+    gap: 14px;
+  }
+
+  .crypto-login-extras a {
+    padding: 6px 0;
+  }
+
+  .crypto-login-terminal-line {
+    margin-top: 22px;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 360px) {
+  .crypto-login-root {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .crypto-login-card-body {
+    padding: 30px 18px 24px;
+  }
+
+  .crypto-login-logo-text,
+  .crypto-login-terminal-line {
+    letter-spacing: 0.5px;
+  }
+
+  .crypto-login-title {
+    font-size: 21px;
+    letter-spacing: 2px;
+  }
+
+  .crypto-login-subtitle {
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
-  LineChart,
+  ComposedChart,
+  Area,
   Line,
   XAxis,
   YAxis,
@@ -31,6 +32,57 @@ interface EquityPoint {
   cycle_number: number
 }
 
+/** 同一分钟内只保留最后一个点，作为 1 分钟序列的锚点 */
+function bucketLastPerMinute(history: EquityPoint[]): EquityPoint[] {
+  if (history.length === 0) return []
+  const map = new Map<string, EquityPoint>()
+  for (const p of history) {
+    const d = new Date(p.timestamp)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    const prev = map.get(key)
+    if (!prev || new Date(p.timestamp).getTime() >= new Date(prev.timestamp).getTime()) {
+      map.set(key, p)
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  )
+}
+
+/** 在相邻分钟锚点之间按分钟线性插值，避免折线「折成直角」；跨度过大时不插值以控点数 */
+function interpolateEquityPerMinute(points: EquityPoint[]): EquityPoint[] {
+  if (points.length <= 1) return points
+  const MAX_GAP_MS = 8 * 60 * 60 * 1000 // 超过 8 小时的大空档不逐分钟填
+  const out: EquityPoint[] = [points[0]]
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = out[out.length - 1]
+    const b = points[i + 1]
+    const ta = new Date(a.timestamp).getTime()
+    const tb = new Date(b.timestamp).getTime()
+    if (tb <= ta) {
+      out.push(b)
+      continue
+    }
+    const gap = tb - ta
+    if (gap <= MAX_GAP_MS && gap > 60 * 1000) {
+      let t = ta + 60 * 1000
+      while (t < tb) {
+        const r = (t - ta) / gap
+        out.push({
+          timestamp: new Date(t).toISOString(),
+          total_equity: a.total_equity + (b.total_equity - a.total_equity) * r,
+          pnl: a.pnl + (b.pnl - a.pnl) * r,
+          pnl_pct: a.pnl_pct + (b.pnl_pct - a.pnl_pct) * r,
+          cycle_number: b.cycle_number ?? a.cycle_number,
+        })
+        t += 60 * 1000
+      }
+    }
+    out.push(b)
+  }
+  return out
+}
+
 interface EquityChartProps {
   traderId?: string
   embedded?: boolean // 嵌入模式（不显示外层卡片）
@@ -45,9 +97,11 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
     user && token && traderId ? `equity-history-${traderId}` : null,
     () => api.getEquityHistory(traderId, true),
     {
-      refreshInterval: 30000, // 30秒刷新（历史数据更新频率较低）
+      refreshInterval: 60000,
       revalidateOnFocus: false,
-      dedupingInterval: 20000,
+      dedupingInterval: 45000,
+      errorRetryCount: 8,
+      errorRetryInterval: 3000,
     }
   )
 
@@ -77,7 +131,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
     )
   }
 
-  if (error) {
+  if (error && !history) {
     return (
       <div className={embedded ? 'p-6' : 'binance-card p-6'}>
         <div
@@ -93,7 +147,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
               {t('loadingError', language)}
             </div>
             <div className="text-sm" style={{ color: '#848E9C' }}>
-              {error.message}
+              {language === 'zh' ? '净值数据正在重试，请稍后刷新。' : 'Retrying equity data, please refresh later.'}
             </div>
           </div>
         </div>
@@ -125,13 +179,13 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
     )
   }
 
+  const perMinute = bucketLastPerMinute(validHistory)
+  const smoothSeries = interpolateEquityPerMinute(perMinute)
+
   // 限制显示最近的数据点（性能优化）
-  // 如果数据超过2000个点，只显示最近2000个
-  const MAX_DISPLAY_POINTS = 2000
+  const MAX_DISPLAY_POINTS = 4000
   const displayHistory =
-    validHistory.length > MAX_DISPLAY_POINTS
-      ? validHistory.slice(-MAX_DISPLAY_POINTS)
-      : validHistory
+    smoothSeries.length > MAX_DISPLAY_POINTS ? smoothSeries.slice(-MAX_DISPLAY_POINTS) : smoothSeries
 
   // 计算初始余额（优先从 account 获取配置的初始余额，备选从历史数据反推）
   const initialBalance =
@@ -186,13 +240,17 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
+      const cycleLine =
+        language === 'zh'
+          ? `周期 ${data.cycle != null ? data.cycle : '—'}`
+          : `Cycle #${data.cycle != null ? data.cycle : '—'}`
       return (
         <div
           className="rounded p-3 shadow-xl"
-          style={{ background: '#1E2329', border: '1px solid #2B3139' }}
+          style={{ background: '#1c1c1c', border: '1px solid #2B3139' }}
         >
           <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-            Cycle #{data.cycle != null ? data.cycle : '—'}
+            {cycleLine}
           </div>
           <div className="font-bold mono" style={{ color: '#EAECEF' }}>
             {data.raw_equity.toFixed(2)} USDT
@@ -274,7 +332,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
         {/* Display Mode Toggle */}
         <div
           className="flex gap-0.5 sm:gap-1 rounded p-0.5 sm:p-1 self-start sm:self-auto"
-          style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
         >
           <button
             onClick={() => setDisplayMode('dollar')}
@@ -282,7 +340,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
             style={
               displayMode === 'dollar'
                 ? {
-                    background: '#F0B90B',
+                    background: '#d4ff33',
                     color: '#000',
                     boxShadow: '0 2px 8px rgba(240, 185, 11, 0.4)',
                   }
@@ -297,7 +355,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
             style={
               displayMode === 'percent'
                 ? {
-                    background: '#F0B90B',
+                    background: '#d4ff33',
                     color: '#000',
                     boxShadow: '0 2px 8px rgba(240, 185, 11, 0.4)',
                   }
@@ -318,7 +376,7 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
           position: 'relative',
         }}
       >
-        {/* NOFX Watermark */}
+        {/* COMKUN watermark */}
         <div
           style={{
             position: 'absolute',
@@ -332,20 +390,21 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
             fontFamily: 'monospace',
           }}
         >
-          NOFX
+          COMKUN
         </div>
         <ResponsiveContainer width="100%" height={280}>
-          <LineChart
-            data={chartData}
-            margin={{ top: 10, right: 20, left: 5, bottom: 30 }}
-          >
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 5, bottom: 30 }}>
             <defs>
               <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#F0B90B" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#FCD535" stopOpacity={0.2} />
+                <stop offset="5%" stopColor="#d4ff33" stopOpacity={0.85} />
+                <stop offset="95%" stopColor="#c4cf45" stopOpacity={0.35} />
+              </linearGradient>
+              <linearGradient id="equityAreaFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#d4ff33" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="#d4ff33" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2B3139" />
+            <CartesianGrid strokeDasharray="4 6" stroke="#2B3139" strokeOpacity={0.45} vertical={false} />
             <XAxis
               dataKey="time"
               stroke="#5E6673"
@@ -379,21 +438,27 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
                 fontSize: 12,
               }}
             />
+            <Area
+              type="natural"
+              dataKey="value"
+              stroke="none"
+              fill="url(#equityAreaFill)"
+              isAnimationActive={false}
+              connectNulls
+            />
             <Line
               type="natural"
               dataKey="value"
               stroke="url(#colorGradient)"
-              strokeWidth={3}
-              dot={chartData.length > 50 ? false : { fill: '#F0B90B', r: 3 }}
-              activeDot={{
-                r: 6,
-                fill: '#FCD535',
-                stroke: '#F0B90B',
-                strokeWidth: 2,
-              }}
-              connectNulls={true}
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 4, fill: '#d4ff33', stroke: '#1c1c1c', strokeWidth: 1 }}
+              isAnimationActive
+              animationDuration={520}
+              animationEasing="ease-out"
+              connectNulls
             />
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 

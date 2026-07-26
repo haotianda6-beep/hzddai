@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -134,6 +135,74 @@ func (s *EquityStore) GetCount(traderID string) (int, error) {
 	var count int64
 	err := s.db.Model(&EquitySnapshot{}).Where("trader_id = ?", traderID).Count(&count).Error
 	return int(count), err
+}
+
+func (s *EquityStore) GetByTraderIDsSince(traderIDs []string, since time.Time) (map[string][]*EquitySnapshot, error) {
+	out := make(map[string][]*EquitySnapshot)
+	if len(traderIDs) == 0 {
+		return out, nil
+	}
+	var rows []*EquitySnapshot
+	err := s.db.Where("trader_id IN ? AND timestamp >= ?", traderIDs, since.UTC()).
+		Order("trader_id ASC, timestamp ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query equity batch: %w", err)
+	}
+	for _, row := range rows {
+		out[row.TraderID] = append(out[row.TraderID], row)
+	}
+	return out, nil
+}
+
+func (s *EquityStore) GetLatestByTraderIDs(traderIDs []string) (map[string]*EquitySnapshot, error) {
+	out := make(map[string]*EquitySnapshot)
+	if len(traderIDs) == 0 {
+		return out, nil
+	}
+	var rows []*EquitySnapshot
+	// 只取各 trader 时间最新一条；避免 WHERE trader_id IN (?) 后拉全历史再滤，管理总览在多头时易拖垮 DB
+	err := s.db.Raw(`
+		SELECT e.id, e.trader_id, e.timestamp, e.total_equity, e.balance,
+		       e.unrealized_pnl, e.position_count, e.margin_used_pct, e.created_at
+		FROM trader_equity_snapshots e
+		INNER JOIN (
+			SELECT trader_id, MAX(timestamp) as max_ts
+			FROM trader_equity_snapshots
+			WHERE trader_id IN ?
+			GROUP BY trader_id
+		) latest ON e.trader_id = latest.trader_id AND e.timestamp = latest.max_ts
+	`, traderIDs).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest equity batch: %w", err)
+	}
+	for _, row := range rows {
+		if row != nil {
+			out[row.TraderID] = row
+		}
+	}
+	return out, nil
+}
+
+func DownsampleEquityTrend(points []*EquitySnapshot, n int) []float64 {
+	if n <= 0 || len(points) == 0 {
+		return nil
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Timestamp.Before(points[j].Timestamp) })
+	if len(points) <= n {
+		out := make([]float64, 0, len(points))
+		for _, p := range points {
+			out = append(out, p.TotalEquity)
+		}
+		return out
+	}
+	out := make([]float64, 0, n)
+	lastIdx := len(points) - 1
+	for i := 0; i < n; i++ {
+		idx := int(float64(i) * float64(lastIdx) / float64(n-1))
+		out = append(out, points[idx].TotalEquity)
+	}
+	return out
 }
 
 // MigrateFromDecision migrates data from old decision_account_snapshots table

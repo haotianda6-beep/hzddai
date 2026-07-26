@@ -18,16 +18,16 @@ type AIModelStore struct {
 
 // AIModel AI model configuration
 type AIModel struct {
-	ID              string          `gorm:"primaryKey" json:"id"`
-	UserID          string          `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name            string          `gorm:"not null" json:"name"`
-	Provider        string          `gorm:"not null" json:"provider"`
-	Enabled         bool            `gorm:"default:false" json:"enabled"`
+	ID              string                 `gorm:"primaryKey" json:"id"`
+	UserID          string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name            string                 `gorm:"not null" json:"name"`
+	Provider        string                 `gorm:"not null" json:"provider"`
+	Enabled         bool                   `gorm:"default:false" json:"enabled"`
 	APIKey          crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	CustomAPIURL    string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	CustomModelName string          `gorm:"column:custom_model_name;default:''" json:"customModelName"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	CustomAPIURL    string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	CustomModelName string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
 func (AIModel) TableName() string { return "ai_models" }
@@ -207,7 +207,9 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 	}
 
 	// Create new record
-	if provider == id && (provider == "deepseek" || provider == "qwen") {
+	if id == "comkun_proxy" || id == "comkun_ai" {
+		provider = id
+	} else if provider == id && isDirectAIProvider(provider) {
 		provider = id
 	} else {
 		parts := strings.Split(id, "_")
@@ -224,10 +226,12 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 	if err := s.db.Where("provider = ?", provider).First(&refModel).Error; err == nil {
 		name = refModel.Name
 	} else {
-		if provider == "deepseek" {
-			name = "DeepSeek AI"
-		} else if provider == "qwen" {
-			name = "Qwen AI"
+		if provider == "comkun_proxy" {
+			name = "COMKUN-AI 代理模型"
+		} else if provider == "comkun_ai" {
+			name = "COMKUN-AI"
+		} else if displayName, ok := directAIProviderDisplayName(provider); ok {
+			name = displayName
 		} else {
 			name = provider + " AI"
 		}
@@ -250,6 +254,34 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		CustomModelName: customModelName,
 	}
 	return s.db.Create(newModel).Error
+}
+
+func isDirectAIProvider(provider string) bool {
+	_, ok := directAIProviderDisplayName(provider)
+	return ok
+}
+
+func directAIProviderDisplayName(provider string) (string, bool) {
+	switch provider {
+	case "openai":
+		return "OpenAI", true
+	case "claude":
+		return "Claude", true
+	case "gemini":
+		return "Gemini", true
+	case "grok":
+		return "Grok", true
+	case "deepseek":
+		return "DeepSeek", true
+	case "qwen":
+		return "Qwen", true
+	case "kimi":
+		return "Kimi", true
+	case "minimax":
+		return "MiniMax", true
+	default:
+		return "", false
+	}
 }
 
 // Create creates an AI model

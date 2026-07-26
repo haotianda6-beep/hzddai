@@ -1,0 +1,380 @@
+/* 注册页与登录共用 .crypto-login-root；以下仅注册页微调（不再包一层 page，避免影响 fixed 行情动画） */
+
+/* 扫描线减淡：默认 0.03 的横条叠多了会像黑纱盖住背景 */
+.crypto-register-root.crypto-login-root .crypto-login-scanline {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.012) 2px,
+    rgba(0, 0, 0, 0.012) 4px
+  );
+}
+
+/* 注册卡片略宽于登录默认 440，其余 ticker/top 等全部走 crypto-login.css */
+.crypto-register-card.crypto-login-card {
+  width: 520px;
+  max-width: 95vw;
+}
+
+/* —— 与静态 crypto-register.html 卡片头/标题一致 —— */
+.crypto-register-card-static .crypto-login-card-body {
+  padding: 44px 40px 36px;
+}
+.crypto-register-card-static .crypto-login-logo-area {
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.crypto-register-card-static .crypto-login-coin-logo {
+  width: 42px;
+  height: 42px;
+  box-shadow:
+    0 0 20px rgba(197, 216, 62, 0.3),
+    0 0 40px rgba(197, 216, 62, 0.15),
+    inset 0 0 0 3px var(--cl-surface);
+}
+.crypto-register-card-static .crypto-login-coin-logo::after {
+  content: 'C';
+  font-size: 22px;
+}
+.crypto-register-card-static .crypto-login-logo-text {
+  font-size: 13px;
+}
+.crypto-register-card-static .crypto-login-title {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.crypto-register-card-static .crypto-login-subtitle {
+  font-size: 11px;
+  margin-bottom: 32px;
+}
+
+/* 密码并排 + 更紧凑（与登录单行高度接近） */
+.crypto-register-pw-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+  align-items: start;
+}
+@media (max-width: 520px) {
+  .crypto-register-pw-row {
+    grid-template-columns: 1fr;
+  }
+}
+.crypto-register-pw-row .crypto-login-input-group {
+  margin-bottom: 16px;
+}
+.crypto-register-pw-row .crypto-login-input-wrap input {
+  padding: 11px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.crypto-register-pw-row .crypto-register-pw-toggle {
+  right: 6px;
+  padding: 4px;
+}
+.crypto-register-pw-row .crypto-register-pw-wrap .crypto-login-input-wrap input {
+  padding-right: 34px;
+}
+
+.crypto-register-row-email {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+@media (min-width: 640px) {
+  .crypto-register-row-email {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .crypto-register-row-email .crypto-register-email-grow {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.crypto-register-send-code {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(197, 216, 62, 0.35);
+  background: var(--cl-surface2, #18181d);
+  color: var(--wasabi, #d4ff33);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s;
+  white-space: nowrap;
+}
+.crypto-register-send-code:hover:not(:disabled) {
+  border-color: var(--wasabi-glow, #d4e64a);
+  box-shadow: 0 0 16px rgba(197, 216, 62, 0.15);
+}
+.crypto-register-send-code:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.crypto-register-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 0.3px;
+  line-height: 1.5;
+}
+
+/* 密码要求：小块 + 小字（静态页无此区，仅作紧凑辅助说明） */
+.crypto-register-checklist {
+  margin-bottom: 14px;
+  padding: 6px 8px 7px;
+  border: 1px solid rgba(197, 216, 62, 0.08);
+  background: var(--cl-surface2, #18181d);
+}
+.crypto-register-checklist-title {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--cl-text-dim, #71717a);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+.crypto-register-checklist-ul {
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+}
+.crypto-register-checklist-ul li {
+  margin: 1px 0 !important;
+  min-height: 0;
+}
+.crypto-register-checklist-ul li span {
+  font-size: 9px !important;
+  line-height: 1.25 !important;
+  padding-top: 0 !important;
+}
+.crypto-register-checklist-ul svg.checklist-icon {
+  width: 9px !important;
+  height: 9px !important;
+  margin-right: 4px !important;
+  flex-shrink: 0;
+}
+.crypto-register-checklist-ul li.valid span {
+  color: rgba(197, 216, 62, 0.85) !important;
+  opacity: 1 !important;
+}
+.crypto-register-checklist-ul li.invalid span {
+  color: #52525b !important;
+  opacity: 1 !important;
+}
+
+/* 验证码独占一行、等宽居中 */
+.crypto-register-code-input.crypto-login-input-wrap input {
+  text-align: center;
+  letter-spacing: 0.4em;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 静态页终端行：字号与静态 .terminal-line 一致 */
+.crypto-register-terminal-static {
+  text-align: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 0.5px;
+  font-family: inherit;
+}
+.crypto-register-terminal-static .crypto-login-terminal-blink {
+  margin-left: 4px;
+}
+
+/* 眼睛按钮 */
+.crypto-register-pw-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--cl-text-dim, #71717a);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.crypto-register-pw-toggle:hover {
+  color: var(--wasabi, #d4ff33);
+}
+.crypto-register-pw-wrap {
+  position: relative;
+}
+.crypto-register-pw-wrap .crypto-login-input-wrap input {
+  padding-right: 40px;
+}
+
+/* 滑块验证 */
+.crypto-reg-captcha-section {
+  margin-bottom: 20px;
+}
+.crypto-reg-captcha-section label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cl-text-dim, #71717a);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+.crypto-reg-captcha-bar {
+  position: relative;
+  height: 44px;
+  background: var(--cl-surface2, #18181d);
+  border: 1px solid rgba(197, 216, 62, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 2px;
+  transition: border-color 0.3s;
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-active {
+  border-color: var(--wasabi, #d4ff33);
+  box-shadow: 0 0 0 1px rgba(197, 216, 62, 0.2);
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-verified {
+  border-color: #4ade80;
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.3);
+}
+.crypto-reg-captcha-track {
+  position: absolute;
+  inset: 2px;
+}
+.crypto-reg-captcha-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(197, 216, 62, 0.15);
+  border-radius: 1px;
+  transition: width 0.08s linear;
+  width: 0;
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-verified .crypto-reg-captcha-fill {
+  background: rgba(74, 222, 128, 0.2);
+}
+.crypto-reg-captcha-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cl-text-dim, #71717a);
+  pointer-events: none;
+  transition: color 0.3s;
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-active .crypto-reg-captcha-text,
+.crypto-reg-captcha-bar.crypto-reg-captcha-verified .crypto-reg-captcha-text {
+  color: var(--cl-text, #e8e8ec);
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-verified .crypto-reg-captcha-text {
+  color: #4ade80;
+}
+.crypto-reg-captcha-thumb {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  width: 40px;
+  background: var(--cl-surface, #111114);
+  border: 1px solid var(--wasabi, #d4ff33);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 1px;
+  z-index: 2;
+  transition:
+    border-color 0.3s,
+    background 0.3s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  touch-action: none;
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-active .crypto-reg-captcha-thumb {
+  border-color: var(--wasabi-glow, #d4e64a);
+  box-shadow: 0 0 12px rgba(197, 216, 62, 0.3);
+}
+.crypto-reg-captcha-bar.crypto-reg-captcha-verified .crypto-reg-captcha-thumb {
+  border-color: #4ade80;
+  background: #4ade80;
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.3);
+}
+
+.crypto-login-btn.crypto-register-btn-success {
+  border-color: #4ade80;
+  color: #4ade80;
+  pointer-events: none;
+  animation: crypto-reg-btn-glow-green 1.5s ease-in-out infinite alternate;
+}
+@keyframes crypto-reg-btn-glow-green {
+  0% {
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
+  }
+  100% {
+    box-shadow:
+      0 0 30px rgba(74, 222, 128, 0.45),
+      0 0 60px rgba(74, 222, 128, 0.2);
+  }
+}
+
+/* 成功火花 */
+.crypto-reg-spark {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  width: 2px;
+  background: var(--wasabi, #d4ff33);
+  border-radius: 50%;
+  box-shadow:
+    0 0 6px var(--wasabi, #d4ff33),
+    0 0 14px var(--wasabi-glow, #d4e64a);
+}
+@keyframes crypto-reg-spark-line {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0);
+  }
+}
+
+.crypto-register-switch {
+  text-align: center;
+  margin-top: 22px;
+  font-size: 12px;
+  color: var(--cl-text-dim, #71717a);
+  letter-spacing: 1px;
+}
+.crypto-register-switch a {
+  color: var(--wasabi, #d4ff33);
+  text-decoration: none;
+  margin-left: 6px;
+}
+.crypto-register-switch a:hover {
+  text-decoration: underline;
+}
+
+.crypto-register-coin-fast .crypto-login-coin-logo {
+  animation-duration: 0.35s !important;
+}
+
+@media (max-width: 480px) {
+  .crypto-register-card-static .crypto-login-card-body {
+    padding: 36px 22px 28px;
+  }
+}

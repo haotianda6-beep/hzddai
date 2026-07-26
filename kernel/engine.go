@@ -35,6 +35,9 @@ type PositionInfo struct {
 	LiquidationPrice float64 `json:"liquidation_price"`
 	MarginUsed       float64 `json:"margin_used"`
 	UpdateTime       int64   `json:"update_time"` // Position update timestamp (milliseconds)
+	// 主控跟单广播镜像用：从交易所条件单解析后写入，便于被控在 pending_orders 偶发不全时仍能挂 SL/TP（如 SOL 专项）。
+	StopLoss   float64 `json:"stop_loss,omitempty"`
+	TakeProfit float64 `json:"take_profit,omitempty"`
 }
 
 // AccountInfo account information
@@ -75,6 +78,19 @@ type TradingStats struct {
 	MaxDrawdownPct float64 `json:"max_drawdown_pct"` // Maximum drawdown (%)
 }
 
+// PendingOrder 交易所当前挂单（限价、止盈止损条件单等），供 AI 与主控扫描使用
+type PendingOrder struct {
+	OrderID      string  `json:"order_id"`
+	Symbol       string  `json:"symbol"`
+	Side         string  `json:"side"`
+	PositionSide string  `json:"position_side,omitempty"`
+	Type         string  `json:"type"`
+	Price        float64 `json:"price"`
+	StopPrice    float64 `json:"stop_price"`
+	Quantity     float64 `json:"quantity"`
+	Status       string  `json:"status"`
+}
+
 // RecentOrder recently completed order (for AI input)
 type RecentOrder struct {
 	Symbol       string  `json:"symbol"`        // Trading pair
@@ -95,6 +111,7 @@ type Context struct {
 	CallCount          int                                `json:"call_count"`
 	Account            AccountInfo                        `json:"account"`
 	Positions          []PositionInfo                     `json:"positions"`
+	PendingOrders      []PendingOrder                     `json:"pending_orders,omitempty"`
 	CandidateCoins     []CandidateCoin                    `json:"candidate_coins"`
 	PromptVariant      string                             `json:"prompt_variant,omitempty"`
 	TradingStats       *TradingStats                      `json:"trading_stats,omitempty"`
@@ -190,10 +207,9 @@ type StrategyEngine struct {
 // claw402WalletKey is optional — if provided, nofxos data requests are routed through claw402.
 func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string) *StrategyEngine {
 	// Create NofxOS client with API key from config
-	apiKey := config.Indicators.NofxOSAPIKey
-	if apiKey == "" {
-		apiKey = nofxos.DefaultAuthKey
-	}
+	// 注意：nofxos 公共 key 已被官方废弃；平台模式下不再默认回退到公共 key。
+	// 如果用户没填 key，就保持空值（避免误走直连并触发“key deprecated”）。
+	apiKey := strings.TrimSpace(config.Indicators.NofxOSAPIKey)
 	client := nofxos.NewClient(nofxos.DefaultBaseURL, apiKey)
 
 	// If claw402 wallet key is provided (from trader's AI config), route through claw402
@@ -203,6 +219,10 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 	}
 	if walletKey == "" {
 		walletKey = os.Getenv("CLAW402_WALLET_KEY")
+	}
+	// 平台统一托管：若未配置 CLAW402_WALLET_KEY，则使用平台私钥
+	if walletKey == "" {
+		walletKey = os.Getenv("PLATFORM_CLAW402_WALLET_KEY")
 	}
 	if walletKey != "" {
 		claw402URL := os.Getenv("CLAW402_URL")
@@ -238,7 +258,7 @@ func (e *StrategyEngine) GetLanguage() Language {
 		return LangEnglish
 	default:
 		// Fall back to auto-detection from prompt content for backward compatibility
-		return detectLanguage(e.config.PromptSections.RoleDefinition)
+		return detectLanguage(e.config.MergedStrategyNarrative())
 	}
 }
 
@@ -514,6 +534,28 @@ func (e *StrategyEngine) getOITopCoins(limit int) ([]CandidateCoin, error) {
 		})
 	}
 	return candidates, nil
+}
+
+// FetchOITopDataMap 拉取 OI 增幅榜并建立 symbol -> 摘要，供主控广播等按币种快速查询。
+func (e *StrategyEngine) FetchOITopDataMap() map[string]*OITopData {
+	if e == nil || e.nofxosClient == nil {
+		return nil
+	}
+	positions, err := e.nofxosClient.GetOITopPositions()
+	if err != nil || len(positions) == 0 {
+		return nil
+	}
+	m := make(map[string]*OITopData, len(positions))
+	for _, pos := range positions {
+		sym := market.Normalize(pos.Symbol)
+		m[sym] = &OITopData{
+			Rank:              pos.Rank,
+			OIDeltaPercent:    pos.OIDeltaPercent,
+			OIDeltaValue:      pos.OIDeltaValue,
+			PriceDeltaPercent: pos.PriceDeltaPercent,
+		}
+	}
+	return m
 }
 
 func (e *StrategyEngine) getOILowCoins(limit int) ([]CandidateCoin, error) {

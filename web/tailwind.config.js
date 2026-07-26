@@ -7,18 +7,53 @@ export default {
   theme: {
     extend: {
       colors: {
+        /* 萤火量化首页：与策略构建器同一套 surface / 主色（primary-container） */
+        lum: {
+          bg: '#0b0b0b',
+          primary: '#cafd00',
+          'primary-dim': '#beee00',
+          onSurface: '#f6f6fc',
+          onSurfaceVariant: '#aaabb0',
+          surfaceHigh: '#1c1c1c',
+          surfaceLow: '#131313',
+          surfaceHighest: '#1c1c1c',
+          surfaceLowest: '#0b0b0b',
+          error: '#ff7351',
+        },
+        /* Luminescent Quant 策略实验室（ai_1 / ai_2 设计稿 Tailwind 语义类） */
+        'surface-container-high': '#1c1c1c',
+        'surface-container-low': '#131313',
+        'surface-container-lowest': '#0b0b0b',
+        'surface-container-highest': '#1c1c1c',
+        'surface-bright': '#1c1c1c',
+        surface: '#0b0b0b',
+        'on-surface': '#f6f6fc',
+        'on-surface-variant': '#aaabb0',
+        'outline-variant': '#46484d',
+        'primary-container': '#cafd00',
+        'on-primary-container': '#4a5e00',
+        'primary-dim': '#beee00',
+        'on-primary': '#516700',
+        /** 设计稿里 text-primary / border-primary/40 */
+        primary: '#f3ffca',
+        error: '#ff7351',
+        /* 芥末黄：与 lum.primary (#cafd00) 同系，偏青柠黄，避免币安橙 #F0B90B */
         'nofx-gold': {
-          DEFAULT: '#F0B90B',
-          dim: 'rgba(240, 185, 11, 0.1)',
-          glow: 'rgba(240, 185, 11, 0.5)',
-          highlight: '#FFD700',
+          DEFAULT: '#C4CF45',
+          dim: 'rgba(196, 207, 69, 0.14)',
+          glow: 'rgba(196, 207, 69, 0.38)',
+          highlight: '#DCE76A',
         },
+        /** 交易端背景层级：略抬离纯黑减轻割裂；#0b0b0b 底 / #1c1c1c 面板 / #131313 内嵌条 */
         'nofx-bg': {
-          DEFAULT: '#05070A', // Deep Void
-          deeper: '#020304',  // Abyssal
-          lighter: '#0E1217', // Surface
+          DEFAULT: '#0b0b0b',
+          secondary: '#131313',
+          tertiary: '#1c1c1c',
+          /** 兼容旧类名 */
+          deeper: '#131313',
+          lighter: '#1c1c1c',
         },
-        'nofx-accent': '#00F0FF', // Cyan Cyber
+        'nofx-accent': '#00F0FF',
         'nofx-text': {
           DEFAULT: '#EAECEF',
           main: '#EAECEF',
@@ -30,6 +65,8 @@ export default {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui'],
         mono: ['JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
+        lumheadline: ['"Space Grotesk"', '"Noto Sans SC"', 'ui-sans-serif', 'system-ui'],
+        lumbody: ['Inter', '"Noto Sans SC"', 'ui-sans-serif', 'system-ui'],
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(circle at center, var(--tw-gradient-stops))',
@@ -69,7 +106,7 @@ export default {
       },
       boxShadow: {
         'neon': '0 0 5px theme("colors.nofx-gold.DEFAULT"), 0 0 20px theme("colors.nofx-gold.dim")',
-        'neon-blue': '0 0 5px theme("colors.nofx-accent"), 0 0 20px rgba(0, 240, 255, 0.2)',
+        'neon-blue': '0 0 5px theme("colors.nofx-accent"), 0 0 20px rgba(0, 240, 255, 0.26)',
       },
     },
   },

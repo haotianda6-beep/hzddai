@@ -165,9 +165,9 @@ func NewLighterTraderV2(walletAddr, apiKeyPrivateKeyHex string, apiKeyIndex int,
 	if err := trader.checkClient(); err != nil {
 		trader.apiKeyValid = false
 		logger.Warnf("⚠️  API Key verification FAILED: %v", err)
-		logger.Warnf("⚠️  ❌ The API key stored in NOFX does NOT match the API key registered on Lighter.")
+		logger.Warnf("⚠️  ❌ The API key stored in COMKUN-AI does NOT match the API key registered on Lighter.")
 		logger.Warnf("⚠️  ❌ ALL trading operations (open/close positions, cancel orders) WILL FAIL with 'invalid signature' error.")
-		logger.Warnf("⚠️  🔧 To fix: Update your Lighter API key in NOFX Exchange settings with the correct key from app.lighter.xyz")
+		logger.Warnf("⚠️  🔧 To fix: Update your Lighter API key in COMKUN-AI exchange settings with the correct key from app.lighter.xyz")
 		// Don't fail here, allow trader to continue for read operations (balance, positions)
 	} else {
 		trader.apiKeyValid = true

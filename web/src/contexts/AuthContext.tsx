@@ -1,15 +1,25 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { getSystemConfig, invalidateSystemConfig } from '../lib/config'
 import { reset401Flag, httpClient } from '../lib/httpClient'
-import { getPostAuthPath, setUserMode, type UserMode } from '../lib/onboarding'
+import { setUserMode, type UserMode } from '../lib/onboarding'
 import { ROUTES } from '../router/paths'
 import { useLanguage } from './LanguageContext'
 
-interface User {
+export interface User {
   id: string
   email: string
+  display_name?: string
+  avatar_url?: string
+  /** 策略市场站内余额（USDT） */
+  balance_usdt?: number
+  /** 管理后台白名单 */
+  is_admin?: boolean
+  /** 财务台：为客户正数入账 */
+  is_finance?: boolean
+  invite_code?: string
+  profile_named?: boolean
 }
 
 interface AuthContextType {
@@ -30,14 +40,48 @@ interface AuthContextType {
   register: (
     email: string,
     password: string,
+    emailCode: string,
     betaCode?: string,
+    inviteCode?: string,
     mode?: UserMode
   ) => Promise<{ success: boolean; message?: string }>
   resetPassword: (
     email: string,
-    newPassword: string
+    newPassword: string,
+    emailCode: string
   ) => Promise<{ success: boolean; message?: string }>
+  sendRegisterEmailCode: (
+    email: string
+  ) => Promise<{
+    success: boolean
+    message?: string
+    retryAfterSec?: number
+    hint?: string
+  }>
+  sendResetPasswordEmailCode: (
+    email: string
+  ) => Promise<{
+    success: boolean
+    message?: string
+    retryAfterSec?: number
+    hint?: string
+  }>
   logout: () => void
+  /** 保存资料后同步更新内存与 localStorage */
+  applyUserProfile: (
+    partial: Partial<
+      Pick<
+        User,
+        | 'display_name'
+        | 'avatar_url'
+        | 'balance_usdt'
+        | 'is_admin'
+        | 'is_finance'
+        | 'invite_code'
+        | 'profile_named'
+      >
+    >
+  ) => void
   isLoading: boolean
 }
 
@@ -55,6 +99,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     reset401Flag()
 
     // Check if admin mode is active (uses cached system config)
+    const syncProfileFromServer = async (tok: string) => {
+      try {
+        const r = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${tok}` } })
+        if (!r.ok) return
+        const data = (await r.json()) as {
+          id?: string
+          email?: string
+          display_name?: string
+          avatar_url?: string
+          balance_usdt?: number
+          is_admin?: boolean
+          is_finance?: boolean
+          invite_code?: string
+          profile_named?: boolean
+        }
+        setUser((prev) => {
+          const base =
+            prev ||
+            ({
+              id: data.id || '',
+              email: data.email || '',
+            } as User)
+          return {
+            ...base,
+            display_name: data.display_name ?? base.display_name,
+            avatar_url: data.avatar_url ?? base.avatar_url,
+            balance_usdt:
+              typeof data.balance_usdt === 'number' ? data.balance_usdt : base.balance_usdt,
+            is_admin: typeof data.is_admin === 'boolean' ? data.is_admin : base.is_admin,
+            is_finance: typeof data.is_finance === 'boolean' ? data.is_finance : base.is_finance,
+            invite_code: data.invite_code ?? base.invite_code,
+            profile_named:
+              typeof data.profile_named === 'boolean' ? data.profile_named : base.profile_named,
+          }
+        })
+        const raw = localStorage.getItem('auth_user')
+        if (raw) {
+          try {
+            const merged = { ...JSON.parse(raw), ...data }
+            localStorage.setItem('auth_user', JSON.stringify(merged))
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     getSystemConfig()
       .then(() => {
         // No longer simulate login in admin mode; check local storage uniformly
@@ -63,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (savedToken && savedUser) {
           setToken(savedToken)
           setUser(JSON.parse(savedUser))
+          void syncProfileFromServer(savedToken)
         }
 
         setIsLoading(false)
@@ -76,6 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (savedToken && savedUser) {
           setToken(savedToken)
           setUser(JSON.parse(savedUser))
+          void syncProfileFromServer(savedToken)
         }
         setIsLoading(false)
       })
@@ -101,13 +196,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const handlePostAuthSuccess = (
     authToken: string,
     userInfo: User,
-    mode?: UserMode
+    _mode?: UserMode
   ) => {
     reset401Flag()
-
-    if (mode) {
-      setUserMode(mode)
-    }
+    setUserMode('beginner')
 
     localStorage.setItem('auth_token', authToken)
     localStorage.setItem('auth_user', JSON.stringify(userInfo))
@@ -118,7 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     const returnUrl = sessionStorage.getItem('returnUrl')
-    const nextPath = returnUrl || getPostAuthPath(mode)
+    const nextPath = returnUrl || ROUTES.strategyMarket
     if (returnUrl) {
       sessionStorage.removeItem('returnUrl')
     }
@@ -140,7 +232,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (response.ok) {
         if (data.token) {
-          const userInfo = { id: data.user_id, email: data.email }
+          const userInfo: User = {
+            id: data.user_id,
+            email: data.email,
+            display_name: data.display_name,
+            avatar_url: data.avatar_url,
+            balance_usdt:
+              typeof (data as { balance_usdt?: number }).balance_usdt === 'number'
+                ? (data as { balance_usdt?: number }).balance_usdt
+                : 0,
+            is_admin: Boolean((data as { is_admin?: boolean }).is_admin),
+            is_finance: Boolean((data as { is_finance?: boolean }).is_finance),
+            invite_code: (data as { invite_code?: string }).invite_code,
+            profile_named: Boolean((data as { profile_named?: boolean }).profile_named),
+          }
           handlePostAuthSuccess(data.token, userInfo, mode)
 
           return { success: true, message: data.message }
@@ -191,8 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           sessionStorage.removeItem('returnUrl')
           navigate(returnUrl)
         } else {
-          // Redirect to dashboard
-          navigate(ROUTES.dashboard)
+          navigate(ROUTES.strategyMarket)
         }
         return { success: true }
       } else {
@@ -203,20 +307,87 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const sendRegisterEmailCode = async (email: string) => {
+    try {
+      const res = await fetch('/api/auth/send-register-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = (await res.json()) as {
+        error?: string
+        retry_after?: number
+        hint?: string
+        message?: string
+      }
+      if (res.ok) {
+        return {
+          success: true as const,
+          message: data.message,
+          hint: data.hint,
+        }
+      }
+      return {
+        success: false as const,
+        message: data.error || '发送失败',
+        retryAfterSec: data.retry_after,
+      }
+    } catch {
+      return { success: false as const, message: '网络错误，请稍后重试' }
+    }
+  }
+
+  const sendResetPasswordEmailCode = async (email: string) => {
+    try {
+      const res = await fetch('/api/auth/send-reset-password-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = (await res.json()) as {
+        error?: string
+        retry_after?: number
+        hint?: string
+        message?: string
+      }
+      if (res.ok) {
+        return {
+          success: true as const,
+          message: data.message,
+          hint: data.hint,
+        }
+      }
+      return {
+        success: false as const,
+        message: data.error || '发送失败',
+        retryAfterSec: data.retry_after,
+      }
+    } catch {
+      return { success: false as const, message: '网络错误，请稍后重试' }
+    }
+  }
+
   const register = async (
     email: string,
     password: string,
+    emailCode: string,
     betaCode?: string,
+    inviteCode?: string,
     mode?: UserMode
   ) => {
     const requestBody: {
       email: string
       password: string
+      email_code: string
       beta_code?: string
+      invite_code?: string
       lang?: string
-    } = { email, password, lang: language }
+    } = { email, password, email_code: emailCode.trim(), lang: language }
     if (betaCode) {
       requestBody.beta_code = betaCode
+    }
+    if (inviteCode) {
+      requestBody.invite_code = inviteCode
     }
 
     try {
@@ -224,6 +395,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token: string
         user_id: string
         email: string
+        display_name?: string
+        avatar_url?: string
+        balance_usdt?: number
+        is_admin?: boolean
+        is_finance?: boolean
+        invite_code?: string
+        profile_named?: boolean
         message: string
       }>('/api/register', requestBody)
 
@@ -232,7 +410,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('nofx_beginner_onboarding_completed')
         localStorage.removeItem('nofx_beginner_wallet_address')
 
-        const userInfo = { id: result.data.user_id, email: result.data.email }
+        const userInfo: User = {
+          id: result.data.user_id,
+          email: result.data.email,
+          display_name: result.data.display_name,
+          avatar_url: result.data.avatar_url,
+          balance_usdt:
+            typeof result.data.balance_usdt === 'number' ? result.data.balance_usdt : 0,
+          is_admin: Boolean(result.data.is_admin),
+          is_finance: Boolean(result.data.is_finance),
+          invite_code: result.data.invite_code,
+          profile_named: Boolean(result.data.profile_named),
+        }
         handlePostAuthSuccess(result.data.token, userInfo, mode)
 
         return {
@@ -259,7 +448,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const resetPassword = async (email: string, newPassword: string) => {
+  const resetPassword = async (
+    email: string,
+    newPassword: string,
+    emailCode: string
+  ) => {
     try {
       const response = await fetch('/api/reset-password', {
         method: 'POST',
@@ -269,6 +462,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           email,
           new_password: newPassword,
+          email_code: emailCode.trim(),
         }),
       })
 
@@ -286,6 +480,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }
+
+  const applyUserProfile = useCallback(
+    (partial: Partial<
+      Pick<
+        User,
+        | 'display_name'
+        | 'avatar_url'
+        | 'balance_usdt'
+        | 'is_admin'
+        | 'is_finance'
+        | 'invite_code'
+        | 'profile_named'
+      >
+    >) => {
+      setUser((prev) => (prev ? { ...prev, ...partial } : prev))
+      const raw = localStorage.getItem('auth_user')
+      if (raw) {
+        try {
+          const prev = JSON.parse(raw) as User
+          localStorage.setItem('auth_user', JSON.stringify({ ...prev, ...partial }))
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    []
+  )
 
   const logout = () => {
     const savedToken = localStorage.getItem('auth_token')
@@ -314,7 +535,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginAdmin,
         register,
         resetPassword,
+        sendRegisterEmailCode,
+        sendResetPasswordEmailCode,
         logout,
+        applyUserProfile,
         isLoading,
       }}
     >

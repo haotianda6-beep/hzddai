@@ -7,6 +7,8 @@ import (
 	"nofx/trader/types"
 	"strconv"
 	"time"
+
+	"github.com/adshao/go-binance/v2/futures"
 )
 
 // GetBalance gets account balance (with cache)
@@ -22,9 +24,18 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	t.balanceCacheMutex.RUnlock()
 
 	// Cache expired or doesn't exist, call API
+	if t.isRateLimited() && t.cachedBalance != nil {
+		logger.Infof("✓ Using cached account balance during Binance rate-limit cooldown")
+		return t.cachedBalance, nil
+	}
 	logger.Infof("🔄 Cache expired, calling Binance API to get account balance...")
-	account, err := t.client.NewGetAccountService().Do(context.Background())
+	account, err := t.client.NewGetAccountService().Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
+		t.markRateLimited(err)
+		if t.cachedBalance != nil {
+			logger.Warnf("⚠️ Binance balance API failed, returning stale cache: %v", err)
+			return t.cachedBalance, nil
+		}
 		logger.Infof("❌ Binance API call failed: %v", err)
 		return nil, fmt.Errorf("failed to get account info: %w", err)
 	}
@@ -46,6 +57,14 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	t.balanceCacheMutex.Unlock()
 
 	return result, nil
+}
+
+// InvalidateBalanceCache 清空账户余额缓存；镜像跟单在调仓后需立刻用最新「可用余额」估算限价保证金。
+func (t *FuturesTrader) InvalidateBalanceCache() {
+	t.balanceCacheMutex.Lock()
+	t.cachedBalance = nil
+	t.balanceCacheTime = time.Time{}
+	t.balanceCacheMutex.Unlock()
 }
 
 // GetClosedPnL retrieves recent closing trades from Binance Futures
@@ -122,7 +141,7 @@ func (t *FuturesTrader) GetTrades(startTime time.Time, limit int) ([]types.Trade
 		IncomeType("REALIZED_PNL").
 		StartTime(startTime.UnixMilli()).
 		Limit(int64(limit)).
-		Do(context.Background())
+		Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get income history: %w", err)
 	}
@@ -164,7 +183,7 @@ func (t *FuturesTrader) GetTradesForSymbol(symbol string, startTime time.Time, l
 		Symbol(symbol).
 		StartTime(startTime.UnixMilli()).
 		Limit(limit).
-		Do(context.Background())
+		Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trade history for %s: %w", symbol, err)
 	}
@@ -207,7 +226,7 @@ func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, li
 		Symbol(symbol).
 		FromID(fromID).
 		Limit(limit).
-		Do(context.Background())
+		Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trade history for %s from ID %d: %w", symbol, fromID, err)
 	}
@@ -243,7 +262,7 @@ func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, 
 		IncomeType("COMMISSION").
 		StartTime(lastSyncTime.UnixMilli()).
 		Limit(1000).
-		Do(context.Background())
+		Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commission history: %w", err)
 	}
@@ -270,7 +289,7 @@ func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) 
 		IncomeType("REALIZED_PNL").
 		StartTime(lastSyncTime.UnixMilli()).
 		Limit(1000).
-		Do(context.Background())
+		Do(context.Background(), futures.WithRecvWindow(binanceSignedRecvWindowMS))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PnL history: %w", err)
 	}

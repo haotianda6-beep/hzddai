@@ -48,6 +48,10 @@ func (t *GateTrader) GetTrades(startTime time.Time, limit int) ([]GateTrade, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trade history: %w", err)
 	}
+	pnlByTradeID, pnlErr := t.getAccountBookPnLByTradeID(startTime, limit)
+	if pnlErr != nil {
+		logger.Infof("⚠️ Gate account pnl lookup failed: %v", pnlErr)
+	}
 
 	logger.Infof("📥 Received %d trades from Gate", len(trades))
 
@@ -121,8 +125,11 @@ func (t *GateTrader) GetTrades(startTime time.Time, limit int) ([]GateTrade, err
 		// For closed positions, estimate PnL (Gate doesn't directly provide it in trade record)
 		pnl := 0.0
 		if strings.Contains(orderAction, "close") {
-			// PnL would need to be calculated from position history
-			// For now, we leave it as 0 and let position builder handle it
+			if p, ok := pnlByTradeID[fmt.Sprintf("%d", trade.Id)]; ok {
+				pnl = p
+			} else if p, ok := pnlByTradeID[trade.OrderId]; ok {
+				pnl = p
+			}
 		}
 
 		gateTrade := GateTrade{
@@ -144,6 +151,37 @@ func (t *GateTrader) GetTrades(startTime time.Time, limit int) ([]GateTrade, err
 	}
 
 	return result, nil
+}
+
+func (t *GateTrader) getAccountBookPnLByTradeID(startTime time.Time, limit int) (map[string]float64, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	opts := &gateapi.ListFuturesAccountBookOpts{
+		Limit: optional.NewInt32(int32(limit)),
+		From:  optional.NewInt64(startTime.Unix()),
+		Type_: optional.NewString("pnl"),
+	}
+	books, _, err := t.client.FuturesApi.ListFuturesAccountBook(t.ctx, "usdt", opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64, len(books))
+	for _, book := range books {
+		pnl, err := strconv.ParseFloat(book.Change, 64)
+		if err != nil {
+			continue
+		}
+		for _, key := range []string{strings.TrimSpace(book.TradeId), strings.TrimSpace(book.Text), strings.TrimSpace(book.Id)} {
+			if key != "" {
+				out[key] = pnl
+			}
+		}
+	}
+	return out, nil
 }
 
 // SyncOrdersFromGate syncs Gate exchange order history to local database

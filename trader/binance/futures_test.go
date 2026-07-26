@@ -345,7 +345,7 @@ func TestNewFuturesTrader(t *testing.T) {
 	defer mockServer.Close()
 
 	// Test successful creation
-	t1 := NewFuturesTrader("test_api_key", "test_secret_key", "test_user")
+	t1 := NewFuturesTrader("test_api_key", "test_secret_key", "test_user", "", false)
 
 	// Modify client to use mock server
 	t1.client.BaseURL = mockServer.URL
@@ -353,7 +353,14 @@ func TestNewFuturesTrader(t *testing.T) {
 
 	assert.NotNil(t, t1)
 	assert.NotNil(t, t1.client)
-	assert.Equal(t, 15*time.Second, t1.cacheDuration)
+	assert.Equal(t, 35*time.Second, t1.cacheDuration)
+	assert.Equal(t, 120*time.Second, t1.positionsCacheDuration)
+}
+
+func TestNewFuturesTraderDemoUsesDemoFapi(t *testing.T) {
+	ft := NewFuturesTrader("k", "s", "u", "", true)
+	assert.True(t, ft.useDemoTrading)
+	assert.Equal(t, BaseApiDemoURL, ft.client.BaseURL)
 }
 
 // TestCalculatePositionSize tests position size calculation
@@ -410,7 +417,7 @@ func TestGetBrOrderID(t *testing.T) {
 		id := getBrOrderID()
 
 		// Check format
-		assert.True(t, strings.HasPrefix(id, "x-KzrpZaP9"), "order ID should start with x-KzrpZaP9")
+		assert.True(t, strings.HasPrefix(id, "x-"+futuresBrokerOrderTag()), "order ID should start with x- + futures broker tag")
 
 		// Check length (should be <= 32)
 		assert.LessOrEqual(t, len(id), 32, "order ID length should not exceed 32 characters")

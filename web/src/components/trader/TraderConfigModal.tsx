@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { AIModel, Exchange, CreateTraderRequest, ExchangeAccountStateResponse, Strategy } from '../../types'
+import { filterModelsForStrategyConfig, isComkunAIModel, strategyConfigRequiresComkunAI } from '../../lib/comkunStrategyModelBinding'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { t } from '../../i18n/translations'
 import { toast } from 'sonner'
@@ -15,7 +16,7 @@ function getShortName(fullName: string): string {
 
 // 交易所注册链接配置
 const EXCHANGE_REGISTRATION_LINKS: Record<string, { url: string; hasReferral?: boolean }> = {
-  binance: { url: 'https://www.binance.com/join?ref=NOFXENG', hasReferral: true },
+  binance: { url: 'https://www.binance.com/join?ref=COMKUNENG', hasReferral: true },
   okx: { url: 'https://www.okx.com/join/1865360', hasReferral: true },
   bybit: { url: 'https://partner.bybit.com/b/83856', hasReferral: true },
   hyperliquid: { url: 'https://app.hyperliquid.xyz/join/AITRADING', hasReferral: true },
@@ -104,6 +105,7 @@ export function TraderConfigModal({
       setFormData({
         ...traderData,
         strategy_id: traderData.strategy_id || '',
+        ai_model: traderData.ai_model ?? availableModels[0]?.id ?? '',
       })
     } else if (!isEditMode) {
       setFormData({
@@ -214,16 +216,41 @@ export function TraderConfigModal({
   }
 
   const selectedStrategy = strategies.find(s => s.id === formData.strategy_id)
+  const strategyPrefersComkunAI = selectedStrategy
+    ? strategyConfigRequiresComkunAI(selectedStrategy.config, selectedStrategy.id)
+    : false
+
+  const modelsAllowed = useMemo(() => {
+    const list = availableModels.filter((m) => m.enabled)
+    return filterModelsForStrategyConfig(
+      list,
+      selectedStrategy?.config ?? undefined,
+      selectedStrategy?.id
+    )
+  }, [availableModels, selectedStrategy?.config, selectedStrategy?.id])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (modelsAllowed.length === 0) {
+      setFormData((prev) =>
+        prev.ai_model ? { ...prev, ai_model: '' } : prev
+      )
+      return
+    }
+    if (!modelsAllowed.some((m) => m.id === formData.ai_model)) {
+      setFormData((prev) => ({ ...prev, ai_model: modelsAllowed[0]?.id ?? '' }))
+    }
+  }, [isOpen, formData.strategy_id, modelsAllowed])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4 overflow-y-auto">
       <div
-        className="bg-[#1E2329] border border-[#2B3139] rounded-xl shadow-2xl max-w-2xl w-full my-8"
+        className="bg-[#1c1c1c] border border-[#2B3139] rounded-xl shadow-2xl max-w-2xl w-full my-8"
         style={{ maxHeight: 'calc(100vh - 4rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[#2B3139] bg-gradient-to-r from-[#1E2329] to-[#252B35] sticky top-0 z-10 rounded-t-xl">
+        <div className="flex items-center justify-between p-6 border-b border-[#2B3139] bg-gradient-to-r from-[#1c1c1c] to-nofx-bg-tertiary sticky top-0 z-10 rounded-t-xl">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#F0B90B] to-[#E1A706] flex items-center justify-center text-black">
               {isEditMode ? (
@@ -255,7 +282,7 @@ export function TraderConfigModal({
           style={{ maxHeight: 'calc(100vh - 16rem)' }}
         >
           {/* Basic Info */}
-          <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
+          <div className="bg-nofx-bg-tertiary border border-[#2B3139] rounded-lg p-5">
             <h3 className="text-lg font-semibold text-[#EAECEF] mb-5 flex items-center gap-2">
               <span className="text-[#F0B90B]">1</span> {t('basicConfig', language)}
             </h3>
@@ -270,7 +297,7 @@ export function TraderConfigModal({
                   onChange={(e) =>
                     handleInputChange('trader_name', e.target.value)
                   }
-                  className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                  className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                    placeholder={t('enterTraderNamePlaceholder', language)}
                 />
               </div>
@@ -284,12 +311,28 @@ export function TraderConfigModal({
                     onChange={(val) =>
                       handleInputChange('ai_model', val)
                     }
-                    className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF]"
-                    options={availableModels.map((model) => ({
+                    className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF]"
+                    options={modelsAllowed.map((model) => ({
                       value: model.id,
-                      label: getShortName(model.name || model.id).toUpperCase(),
+                      label:
+                        getShortName(model.name || model.id).toUpperCase() +
+                        (strategyPrefersComkunAI
+                          ? isComkunAIModel(model)
+                            ? ' · 推荐'
+                            : ' · 备选'
+                          : ''),
                     }))}
                   />
+                  {selectedStrategy && strategyPrefersComkunAI ? (
+                    <p className="mt-1 text-xs text-amber-200/90">
+                      跟单/程序化马丁策略推荐 COMKUN-AI，其他已启用模型也可选择
+                    </p>
+                  ) : null}
+                  {selectedStrategy && !strategyPrefersComkunAI ? (
+                    <p className="mt-1 text-xs text-[#5e6673]">
+                      非跟单策略不能选择 COMKUN-AI
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="text-sm text-[#EAECEF] block mb-2">
@@ -298,7 +341,7 @@ export function TraderConfigModal({
                   <NofxSelect
                     value={formData.exchange_id}
                     onChange={handleExchangeChange}
-                    className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF]"
+                    className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF]"
                     options={availableExchanges.map((exchange) => ({
                       value: exchange.id,
                       label: getShortName(exchange.name || exchange.exchange_type || exchange.id).toUpperCase()
@@ -336,7 +379,7 @@ export function TraderConfigModal({
           </div>
 
           {/* Strategy Selection */}
-          <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
+          <div className="bg-nofx-bg-tertiary border border-[#2B3139] rounded-lg p-5">
             <h3 className="text-lg font-semibold text-[#EAECEF] mb-5 flex items-center gap-2">
               <span className="text-[#F0B90B]">2</span> {t('selectTradingStrategy', language)}
               <Sparkles className="w-4 h-4 text-[#F0B90B]" />
@@ -351,7 +394,7 @@ export function TraderConfigModal({
                   onChange={(val) =>
                     handleInputChange('strategy_id', val)
                   }
-                  className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF]"
+                  className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF]"
                   options={[
                     { value: '', label: t('noStrategyManual', language) },
                     ...strategies.map((strategy) => ({
@@ -369,7 +412,7 @@ export function TraderConfigModal({
 
               {/* Strategy Preview */}
               {selectedStrategy && (
-                <div className="mt-3 p-4 bg-[#1E2329] border border-[#2B3139] rounded-lg">
+                <div className="mt-3 p-4 bg-[#1c1c1c] border border-[#2B3139] rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[#F0B90B] text-sm font-medium">
                       {t('strategyDetails', language)}
@@ -399,7 +442,7 @@ export function TraderConfigModal({
           </div>
 
           {/* Trading Parameters */}
-          <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
+          <div className="bg-nofx-bg-tertiary border border-[#2B3139] rounded-lg p-5">
             <h3 className="text-lg font-semibold text-[#EAECEF] mb-5 flex items-center gap-2">
               <span className="text-[#F0B90B]">3</span> {t('tradingParams', language)}
             </h3>
@@ -416,7 +459,7 @@ export function TraderConfigModal({
                       className={`flex-1 px-3 py-2 rounded text-sm ${
                         formData.is_cross_margin
                           ? 'bg-[#F0B90B] text-black'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                          : 'bg-nofx-bg-tertiary text-[#848E9C] border border-[#2B3139]'
                       }`}
                     >
                       {t('crossMargin', language)}
@@ -429,7 +472,7 @@ export function TraderConfigModal({
                       className={`flex-1 px-3 py-2 rounded text-sm ${
                         !formData.is_cross_margin
                           ? 'bg-[#F0B90B] text-black'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                          : 'bg-nofx-bg-tertiary text-[#848E9C] border border-[#2B3139]'
                       }`}
                     >
                       {t('isolatedMargin', language)}
@@ -450,7 +493,7 @@ export function TraderConfigModal({
                         : 3
                       handleInputChange('scan_interval_minutes', safeValue)
                     }}
-                    className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                    className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                     min="3"
                     max="60"
                     step="1"
@@ -473,7 +516,7 @@ export function TraderConfigModal({
                     className={`flex-1 px-3 py-2 rounded text-sm ${
                       formData.show_in_competition
                         ? 'bg-[#F0B90B] text-black'
-                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                        : 'bg-nofx-bg-tertiary text-[#848E9C] border border-[#2B3139]'
                     }`}
                   >
                     {t('show', language)}
@@ -484,7 +527,7 @@ export function TraderConfigModal({
                     className={`flex-1 px-3 py-2 rounded text-sm ${
                       !formData.show_in_competition
                         ? 'bg-[#F0B90B] text-black'
-                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                        : 'bg-nofx-bg-tertiary text-[#848E9C] border border-[#2B3139]'
                     }`}
                   >
                     {t('hide', language)}
@@ -520,7 +563,7 @@ export function TraderConfigModal({
                         Number(e.target.value)
                       )
                     }
-                    className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                    className="w-full px-3 py-2 bg-nofx-bg-tertiary border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                     min="100"
                     step="0.01"
                   />
@@ -537,7 +580,7 @@ export function TraderConfigModal({
 
               {/* Create mode info */}
               {!isEditMode && (
-                <div className="p-3 bg-[#1E2329] border border-[#2B3139] rounded flex items-center gap-2">
+                <div className="p-3 bg-[#1c1c1c] border border-[#2B3139] rounded flex items-center gap-2">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="w-4 h-4 text-[#F0B90B]"
@@ -563,7 +606,7 @@ export function TraderConfigModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 p-6 border-t border-[#2B3139] bg-gradient-to-r from-[#1E2329] to-[#252B35] sticky bottom-0 z-10 rounded-b-xl">
+        <div className="flex justify-end gap-3 p-6 border-t border-[#2B3139] bg-gradient-to-r from-[#1c1c1c] to-nofx-bg-tertiary sticky bottom-0 z-10 rounded-b-xl">
           <button
             onClick={onClose}
             className="px-6 py-3 bg-[#2B3139] text-[#EAECEF] rounded-lg hover:bg-[#404750] transition-all duration-200 border border-[#404750]"

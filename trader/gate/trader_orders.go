@@ -12,11 +12,42 @@ import (
 	"github.com/gateio/gateapi-go/v6"
 )
 
+func gateContractSize(quantity float64, contract *gateapi.Contract) (int64, error) {
+	if contract == nil || quantity <= 0 || math.IsNaN(quantity) || math.IsInf(quantity, 0) {
+		return 0, fmt.Errorf("invalid Gate contract quantity: %.12f", quantity)
+	}
+	multiplier, err := strconv.ParseFloat(contract.QuantoMultiplier, 64)
+	if err != nil || multiplier <= 0 {
+		return 0, fmt.Errorf("invalid Gate quanto_multiplier %q", contract.QuantoMultiplier)
+	}
+	size := int64(math.Round(quantity / multiplier))
+	minimum := contract.OrderSizeMin
+	if minimum < 1 {
+		minimum = 1
+	}
+	if size < minimum {
+		return 0, fmt.Errorf("Gate quantity %.12f is below minimum %d contracts", quantity, minimum)
+	}
+	if contract.OrderSizeMax > 0 && size > contract.OrderSizeMax {
+		return 0, fmt.Errorf("Gate quantity %.12f exceeds maximum %d contracts", quantity, contract.OrderSizeMax)
+	}
+	return size, nil
+}
+
 // SetLeverage sets the leverage for a symbol
 func (t *GateTrader) SetLeverage(symbol string, leverage int) error {
 	symbol = t.convertSymbol(symbol)
 
-	_, _, err := t.client.FuturesApi.UpdatePositionLeverage(t.ctx, "usdt", symbol, fmt.Sprintf("%d", leverage), nil)
+	apiLeverage := fmt.Sprintf("%d", leverage)
+	var opts *gateapi.UpdatePositionLeverageOpts
+	if t.isCrossMarginSymbol(symbol) {
+		apiLeverage = "0"
+		opts = &gateapi.UpdatePositionLeverageOpts{
+			CrossLeverageLimit: optional.NewString(fmt.Sprintf("%d", leverage)),
+		}
+	}
+
+	_, _, err := t.client.FuturesApi.UpdatePositionLeverage(t.ctx, "usdt", symbol, apiLeverage, opts)
 	if err != nil {
 		// Gate.io may return error if leverage is already set
 		if strings.Contains(err.Error(), "RISK_LIMIT_EXCEEDED") {
@@ -26,17 +57,35 @@ func (t *GateTrader) SetLeverage(symbol string, leverage int) error {
 		return fmt.Errorf("failed to set leverage: %w", err)
 	}
 
-	logger.Infof("  [Gate] Leverage set to %dx for %s", leverage, symbol)
+	logger.Infof("  [Gate] Leverage set to %dx for %s (cross=%v)", leverage, symbol, t.isCrossMarginSymbol(symbol))
 	return nil
 }
 
 // SetMarginMode sets margin mode (cross or isolated)
 func (t *GateTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
-	// Gate.io uses leverage=0 for cross margin, positive number for isolated
-	// This is handled through UpdatePositionLeverage with cross_leverage_limit
-	// For now, we'll skip explicit margin mode setting as it's tied to leverage
-	logger.Infof("  [Gate] Margin mode is set through leverage (0=cross)")
+	symbol = t.convertSymbol(symbol)
+	t.marginModeMutex.Lock()
+	if t.marginModeBySymbol == nil {
+		t.marginModeBySymbol = make(map[string]bool)
+	}
+	t.marginModeBySymbol[symbol] = isCrossMargin
+	t.marginModeMutex.Unlock()
+	logger.Infof("  [Gate] Margin mode set for %s: cross=%v", symbol, isCrossMargin)
 	return nil
+}
+
+func (t *GateTrader) isCrossMarginSymbol(symbol string) bool {
+	symbol = t.convertSymbol(symbol)
+	t.marginModeMutex.RLock()
+	defer t.marginModeMutex.RUnlock()
+	if t.marginModeBySymbol == nil {
+		return true
+	}
+	isCross, ok := t.marginModeBySymbol[symbol]
+	if !ok {
+		return true
+	}
+	return isCross
 }
 
 // OpenLong opens a long position
@@ -59,10 +108,9 @@ func (t *GateTrader) OpenLong(symbol string, quantity float64, leverage int) (ma
 
 	// Gate uses contract size units (each contract = quanto_multiplier base currency)
 	// size = quantity / quanto_multiplier
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return nil, err
 	}
 
 	order := gateapi.FuturesOrder{
@@ -116,10 +164,9 @@ func (t *GateTrader) OpenShort(symbol string, quantity float64, leverage int) (m
 	}
 
 	// Gate uses contract size units
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return nil, err
 	}
 
 	order := gateapi.FuturesOrder{
@@ -182,10 +229,9 @@ func (t *GateTrader) CloseLong(symbol string, quantity float64) (map[string]inte
 		return nil, err
 	}
 
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return nil, err
 	}
 
 	// Close long = sell (use ReduceOnly, not Close which requires Size=0)
@@ -255,10 +301,9 @@ func (t *GateTrader) CloseShort(symbol string, quantity float64) (map[string]int
 		return nil, err
 	}
 
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return nil, err
 	}
 
 	// Close short = buy (use ReduceOnly, not Close which requires Size=0)
@@ -325,10 +370,9 @@ func (t *GateTrader) SetStopLoss(symbol string, positionSide string, quantity, s
 		return err
 	}
 
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return err
 	}
 
 	// For long position, stop loss means sell when price drops
@@ -377,10 +421,9 @@ func (t *GateTrader) SetTakeProfit(symbol string, positionSide string, quantity,
 		return err
 	}
 
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	size := int64(quantity / quantoMultiplier)
-	if size <= 0 {
-		size = 1
+	size, err := gateContractSize(quantity, contract)
+	if err != nil {
+		return err
 	}
 
 	// For long position, take profit means sell when price rises
@@ -488,11 +531,8 @@ func (t *GateTrader) FormatQuantity(symbol string, quantity float64) (string, er
 	}
 
 	// Gate uses quanto_multiplier for contract size
-	quantoMultiplier, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
-	if quantoMultiplier > 0 {
-		// Calculate number of contracts
-		numContracts := quantity / quantoMultiplier
-		return fmt.Sprintf("%.0f", math.Floor(numContracts)), nil
+	if size, sizeErr := gateContractSize(quantity, contract); sizeErr == nil {
+		return strconv.FormatInt(size, 10), nil
 	}
 
 	return fmt.Sprintf("%.4f", quantity), nil
@@ -590,18 +630,30 @@ func (t *GateTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 		if order.Size < 0 {
 			side = "SELL"
 		}
+		positionSide := "LONG"
+		if side == "SELL" {
+			positionSide = "SHORT"
+		}
+		if order.ReduceOnly || order.IsReduceOnly {
+			if side == "SELL" {
+				positionSide = "LONG"
+			} else {
+				positionSide = "SHORT"
+			}
+		}
 
 		// Convert contract count to actual token quantity
 		quantity := math.Abs(float64(order.Size)) * quantoMultiplier
 
 		result = append(result, types.OpenOrder{
-			OrderID:  fmt.Sprintf("%d", order.Id),
-			Symbol:   t.revertSymbol(order.Contract),
-			Side:     side,
-			Type:     "LIMIT",
-			Price:    price,
-			Quantity: quantity,
-			Status:   "NEW",
+			OrderID:      fmt.Sprintf("%d", order.Id),
+			Symbol:       t.revertSymbol(order.Contract),
+			Side:         side,
+			PositionSide: positionSide,
+			Type:         "LIMIT",
+			Price:        price,
+			Quantity:     quantity,
+			Status:       "NEW",
 		})
 	}
 
@@ -619,6 +671,17 @@ func (t *GateTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 			if order.Initial.Size < 0 {
 				side = "SELL"
 			}
+			positionSide := "LONG"
+			if side == "SELL" {
+				positionSide = "SHORT"
+			}
+			if order.Initial.ReduceOnly || order.Initial.IsReduceOnly {
+				if side == "SELL" {
+					positionSide = "LONG"
+				} else {
+					positionSide = "SHORT"
+				}
+			}
 
 			orderType := "STOP_MARKET"
 			if order.Trigger.Rule == 2 {
@@ -629,16 +692,101 @@ func (t *GateTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 			quantity := math.Abs(float64(order.Initial.Size)) * quantoMultiplier
 
 			result = append(result, types.OpenOrder{
-				OrderID:   fmt.Sprintf("%d", order.Id),
-				Symbol:    t.revertSymbol(order.Initial.Contract),
-				Side:      side,
-				Type:      orderType,
-				StopPrice: triggerPrice,
-				Quantity:  quantity,
-				Status:    "NEW",
+				OrderID:      fmt.Sprintf("%d", order.Id),
+				Symbol:       t.revertSymbol(order.Initial.Contract),
+				Side:         side,
+				PositionSide: positionSide,
+				Type:         orderType,
+				StopPrice:    triggerPrice,
+				Quantity:     quantity,
+				Status:       "NEW",
 			})
 		}
 	}
 
 	return result, nil
+}
+
+// PlaceLimitOrder places a Gate futures limit order for grid/mirror sync.
+func (t *GateTrader) PlaceLimitOrder(req *types.LimitOrderRequest) (*types.LimitOrderResult, error) {
+	symbol := t.convertSymbol(req.Symbol)
+	if req.Leverage > 0 {
+		if err := t.SetLeverage(symbol, req.Leverage); err != nil {
+			logger.Warnf("  [Gate] Failed to set leverage before limit order: %v", err)
+		}
+	}
+	contract, err := t.getContract(symbol)
+	if err != nil {
+		return nil, err
+	}
+	size, err := gateContractSize(req.Quantity, contract)
+	if err != nil {
+		return nil, err
+	}
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	if side == "SELL" {
+		size = -size
+	}
+	tif := "gtc"
+	if req.PostOnly {
+		tif = "poc"
+	}
+	order := gateapi.FuturesOrder{
+		Contract:   symbol,
+		Size:       size,
+		Price:      fmt.Sprintf("%.8f", req.Price),
+		Tif:        tif,
+		ReduceOnly: req.ReduceOnly,
+		Text:       "t-nofx-limit",
+	}
+	placed, _, err := t.client.FuturesApi.CreateFuturesOrder(t.ctx, "usdt", order, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to place limit order: %w", err)
+	}
+	t.clearCache()
+	return &types.LimitOrderResult{
+		OrderID:      fmt.Sprintf("%d", placed.Id),
+		ClientID:     req.ClientID,
+		Symbol:       req.Symbol,
+		Side:         side,
+		PositionSide: req.PositionSide,
+		Price:        req.Price,
+		Quantity:     req.Quantity,
+		Status:       "NEW",
+	}, nil
+}
+
+// CancelOrder cancels a specific Gate futures order.
+func (t *GateTrader) CancelOrder(symbol, orderID string) error {
+	_, _, err := t.client.FuturesApi.CancelFuturesOrder(t.ctx, "usdt", orderID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to cancel order: %w", err)
+	}
+	t.clearCache()
+	return nil
+}
+
+// GetOrderBook gets Gate futures order book levels.
+func (t *GateTrader) GetOrderBook(symbol string, depth int) (bids, asks [][]float64, err error) {
+	symbol = t.convertSymbol(symbol)
+	if depth <= 0 {
+		depth = 25
+	}
+	book, _, err := t.client.FuturesApi.ListFuturesOrderBook(t.ctx, "usdt", symbol, &gateapi.ListFuturesOrderBookOpts{
+		Limit: optional.NewInt32(int32(depth)),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	parse := func(items []gateapi.FuturesOrderBookItem) [][]float64 {
+		out := make([][]float64, 0, len(items))
+		for _, item := range items {
+			price, _ := strconv.ParseFloat(item.P, 64)
+			if price > 0 {
+				out = append(out, []float64{price, math.Abs(float64(item.S))})
+			}
+		}
+		return out
+	}
+	return parse(book.Bids), parse(book.Asks), nil
 }

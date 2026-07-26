@@ -8,7 +8,7 @@ import (
 
 const (
 	DefaultQwenBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	DefaultQwenModel   = "qwen3-max"
+	DefaultQwenModel   = "qwen3.7-max"
 )
 
 func init() {

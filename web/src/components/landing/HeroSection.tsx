@@ -144,7 +144,7 @@ export default function HeroSection({ language }: HeroSectionProps) {
             className="group flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg transition-all"
             style={{
               background: 'linear-gradient(135deg, #F0B90B 0%, #FCD535 100%)',
-              color: '#0B0E11',
+              color: '#000000',
               boxShadow: '0 4px 24px rgba(240, 185, 11, 0.3)',
             }}
             whileHover={{

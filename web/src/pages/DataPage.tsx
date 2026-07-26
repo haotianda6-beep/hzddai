@@ -1,17 +1,8 @@
 import { useLanguage } from '../contexts/LanguageContext'
-import { t } from '../i18n/translations'
+import { MarketBoardView } from './data/MarketBoardView'
 
+/** 行情数据看板：后端 /api/market/board 聚合当前可免费访问的真实公开源 */
 export function DataPage() {
   const { language } = useLanguage()
-
-  return (
-    <div className="w-full h-[calc(100vh-64px)]">
-      <iframe
-        src="https://nofxos.ai/dashboard"
-        title={t('dataCenter', language)}
-        className="w-full h-full border-0"
-        allow="fullscreen"
-      />
-    </div>
-  )
+  return <MarketBoardView language={language} />
 }

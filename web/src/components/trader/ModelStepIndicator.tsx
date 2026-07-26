@@ -15,7 +15,7 @@ export function ModelStepIndicator({ currentStep, labels }: ModelStepIndicatorPr
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all"
               style={{
-                background: index < currentStep ? '#0ECB81' : index === currentStep ? '#8B5CF6' : '#2B3139',
+                background: index < currentStep ? '#0ECB81' : index === currentStep ? '#c4cf45' : '#2B3139',
                 color: index <= currentStep ? '#000' : '#848E9C',
               }}
             >

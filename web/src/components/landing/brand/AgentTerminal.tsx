@@ -9,7 +9,7 @@ export default function AgentTerminal() {
             className="w-[380px] lg:w-[440px] relative group"
         >
             {/* Terminal frame */}
-            <div className="relative bg-[#0B0F14] rounded-2xl overflow-hidden shadow-2xl shadow-black/80 border border-zinc-800/80">
+            <div className="relative bg-nofx-bg-secondary rounded-2xl overflow-hidden shadow-2xl shadow-black/80 border border-zinc-800/80">
 
                 {/* Scanline overlay */}
                 <div className="absolute inset-0 pointer-events-none z-50 opacity-[0.02]" style={{
@@ -17,7 +17,7 @@ export default function AgentTerminal() {
                 }} />
 
                 {/* Header bar - macOS style */}
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1117] border-b border-zinc-800/60">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-nofx-bg-tertiary border-b border-zinc-800/60">
                     {/* Window controls */}
                     <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1.5">
@@ -28,7 +28,7 @@ export default function AgentTerminal() {
                     </div>
                     {/* Title */}
                     <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-                        <span className="text-zinc-400 text-xs font-mono">NOFX Agent Terminal</span>
+                        <span className="text-zinc-400 text-xs font-mono">COMKUN Agent Terminal</span>
                     </div>
                     {/* Live indicator */}
                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-500/10 border border-green-500/20">
@@ -177,7 +177,7 @@ export default function AgentTerminal() {
                 </div>
 
                 {/* Footer status bar */}
-                <div className="px-4 py-2 bg-[#0D1117] border-t border-zinc-800/60 flex items-center justify-between">
+                <div className="px-4 py-2 bg-nofx-bg-tertiary border-t border-zinc-800/60 flex items-center justify-between">
                     <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-600">
                         <span className="flex items-center gap-1">
                             <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />

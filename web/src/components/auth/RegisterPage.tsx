@@ -1,47 +1,265 @@
-import React, { useEffect, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import PasswordChecklist from 'react-password-checklist'
 import { toast } from 'sonner'
 import { useAuth } from '../../contexts/AuthContext'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { t } from '../../i18n/translations'
 import { getSystemConfig } from '../../lib/config'
-import { DeepVoidBackground } from '../common/DeepVoidBackground'
-import { RegistrationDisabled } from './RegistrationDisabled'
 import { WhitelistFullPage } from '../common/WhitelistFullPage'
+import { ROUTES } from '../../router/paths'
+import './crypto-login.css'
+import './crypto-register.css'
+
+type SparkParticle = {
+  id: string
+  left: string
+  top: string
+  dx: string
+  dy: string
+  dur: string
+  size: string
+}
+
+const CELEBRATION_MS = 2400
 
 export function RegisterPage() {
+  const uid = useId()
   const { language } = useLanguage()
-  const { register } = useAuth()
+  const { register, sendRegisterEmailCode } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  const inviteFromUrl = useMemo(() => {
+    const raw = searchParams.get('invite') || searchParams.get('ref') || ''
+    return raw.replace(/[^a-z0-9]/gi, '').toUpperCase()
+  }, [searchParams])
+
+  const inviteLocked = inviteFromUrl.length > 0
   const [view, setView] = useState<'register' | 'whitelist-full'>('register')
   const [email, setEmail] = useState('')
+  const [emailCode, setEmailCode] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [betaCode, setBetaCode] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [betaMode, setBetaMode] = useState(false)
-  const [registrationEnabled, setRegistrationEnabled] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sendingCode, setSendingCode] = useState(false)
   const [passwordValid, setPasswordValid] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [codeCooldown, setCodeCooldown] = useState(0)
+  const [shake, setShake] = useState(false)
+  const [celebrate, setCelebrate] = useState(false)
+  const [sparks, setSparks] = useState<SparkParticle[]>([])
+
+  const barRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
+  const dragStartClientX = useRef(0)
+  const dragStartThumb = useRef(2)
+  const captchaVerifiedRef = useRef(false)
+  const [thumbOffset, setThumbOffset] = useState(2)
+  const [captchaActive, setCaptchaActive] = useState(false)
+  const [captchaVerified, setCaptchaVerified] = useState(false)
+
+  const nodes = useMemo(
+    () =>
+      Array.from({ length: 18 }, (_, i) => ({
+        id: `${uid}-n-${i}`,
+        x: 5 + Math.random() * 90,
+        y: 5 + Math.random() * 90,
+        delay: Math.random() * 3,
+        dur: 2 + Math.random() * 4,
+      })),
+    [uid]
+  )
+
+  const candles = useMemo(
+    () =>
+      Array.from({ length: 24 }, (_, i) => ({
+        id: `${uid}-c-${i}`,
+        left: 2 + Math.random() * 96,
+        h: 20 + Math.random() * 80,
+        dur: 6 + Math.random() * 12,
+        delay: Math.random() * 8,
+      })),
+    [uid]
+  )
+
+  useEffect(() => {
+    document.title = 'COMKUN-AI · 注册'
+  }, [])
+
+  useEffect(() => {
+    if (codeCooldown <= 0) return
+    const tmr = window.setInterval(() => {
+      setCodeCooldown((s) => (s <= 1 ? 0 : s - 1))
+    }, 1000)
+    return () => window.clearInterval(tmr)
+  }, [codeCooldown])
 
   useEffect(() => {
     getSystemConfig()
       .then((config) => {
         setBetaMode(config.beta_mode || false)
-        setRegistrationEnabled(config.initialized === false)
       })
       .catch((err) => {
         console.error('Failed to fetch system config:', err)
       })
   }, [])
 
-  if (!registrationEnabled) {
-    return <RegistrationDisabled />
-  }
+  const getMaxTravel = useCallback(() => {
+    const bar = barRef.current
+    const thumb = thumbRef.current
+    if (!bar || !thumb) return 120
+    return Math.max(0, bar.clientWidth - thumb.offsetWidth - 4)
+  }, [])
+
+  const resetCaptcha = useCallback(() => {
+    captchaVerifiedRef.current = false
+    setCaptchaVerified(false)
+    setThumbOffset(2)
+    setCaptchaActive(false)
+    draggingRef.current = false
+  }, [])
+
+  const triggerShake = useCallback(() => {
+    setShake(true)
+    window.setTimeout(() => setShake(false), 500)
+  }, [])
+
+  const onThumbPointerDown = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      if (captchaVerifiedRef.current || celebrate) return
+      draggingRef.current = true
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+      dragStartClientX.current = clientX
+      dragStartThumb.current = thumbOffset
+      setCaptchaActive(true)
+      e.preventDefault()
+    },
+    [celebrate, thumbOffset]
+  )
+
+  useEffect(() => {
+    const onMove = (clientX: number) => {
+      if (!draggingRef.current || captchaVerifiedRef.current || celebrate) return
+      const max = getMaxTravel()
+      let next = dragStartThumb.current + (clientX - dragStartClientX.current)
+      next = Math.max(2, Math.min(next, max))
+      setThumbOffset(next)
+      if (next >= max - 2) {
+        captchaVerifiedRef.current = true
+        setCaptchaVerified(true)
+        setThumbOffset(max)
+        draggingRef.current = false
+        setCaptchaActive(false)
+      }
+    }
+    const onMouseMove = (e: MouseEvent) => {
+      onMove(e.clientX)
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches[0]) onMove(e.touches[0].clientX)
+    }
+    const end = () => {
+      if (!draggingRef.current) return
+      draggingRef.current = false
+      setCaptchaActive(false)
+      if (!captchaVerifiedRef.current) setThumbOffset(2)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', end)
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', end)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', end)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', end)
+    }
+  }, [celebrate, getMaxTravel])
+
+  useEffect(() => {
+    if (celebrate) return
+    const onResize = () => {
+      if (!captchaVerified) setThumbOffset(2)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [captchaVerified, celebrate])
+
+  useEffect(() => {
+    if (!celebrate) return
+    const handles: number[] = []
+    for (let i = 0; i < 40; i++) {
+      handles.push(
+        window.setTimeout(() => {
+          const angle = Math.random() * Math.PI * 2
+          const dist = 40 + Math.random() * 120
+          const id = `sp-${Date.now()}-${i}`
+          const sp: SparkParticle = {
+            id,
+            left: `${42 + Math.random() * 16}%`,
+            top: `${38 + Math.random() * 18}%`,
+            dx: `${Math.cos(angle) * dist}px`,
+            dy: `${Math.sin(angle) * dist}px`,
+            dur: `${0.55 + Math.random() * 0.55}s`,
+            size: `${1 + Math.random() * 3}px`,
+          }
+          setSparks((prev) => [...prev, sp])
+          window.setTimeout(() => {
+            setSparks((prev) => prev.filter((x) => x.id !== id))
+          }, 1300)
+        }, i * 15)
+      )
+    }
+    return () => handles.forEach((h) => window.clearTimeout(h))
+  }, [celebrate])
+
+  useEffect(() => {
+    if (!celebrate) return
+    const t = window.setTimeout(() => {
+      navigate(ROUTES.login)
+    }, CELEBRATION_MS)
+    return () => window.clearTimeout(t)
+  }, [celebrate, navigate])
+
+  const handleSendCode = useCallback(async () => {
+    setError('')
+    const trimmed = email.trim()
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setError('请先填写有效邮箱')
+      triggerShake()
+      return
+    }
+    setSendingCode(true)
+    const r = await sendRegisterEmailCode(trimmed)
+    setSendingCode(false)
+    if (r.success) {
+      toast.success(r.message || '验证码已发送')
+      if (r.hint) toast.info(r.hint)
+      setCodeCooldown(60)
+    } else {
+      const msg = r.message || '发送失败'
+      if (r.retryAfterSec != null && r.retryAfterSec > 0) {
+        setCodeCooldown(r.retryAfterSec)
+      }
+      setError(msg)
+      toast.error(msg)
+    }
+  }, [email, sendRegisterEmailCode, triggerShake])
 
   if (view === 'whitelist-full') {
     return <WhitelistFullPage onBack={() => setView('register')} />
@@ -49,24 +267,43 @@ export function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (celebrate) return
     setError('')
+
+    if (!captchaVerified) {
+      setError('请完成滑块验证')
+      triggerShake()
+      return
+    }
 
     if (!passwordValid) {
       setError(t('passwordNotMeetRequirements', language))
+      triggerShake()
+      return
+    }
+
+    const code = emailCode.trim()
+    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+      setError('请填写 6 位数字邮箱验证码')
+      triggerShake()
       return
     }
 
     if (betaMode && !betaCode.trim()) {
       setError('内测期间，注册需要提供内测码')
+      triggerShake()
       return
     }
 
     setLoading(true)
     try {
+      const effectiveInvite = inviteLocked ? inviteFromUrl : inviteCode.trim()
       const result = await register(
-        email,
+        email.trim(),
         password,
-        betaCode.trim() || undefined
+        code,
+        betaCode.trim() || undefined,
+        effectiveInvite || undefined
       )
 
       const isWhitelistError = (msg: string) => {
@@ -88,13 +325,16 @@ export function RegisterPage() {
         }
         setError(msg)
         toast.error(msg)
+        resetCaptcha()
+      } else {
+        toast.success(result.message || '注册成功')
+        setCelebrate(true)
       }
-      // success path is handled in AuthContext (auto login + navigation)
-    } catch (e) {
-      console.error('Registration error:', e)
+    } catch (err) {
+      console.error('Registration error:', err)
       const errorMsg =
-        e instanceof Error
-          ? e.message
+        err instanceof Error
+          ? err.message
           : 'Registration failed due to server error'
       const lowerMsg = errorMsg.toLowerCase()
       if (
@@ -109,155 +349,193 @@ export function RegisterPage() {
       }
       setError(errorMsg)
       toast.error(errorMsg)
+      resetCaptcha()
     } finally {
       setLoading(false)
     }
   }
 
+  const fillWidth = Math.max(0, thumbOffset - 2)
+  const submitDisabled =
+    loading ||
+    celebrate ||
+    !passwordValid ||
+    !captchaVerified ||
+    (betaMode && !betaCode.trim())
+
   return (
-    <DeepVoidBackground
-      className="min-h-screen flex items-center justify-center py-12 font-mono"
-      disableAnimation
-    >
-      <div className="w-full max-w-lg relative z-10 px-6">
-        <div className="flex justify-between items-center mb-8">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors group px-3 py-1.5 rounded border border-transparent hover:border-zinc-700 bg-black/20 backdrop-blur-sm"
-          >
-            <div className="w-2 h-2 rounded-full bg-red-500 group-hover:animate-pulse"></div>
-            <span className="text-xs font-mono uppercase tracking-widest">
-              &lt; ABORT_REGISTRATION
-            </span>
-          </button>
-        </div>
+    <div className="crypto-login-root crypto-register-root">
+      <div className="crypto-login-grid-bg" aria-hidden />
+      <div className="crypto-login-scanline" aria-hidden />
 
-        <div className="mb-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="absolute -inset-2 bg-nofx-gold/20 rounded-full blur-xl animate-pulse"></div>
-              <img
-                src="/icons/nofx.svg"
-                alt="NoFx Logo"
-                className="w-16 h-16 object-contain relative z-10 opacity-90"
-              />
-            </div>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tighter text-white uppercase mb-2">
-            <span className="text-nofx-gold">NEW_USER</span> ONBOARDING
-          </h1>
-          <p className="text-zinc-500 text-xs tracking-[0.2em] uppercase">
-            Initializing Registration Sequence...
-          </p>
-        </div>
+      <div className="crypto-login-nodes-layer" aria-hidden>
+        {nodes.map((n) => (
+          <div
+            key={n.id}
+            className="crypto-login-node"
+            style={{
+              left: `${n.x}%`,
+              top: `${n.y}%`,
+              animationDelay: `${n.delay}s`,
+              animationDuration: `${n.dur}s`,
+            }}
+          />
+        ))}
+      </div>
+      <div className="crypto-login-chart-bars" aria-hidden>
+        {candles.map((b) => (
+          <div
+            key={b.id}
+            className="crypto-login-candle"
+            style={{
+              left: `${b.left}%`,
+              height: `${b.h}px`,
+              animationDuration: `${b.dur}s`,
+              animationDelay: `${b.delay}s`,
+            }}
+          />
+        ))}
+      </div>
 
-        <div className="bg-zinc-900/40 backdrop-blur-md border border-zinc-800 rounded-lg overflow-hidden shadow-2xl relative group">
-          <div className="absolute inset-0 bg-zinc-900/50 opacity-0 group-hover:opacity-100 transition duration-700 pointer-events-none"></div>
+      {sparks.map((s) => (
+        <div
+          key={s.id}
+          className="crypto-reg-spark"
+          style={{
+            left: s.left,
+            top: s.top,
+            width: s.size,
+            height: s.size,
+            ['--dx' as string]: s.dx,
+            ['--dy' as string]: s.dy,
+            animation: `crypto-reg-spark-line ${s.dur} ease-out forwards`,
+          }}
+        />
+      ))}
 
-          <div className="flex items-center justify-between px-4 py-2 bg-zinc-900/80 border-b border-zinc-800">
-            <div className="flex gap-1.5">
-              <div
-                className="w-2.5 h-2.5 rounded-full bg-red-500/50 hover:bg-red-500 cursor-pointer transition-colors"
-                onClick={() => navigate('/')}
-                title="Close / Return Home"
-              ></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
-            </div>
-            <div className="text-[10px] text-zinc-600 font-mono flex items-center gap-1">
-              <span className="text-emerald-500">➜</span> setup_account.sh
-            </div>
-          </div>
-
-          <div className="p-6 md:p-8 relative">
-            <div className="mb-6 font-mono text-xs space-y-1 text-zinc-500 border-b border-zinc-800/50 pb-4">
-              <div className="flex gap-2">
-                <span className="text-emerald-500">➜</span>
-                <span>
-                  System Check: <span className="text-emerald-500">READY</span>
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-emerald-500">➜</span>
-                <span>Mode: {betaMode ? 'CLOSED_BETA CA1' : 'PUBLIC'}</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleRegister} className="space-y-5">
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-1.5 ml-1 font-bold">
-                  {t('email', language)}
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-black/50 border border-zinc-700 rounded px-4 py-3 text-sm focus:border-nofx-gold focus:ring-1 focus:ring-nofx-gold/50 outline-none transition-all placeholder-zinc-800 text-white font-mono"
-                  placeholder="user@nofx.os"
-                  required
-                />
+      <div
+        className={`crypto-login-card crypto-register-card crypto-register-card-static${shake ? ' crypto-login-shake' : ''}`}
+      >
+            <div className="crypto-login-card-accent" />
+            <div className="crypto-login-card-body">
+              <div className={`crypto-login-logo-area${celebrate ? ' crypto-register-coin-fast' : ''}`}>
+                <div className="crypto-login-coin-logo" />
+                <span className="crypto-login-logo-text">COMKUN-AI</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-1.5 ml-1 font-bold">
-                    {t('password', language)}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-black/50 border border-zinc-700 rounded px-4 py-3 text-sm focus:border-nofx-gold focus:ring-1 focus:ring-nofx-gold/50 outline-none transition-all placeholder-zinc-800 text-white font-mono pr-10"
-                      placeholder="••••••••"
-                      required
-                    />
+              <div className="crypto-login-title">创建账户</div>
+              <div className="crypto-login-subtitle">开启你的量化系统部署</div>
+
+              <form onSubmit={handleRegister} autoComplete="on">
+                <div className="crypto-login-input-group">
+                  <label htmlFor="crypto-reg-email">邮箱</label>
+                  <div className="crypto-register-row-email">
+                    <div className="crypto-register-email-grow">
+                      <div className="crypto-login-input-wrap">
+                        <input
+                          id="crypto-reg-email"
+                          type="email"
+                          name="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="you@example.com"
+                          disabled={celebrate}
+                          required
+                          autoComplete="email"
+                        />
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
+                      className="crypto-register-send-code"
+                      onClick={handleSendCode}
+                      disabled={celebrate || sendingCode || codeCooldown > 0}
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {sendingCode
+                        ? '发送中…'
+                        : codeCooldown > 0
+                          ? `${codeCooldown}s`
+                          : '获取验证码'}
                     </button>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-1.5 ml-1 font-bold">
-                    {t('confirmPassword', language)}
-                  </label>
-                  <div className="relative">
+                <div className="crypto-login-input-group">
+                  <label htmlFor="crypto-reg-code">输入验证码</label>
+                  <div className="crypto-login-input-wrap crypto-register-code-input">
                     <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full bg-black/50 border border-zinc-700 rounded px-4 py-3 text-sm focus:border-nofx-gold focus:ring-1 focus:ring-nofx-gold/50 outline-none transition-all placeholder-zinc-800 text-white font-mono pr-10"
-                      placeholder="••••••••"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setShowConfirmPassword(!showConfirmPassword)
+                      id="crypto-reg-code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={emailCode}
+                      onChange={(ev) =>
+                        setEmailCode(ev.target.value.replace(/\D/g, '').slice(0, 6))
                       }
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
-                    >
-                      {showConfirmPassword ? (
-                        <EyeOff size={16} />
-                      ) : (
-                        <Eye size={16} />
-                      )}
-                    </button>
+                      placeholder="000000"
+                      disabled={celebrate}
+                      required
+                    />
                   </div>
                 </div>
-              </div>
 
-              <div className="bg-zinc-900/50 p-3 rounded border border-zinc-800/50">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 font-bold flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-zinc-500"></div>
-                  Password Strength Protocol
+                <div className="crypto-register-pw-row">
+                  <div className="crypto-login-input-group">
+                    <label>{t('password', language)}</label>
+                    <div className="crypto-register-pw-wrap">
+                      <div className="crypto-login-input-wrap">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          disabled={celebrate}
+                          required
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="crypto-register-pw-toggle"
+                        tabIndex={-1}
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="crypto-login-input-group">
+                    <label>{t('confirmPassword', language)}</label>
+                    <div className="crypto-register-pw-wrap">
+                      <div className="crypto-login-input-wrap">
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                          disabled={celebrate}
+                          required
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="crypto-register-pw-toggle"
+                        tabIndex={-1}
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? '隐藏密码' : '显示密码'}
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs font-mono text-zinc-400">
+
+                <div className="crypto-register-checklist">
+                  <p className="crypto-register-checklist-title">密码要求</p>
                   <PasswordChecklist
                     rules={[
                       'minLength',
@@ -278,88 +556,135 @@ export function RegisterPage() {
                       specialChar: t('passwordRuleSpecial', language),
                       match: t('passwordRuleMatch', language),
                     }}
-                    className="grid grid-cols-2 gap-x-4 gap-y-1"
+                    className="crypto-register-checklist-ul"
+                    iconSize={9}
+                    validColor="rgba(197, 216, 62, 0.75)"
+                    invalidColor="rgba(82, 82, 91, 0.9)"
+                    validTextColor="rgba(212, 230, 74, 0.92)"
+                    invalidTextColor="#52525b"
                     onChange={(isValid) => setPasswordValid(isValid)}
-                    iconSize={10}
                   />
                 </div>
+
+                {betaMode ? (
+                  <div className="crypto-login-input-group">
+                    <label htmlFor="crypto-reg-beta">内测码</label>
+                    <div className="crypto-login-input-wrap">
+                      <input
+                        id="crypto-reg-beta"
+                        type="text"
+                        value={betaCode}
+                        onChange={(e) =>
+                          setBetaCode(e.target.value.replace(/[^a-z0-9]/gi, '').toLowerCase())
+                        }
+                        placeholder="6 位字母数字"
+                        maxLength={6}
+                        disabled={celebrate}
+                        required={betaMode}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="crypto-login-input-group">
+                  <label htmlFor="crypto-reg-invite">
+                    {inviteLocked ? '邀请码（来自邀请链接）' : '邀请码（选填）'}
+                  </label>
+                  <div className="crypto-login-input-wrap">
+                    <input
+                      id="crypto-reg-invite"
+                      type="text"
+                      name="invite_code"
+                      value={inviteLocked ? inviteFromUrl : inviteCode}
+                      onChange={(e) => {
+                        if (inviteLocked) return
+                        setInviteCode(e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase())
+                      }}
+                      readOnly={inviteLocked}
+                      disabled={celebrate}
+                      autoComplete="off"
+                      placeholder={inviteLocked ? '' : '朋友给你的邀请码，可不填'}
+                      maxLength={16}
+                      title={inviteLocked ? '此邀请码由邀请链接带入，不可修改' : undefined}
+                    />
+                  </div>
+                  {inviteLocked ? (
+                    <p className="crypto-register-hint">已通过邀请链接绑定，邀请码不可更改。</p>
+                  ) : null}
+                </div>
+
+                <div className="crypto-reg-captcha-section">
+                  <label>安全验证</label>
+                  <div
+                    ref={barRef}
+                    className={`crypto-reg-captcha-bar${
+                      captchaActive ? ' crypto-reg-captcha-active' : ''
+                    }${captchaVerified ? ' crypto-reg-captcha-verified' : ''}`}
+                    role="presentation"
+                    onMouseDown={() => {
+                      if (!captchaVerified && !celebrate) setCaptchaActive(true)
+                    }}
+                  >
+                    <div className="crypto-reg-captcha-track">
+                      <div
+                        className="crypto-reg-captcha-fill"
+                        style={{ width: `${fillWidth}px` }}
+                      />
+                      <div className="crypto-reg-captcha-text">
+                        {captchaVerified ? '✓ 验证通过' : '→ 拖动滑块完成验证 →'}
+                      </div>
+                    </div>
+                    <div
+                      ref={thumbRef}
+                      className="crypto-reg-captcha-thumb"
+                      style={{ left: `${thumbOffset}px` }}
+                      onMouseDown={onThumbPointerDown}
+                      onTouchStart={onThumbPointerDown}
+                    >
+                      {captchaVerified ? '✓' : '⇌'}
+                    </div>
+                  </div>
+                </div>
+
+                {error ? <div className="crypto-login-err">{error}</div> : null}
+
+                <button
+                  type="submit"
+                  className={`crypto-login-btn${celebrate ? ' crypto-register-btn-success' : ''}`}
+                  disabled={submitDisabled}
+                >
+                  <span>
+                    {celebrate
+                      ? '✓ 注册成功'
+                      : loading
+                        ? '提交中…'
+                        : '注册'}
+                  </span>
+                </button>
+              </form>
+
+              <div className="crypto-register-switch">
+                已有账号？
+                <Link to={ROUTES.login}>立即登录 →</Link>
               </div>
 
-              {betaMode && (
-                <div>
-                  <label className="block text-xs uppercase tracking-wider text-nofx-gold mb-1.5 ml-1 font-bold">
-                    Priority Access Code
-                  </label>
-                  <input
-                    type="text"
-                    value={betaCode}
-                    onChange={(e) =>
-                      setBetaCode(
-                        e.target.value.replace(/[^a-z0-9]/gi, '').toLowerCase()
-                      )
-                    }
-                    className="w-full bg-black/50 border border-zinc-700 rounded px-4 py-3 text-sm focus:border-nofx-gold focus:ring-1 focus:ring-nofx-gold/50 outline-none transition-all placeholder-zinc-800 text-white font-mono tracking-widest"
-                    placeholder="XXXXXX"
-                    maxLength={6}
-                    required={betaMode}
-                  />
-                  <p className="text-[10px] text-zinc-600 font-mono mt-1 ml-1">
-                    * CASE SENSITIVE ALPHANUMERIC
-                  </p>
-                </div>
-              )}
+              <div className="crypto-register-terminal-static">
+                COMKUN-AI-交易系统-就绪
+                <span className="crypto-login-terminal-blink" />
+              </div>
 
-              {error && (
-                <div className="text-xs bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded font-mono">
-                  [REGISTRATION_ERROR]: {error}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={
-                  loading || (betaMode && !betaCode.trim()) || !passwordValid
-                }
-                className="w-full bg-nofx-gold text-black font-bold py-3 px-4 rounded text-sm tracking-wide uppercase hover:bg-yellow-400 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed font-mono shadow-[0_0_15px_rgba(255,215,0,0.1)] hover:shadow-[0_0_25px_rgba(255,215,0,0.25)] flex items-center justify-center gap-2 group mt-4"
-              >
-                {loading ? (
-                  <span className="animate-pulse">INITIALIZING...</span>
-                ) : (
-                  <>
-                    <span>CREATE_ACCOUNT</span>
-                    <span className="group-hover:translate-x-1 transition-transform">
-                      -&gt;
-                    </span>
-                  </>
-                )}
-              </button>
-            </form>
+              <p className="mt-6 text-center text-[11px] text-[#71717a]">
+                <button
+                  type="button"
+                  onClick={() => navigate(ROUTES.home)}
+                  className="underline-offset-2 hover:text-[#d4ff33] hover:underline"
+                >
+                  返回首页
+                </button>
+              </p>
+            </div>
           </div>
-
-          <div className="bg-zinc-900/50 p-3 flex justify-between items-center text-[10px] font-mono text-zinc-600 border-t border-zinc-800">
-            <div>ENCRYPTION: AES-256</div>
-            <div>SECURE_REGISTRY</div>
-          </div>
-        </div>
-
-        <div className="text-center mt-8 space-y-4">
-          <p className="text-xs font-mono text-zinc-500">
-            EXISTING_OPERATOR?{' '}
-            <button
-              onClick={() => navigate('/login')}
-              className="text-nofx-gold hover:underline hover:text-yellow-300 transition-colors ml-1 uppercase"
-            >
-              ACCESS TERMINAL
-            </button>
-          </p>
-          <button
-            onClick={() => navigate('/')}
-            className="text-[10px] text-zinc-600 hover:text-red-500 transition-colors uppercase tracking-widest hover:underline decoration-red-500/30 font-mono"
-          >
-            [ ABORT_REGISTRATION_RETURN_HOME ]
-          </button>
-        </div>
-      </div>
-    </DeepVoidBackground>
+    </div>
   )
 }

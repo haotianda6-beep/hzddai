@@ -6,6 +6,7 @@ package nofxos
 import (
 	"io/ioutil"
 	"net/http"
+	"os"
 	"nofx/security"
 	"strings"
 	"sync"
@@ -16,7 +17,9 @@ import (
 const (
 	DefaultBaseURL = "https://nofxos.ai"
 	DefaultTimeout = 30 * time.Second
-	DefaultAuthKey = "cm_568c67eae410d912c54c"
+	// 注意：旧的公共 key 已被官方废弃。平台模式下请走 claw402-data 网关；
+	// 若要直连 nofxos.ai，请使用你自己的有效 key。
+	DefaultAuthKey = ""
 )
 
 // Client is the NofxOS API client
@@ -49,9 +52,6 @@ func DefaultClient() *Client {
 func NewClient(baseURL, authKey string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
-	}
-	if authKey == "" {
-		authKey = DefaultAuthKey
 	}
 	return &Client{
 		BaseURL: baseURL,
@@ -103,13 +103,24 @@ func (c *Client) doRequest(endpoint string) ([]byte, error) {
 	timeout := c.Timeout
 	c.mu.RUnlock()
 
+	// 平台托管模式：强制走 claw402-data（用户不需要 nofxos key）。
+	// 只要平台配置了 PLATFORM_CLAW402_WALLET_KEY，就默认开启强制模式，杜绝回退直连触发“public key deprecated”。
+	forceClaw := strings.TrimSpace(os.Getenv("NOFXOS_FORCE_CLAW402"))
+	if forceClaw == "" && strings.TrimSpace(os.Getenv("PLATFORM_CLAW402_WALLET_KEY")) != "" {
+		forceClaw = "1"
+	}
+
 	// Route through claw402 if configured
 	if claw402Client != nil {
 		return claw402Client.DoRequest(endpoint)
 	}
 
+	if forceClaw == "1" || strings.EqualFold(forceClaw, "true") {
+		return nil, &APIError{StatusCode: 0, Message: "nofxos data must be routed via claw402-data (missing claw402 client)"}
+	}
+
 	url := baseURL + endpoint
-	if !strings.Contains(url, "auth=") {
+	if authKey != "" && !strings.Contains(url, "auth=") {
 		if strings.Contains(url, "?") {
 			url += "&auth=" + authKey
 		} else {

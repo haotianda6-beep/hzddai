@@ -100,6 +100,81 @@ func TestLeverageFallback(t *testing.T) {
 	}
 }
 
+func TestValidateJSONFormatAllowsRangeTextInsideStrings(t *testing.T) {
+	jsonContent := `[{"symbol":"BTCUSDT","final_action":"wait","reason_cn":"RSI30~50 只是说明文字，不是数值字段","confidence":null}]`
+	if err := validateJSONFormat(jsonContent); err != nil {
+		t.Fatalf("validateJSONFormat() should allow ~ inside quoted text, got %v", err)
+	}
+}
+
+func TestValidateJSONFormatRejectsRangeSymbolOutsideStrings(t *testing.T) {
+	jsonContent := `[{"symbol":"BTCUSDT","final_action":"wait","confidence":30~50}]`
+	if err := validateJSONFormat(jsonContent); err == nil {
+		t.Fatal("validateJSONFormat() should reject ~ outside quoted text")
+	}
+}
+
+func TestValidateDecisionsDowngradesTinyBTCETHOpenToWait(t *testing.T) {
+	decisions := []Decision{
+		{
+			Symbol:          "ETHUSDT",
+			Action:          "open_long",
+			Leverage:        20,
+			PositionSizeUSD: 30.13,
+			StopLoss:        2000,
+			TakeProfit:      2200,
+			Reasoning:       "Tiny test entry",
+		},
+	}
+
+	if err := validateDecisions(decisions, 100, 20, 10, 10.0, 1.5); err != nil {
+		t.Fatalf("validateDecisions() should downgrade tiny open to wait, got %v", err)
+	}
+	if decisions[0].Action != "wait" {
+		t.Fatalf("tiny open should become wait, got %q", decisions[0].Action)
+	}
+	if decisions[0].PositionSizeUSD != 0 || decisions[0].Leverage != 0 {
+		t.Fatalf("wait fallback should clear executable open fields, got size=%v leverage=%v", decisions[0].PositionSizeUSD, decisions[0].Leverage)
+	}
+}
+
+func TestValidateDecisionsDowngradesInvalidActionToWait(t *testing.T) {
+	decisions := []Decision{
+		{
+			Symbol:    "BTCUSDT",
+			Action:    "",
+			Reasoning: "Missing action from model",
+		},
+	}
+
+	if err := validateDecisions(decisions, 100, 20, 10, 10.0, 1.5); err != nil {
+		t.Fatalf("validateDecisions() should downgrade invalid action to wait, got %v", err)
+	}
+	if decisions[0].Action != "wait" {
+		t.Fatalf("invalid action should become wait, got %q", decisions[0].Action)
+	}
+}
+
+func TestValidateDecisionsNormalizesLegacyOpenNewWhenDirectionIsClear(t *testing.T) {
+	decisions := []Decision{
+		{
+			Symbol:          "ETHUSDT",
+			Action:          "OPEN_NEW",
+			Leverage:        20,
+			PositionSizeUSD: 120,
+			StopLoss:        2000,
+			TakeProfit:      2200,
+			Reasoning:       "Legacy open action with long stop/take-profit relation",
+		},
+	}
+
+	if err := validateDecisions(decisions, 100, 20, 10, 10.0, 1.5); err != nil {
+		t.Fatalf("validateDecisions() should normalize executable OPEN_NEW, got %v", err)
+	}
+	if decisions[0].Action != "open_long" {
+		t.Fatalf("OPEN_NEW with stop_loss < take_profit should become open_long, got %q", decisions[0].Action)
+	}
+}
 
 // contains checks if string contains substring (helper function)
 func contains(s, substr string) bool {

@@ -11,7 +11,7 @@ export interface SystemStatus {
   stop_until: string
   last_reset_time: string
   ai_provider: string
-  strategy_type?: 'ai_trading' | 'grid_trading'
+  strategy_type?: 'ai_trading' | 'grid_trading' | 'program_martingale'
   grid_symbol?: string
 }
 
@@ -42,17 +42,30 @@ export interface Position {
   margin_used: number
 }
 
+/** 交易所当前未成交委托（GET /api/open-orders，与后端 OpenOrder JSON 一致） */
+export interface ExchangeOpenOrder {
+  order_id: string
+  symbol: string
+  side: string
+  position_side?: string
+  type: string
+  price: number
+  stop_price: number
+  quantity: number
+  status: string
+}
+
 export interface DecisionAction {
   action: string
   symbol: string
   quantity: number
   leverage: number
   price: number
-  stop_loss?: number      // Stop loss price
-  take_profit?: number    // Take profit price
-  confidence?: number     // AI confidence (0-100)
-  reasoning?: string      // Brief reasoning
-  order_id: number
+  stop_loss?: number // Stop loss price
+  take_profit?: number // Take profit price
+  confidence?: number // AI confidence (0-100)
+  reasoning?: string // Brief reasoning
+  order_id: number | string
   timestamp: string
   success: boolean
   error?: string
@@ -72,6 +85,7 @@ export interface DecisionRecord {
   system_prompt: string
   input_prompt: string
   cot_trace: string
+  raw_response?: string
   decision_json: string
   account_state: AccountSnapshot
   positions: any[]
@@ -88,13 +102,20 @@ export interface Statistics {
   failed_cycles: number
   total_open_positions: number
   total_close_positions: number
+  /** 已平仓成交笔数（与成交历史一致） */
+  total_trades?: number
+  win_trades?: number
+  loss_trades?: number
+  /** 胜率 % = win_trades / total_trades × 100 */
+  win_rate?: number
 }
 
 // AI Trading相关类型
 export interface TraderInfo {
   trader_id: string
   trader_name: string
-  ai_model: string
+  /** 部分历史数据或接口异常时可能缺失；前端须做空值保护 */
+  ai_model?: string
   exchange_id?: string
   is_running?: boolean
   startup_warning?: string
@@ -111,8 +132,8 @@ export interface TraderInfo {
 export interface CompetitionTraderData {
   trader_id: string
   trader_name: string
-  ai_model: string
-  exchange: string
+  ai_model?: string
+  exchange?: string
   total_equity: number
   total_pnl: number
   total_pnl_pct: number
@@ -130,12 +151,12 @@ export interface CompetitionData {
 export interface TraderConfigData {
   trader_id?: string
   trader_name: string
-  ai_model: string
+  ai_model?: string
   exchange_id: string
-  strategy_id?: string  // 策略ID
-  strategy_name?: string  // 策略名称
+  strategy_id?: string // 策略ID
+  strategy_name?: string // 策略名称
   is_cross_margin: boolean
-  show_in_competition: boolean  // 是否在竞技场显示
+  show_in_competition: boolean // 是否在竞技场显示
   scan_interval_minutes: number
   initial_balance: number
   is_running: boolean

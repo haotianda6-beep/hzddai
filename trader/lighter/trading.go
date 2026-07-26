@@ -410,7 +410,7 @@ func (t *LighterTraderV2) submitOrder(txType int, txInfo string) (map[string]int
 		// Code 29500: internal server error: invalid signature (authenticated GET APIs)
 		if (sendResp.Code == 21120 || sendResp.Code == 29500) && strings.Contains(sendResp.Message, "invalid signature") {
 			if !t.apiKeyValid {
-				return nil, fmt.Errorf("API Key MISMATCH (code %d): The API key stored in NOFX does not match the one registered on Lighter. Please update your Lighter API key in Exchange settings at app.lighter.xyz", sendResp.Code)
+				return nil, fmt.Errorf("API Key MISMATCH (code %d): The API key stored in COMKUN-AI does not match the one registered on Lighter. Please update your Lighter API key in Exchange settings at app.lighter.xyz", sendResp.Code)
 			}
 			return nil, fmt.Errorf("API Key signature invalid (code %d): Please verify your Lighter API Key in Exchange settings matches the key registered at app.lighter.xyz", sendResp.Code)
 		}
@@ -466,8 +466,8 @@ func (t *LighterTraderV2) pollForOrderIndex(symbol string, txHash string) (int64
 	return highestIndex, nil
 }
 
-// normalizeSymbol Convert NOFX symbol format to Lighter format
-// NOFX uses "BTC-PERP", "BTCUSDT", etc. Lighter uses "BTC", "ETH", etc.
+// normalizeSymbol Convert COMKUN-AI symbol format to Lighter format
+// COMKUN-AI uses "BTC-PERP", "BTCUSDT", etc. Lighter uses "BTC", "ETH", etc.
 func normalizeSymbol(symbol string) string {
 	// Remove common suffixes
 	s := strings.TrimSuffix(symbol, "-PERP")

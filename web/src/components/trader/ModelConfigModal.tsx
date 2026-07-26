@@ -1,19 +1,19 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
-import { Trash2, Brain, ExternalLink } from 'lucide-react'
+import { Trash2, Brain, ExternalLink, Check, Eye, EyeOff } from 'lucide-react'
 import type { AIModel } from '../../types'
 import type { Language } from '../../i18n/translations'
 import { t } from '../../i18n/translations'
 import { api } from '../../lib/api'
 import { getModelIcon } from '../common/ModelIcons'
-import { ModelStepIndicator } from './ModelStepIndicator'
-import { ModelCard } from './ModelCard'
 import {
   CLAW402_MODELS,
   AI_PROVIDER_CONFIG,
   getShortName,
 } from './model-constants'
 import { getBeginnerWalletAddress, getUserMode } from '../../lib/onboarding'
+import { ROUTES } from '../../router/paths'
 
 interface ModelConfigModalProps {
   allModels: AIModel[]
@@ -37,157 +37,306 @@ export function ModelConfigModal({
   onSave,
   onDelete,
   onClose,
-  language,
+  language: _languageFromParent,
 }: ModelConfigModalProps) {
-  const [currentStep, setCurrentStep] = useState(editingModelId ? 1 : 0)
+  const navigate = useNavigate()
+  /** 设置里「AI 模型」统一中文，避免界面语言为英文时仍全英 */
+  const language = 'zh' satisfies Language
+  void _languageFromParent
+
   const [selectedModelId, setSelectedModelId] = useState(editingModelId || '')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [modelName, setModelName] = useState('')
-  const configuredModel =
-    configuredModels?.find((model) => model.id === selectedModelId) || null
+  const configuredModel = useMemo(
+    () =>
+      configuredModels?.find((model) => model.id === selectedModelId) ||
+      configuredModels?.find((model) => model.provider === selectedModelId) ||
+      null,
+    [configuredModels, selectedModelId]
+  )
 
   // Always prefer allModels (supportedModels) for provider/id lookup;
   // fall back to configuredModels for edit mode details (apiKey etc.)
-  const selectedModel =
-    allModels?.find((m) => m.id === selectedModelId) || configuredModel
+  const selectedModel = useMemo(
+    () =>
+      allModels?.find((m) => m.id === selectedModelId) ||
+      allModels?.find((m) => m.provider === selectedModelId) ||
+      configuredModel,
+    [allModels, configuredModel, selectedModelId]
+  )
 
   useEffect(() => {
-    const modelDetails = configuredModel || selectedModel
-    if (editingModelId && modelDetails) {
-      setApiKey(modelDetails.apiKey || '')
-      setBaseUrl(modelDetails.customApiUrl || '')
-      setModelName(modelDetails.customModelName || '')
-    }
-  }, [editingModelId, configuredModel, selectedModel])
+    setApiKey(configuredModel?.apiKey || '')
+    setBaseUrl(configuredModel?.customApiUrl || '')
+    setModelName(configuredModel?.customModelName || '')
+  }, [configuredModel, selectedModelId])
 
-  const handleSelectModel = (modelId: string) => {
-    setSelectedModelId(modelId)
-    setCurrentStep(1)
-  }
-
-  const handleBack = () => {
-    if (editingModelId) {
-      onClose()
-    } else {
-      setCurrentStep(0)
-      setSelectedModelId('')
+  const availableModels = allModels || []
+  const sortedSidebarModels = useMemo(() => {
+    const tier = (m: AIModel) => {
+      if (m.provider === 'comkun_ai' || m.id === 'comkun_ai') return 0
+      if (m.provider === 'comkun_proxy' || m.id === 'comkun_proxy') return 1
+      if (m.provider === 'claw402' || m.id === 'claw402') return 2
+      return 2
     }
-  }
+    const list = [...availableModels]
+    list.sort((a, b) => {
+      const ac = tier(a)
+      const bc = tier(b)
+      if (ac !== bc) return ac - bc
+      return (a.name || '').localeCompare(b.name || '')
+    })
+    return list
+  }, [availableModels])
+
+  useEffect(() => {
+    if (!editingModelId) return
+    const editingModel = configuredModels?.find((model) => model.id === editingModelId)
+    const supportedModel = sortedSidebarModels.find(
+      (model) => model.id === editingModelId || model.provider === editingModel?.provider
+    )
+    setSelectedModelId(supportedModel?.id || editingModelId)
+  }, [configuredModels, editingModelId, sortedSidebarModels])
+
+  useEffect(() => {
+    if (editingModelId) return
+    if (!selectedModelId && sortedSidebarModels.length > 0) {
+      setSelectedModelId(sortedSidebarModels[0].id)
+    }
+  }, [editingModelId, sortedSidebarModels, selectedModelId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedModelId) return
-    const key = apiKey.trim()
-    // Allow empty key when editing an existing model (backend preserves existing key)
-    if (!key && !editingModelId) return
+    const isComkun =
+      selectedModel?.provider === 'comkun_ai' ||
+      selectedModel?.id === 'comkun_ai' ||
+      selectedModel?.provider === 'comkun_proxy' ||
+      selectedModel?.id === 'comkun_proxy'
+    let key = apiKey.trim()
+    // Allow empty key only when the selected provider already has a saved key.
+    if (!key && !configuredModel) {
+      if (isComkun) {
+        key = 'comkun-ai-placeholder'
+      } else {
+        return
+      }
+    }
     onSave(selectedModelId, key, baseUrl.trim() || undefined, modelName.trim() || undefined)
   }
 
-  const availableModels = allModels || []
-  const configuredIds = new Set(configuredModels?.map(m => m.id) || [])
+  const configuredKeys = new Set(
+    configuredModels?.flatMap((m) => [m.id, m.provider].filter(Boolean)) || []
+  )
   const isClaw402Selected = selectedModel?.provider === 'claw402' || selectedModel?.id === 'claw402'
   const isBeginnerDefaultModel = isClaw402Selected && getUserMode() === 'beginner'
-  const stepLabels = [
-    t('modelConfig.selectModel', language),
-    t(
-      !selectedModel
-        ? 'modelConfig.configure'
-        : isClaw402Selected
-          ? 'modelConfig.configureWallet'
-          : 'modelConfig.configure',
-      language
-    ),
-  ]
+  const MODEL_FORM_ID = 'nofx-model-config-sheet-form'
+
+  const providerSubtitle = (m: AIModel) => {
+    const cfg = AI_PROVIDER_CONFIG[m.provider]
+    if (m.provider === 'comkun_proxy' || m.id === 'comkun_proxy') return '平台余额扣费 · COMKUN 多模型代理'
+    if (m.provider === 'claw402' || m.id === 'claw402') return 'USDC 按次 · 多模型聚合'
+    if (m.provider === 'comkun_ai' || m.id === 'comkun_ai' || m.provider === 'ai') {
+      return '策略市场跟单 · comkun-ai-follow'
+    }
+    return cfg?.apiName || m.provider
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
+    <div className="fixed inset-0 z-[55] flex items-start justify-center overflow-y-auto bg-black/70 p-2 backdrop-blur-sm sm:items-center sm:p-4">
       <div
-        className="rounded-2xl w-full max-w-2xl relative my-8 shadow-2xl"
-        style={{ background: 'linear-gradient(180deg, #1E2329 0%, #181A20 100%)', maxHeight: 'calc(100vh - 4rem)' }}
+        className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-800/90 bg-nofx-bg shadow-2xl"
+        style={{ maxHeight: 'min(90vh, 900px)' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 pb-2">
-          <div className="flex items-center gap-3">
-            {currentStep > 0 && !editingModelId && (
-              <button type="button" onClick={handleBack} className="p-2 rounded-lg hover:bg-white/10 transition-colors">
-                <svg className="w-5 h-5" style={{ color: '#848E9C' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            )}
-            <h3 className="text-xl font-bold" style={{ color: '#EAECEF' }}>
-              {editingModelId ? t('editAIModel', language) : t('addAIModel', language)}
-            </h3>
-          </div>
-          <div className="flex items-center gap-2">
+        {/* 顶栏 */}
+        <div className="flex shrink-0 items-center justify-between border-b border-zinc-800/90 px-4 py-3 sm:px-5 sm:py-4">
+          <h2 className="text-lg font-bold text-white">
+            {editingModelId ? t('editAIModel', language) : t('addAIModel', language)}
+          </h2>
+          <div className="flex items-center gap-1">
             {editingModelId && !isBeginnerDefaultModel && (
               <button
                 type="button"
                 onClick={() => onDelete(editingModelId)}
-                className="p-2 rounded-lg hover:bg-red-500/20 transition-colors"
-                style={{ color: '#F6465D' }}
+                className="rounded-lg p-2 text-red-400 transition-colors hover:bg-red-500/15"
+                title="删除"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="h-4 w-4" />
               </button>
             )}
-            <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 transition-colors" style={{ color: '#848E9C' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="关闭"
+            >
               ✕
             </button>
           </div>
         </div>
 
-        {/* Step Indicator */}
-        {!editingModelId && (
-          <div className="px-6">
-            <ModelStepIndicator currentStep={currentStep} labels={stepLabels} />
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          {/* 左侧：模型列表 */}
+          <aside className="flex max-h-[38vh] shrink-0 flex-col border-b border-zinc-800/90 md:max-h-none md:w-[280px] md:border-b-0 md:border-r md:border-zinc-800/90 bg-nofx-bg-tertiary">
+            <p className="px-4 pb-2 pt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
+              AI 模型
+            </p>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
+              {sortedSidebarModels.map((m) => {
+                const sel = selectedModelId === m.id
+                const isClaw = m.provider === 'claw402' || m.id === 'claw402'
+                const isComkun = m.provider === 'comkun_ai' || m.id === 'comkun_ai'
+                const isProxy = m.provider === 'comkun_proxy' || m.id === 'comkun_proxy'
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedModelId(m.id)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                      sel ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/80 bg-black/40">
+                      {isProxy || isComkun ? (
+                        <img src="/icons/comkun_ai.svg" alt="" width={32} height={32} className="object-contain" />
+                      ) : isClaw ? (
+                        <img src="/icons/claw402.svg" alt="" width={32} height={32} />
+                      ) : isComkun ? (
+                        <img src="/icons/comkun-ai.png" alt="" width={32} height={32} className="object-contain" />
+                      ) : (
+                        getModelIcon(m.provider || m.id, { width: 28, height: 28 }) || (
+                          <span className="text-sm font-bold text-zinc-400">{m.name[0]}</span>
+                        )
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-white">
+                        {getShortName(m.name)}
+                      </div>
+                      <div className="truncate text-xs text-zinc-500">{providerSubtitle(m)}</div>
+                      {(configuredKeys.has(m.id) || configuredKeys.has(m.provider)) && (
+                        <span className="mt-0.5 inline-block rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                          已配置
+                        </span>
+                      )}
+                    </div>
+                    {sel ? (
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#6D5AC8]">
+                        <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+                      </div>
+                    ) : (
+                      <div className="h-6 w-6 shrink-0" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+
+          {/* 右侧：表单 */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-nofx-bg">
+            {selectedModel &&
+            (selectedModel.provider === 'comkun_proxy' || selectedModel.id === 'comkun_proxy') ? (
+              <ComkunProxyConfigForm
+                formId={MODEL_FORM_ID}
+                modelName={modelName}
+                editingModelId={editingModelId}
+                onModelNameChange={setModelName}
+                onCancel={onClose}
+                onSubmit={handleSubmit}
+                language={language}
+              />
+            ) : selectedModel &&
+            (selectedModel.provider === 'claw402' || selectedModel.id === 'claw402') ? (
+              <Claw402ConfigForm
+                formId={MODEL_FORM_ID}
+                apiKey={apiKey}
+                modelName={modelName}
+                configuredModel={configuredModel}
+                editingModelId={editingModelId}
+                onApiKeyChange={setApiKey}
+                onModelNameChange={setModelName}
+                onCancel={onClose}
+                onSubmit={handleSubmit}
+                language={language}
+              />
+            ) : selectedModel ? (
+              <>
+                <div className="shrink-0 border-b border-zinc-800/80 px-4 py-3 sm:px-5 sm:py-4">
+                  <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-700/80 bg-black/50">
+                      {selectedModel.provider === 'comkun_ai' || selectedModel.id === 'comkun_ai' ? (
+                        <img src="/icons/comkun-ai.png" alt="" width={40} height={40} className="object-contain" />
+                      ) : getModelIcon(selectedModel.provider || selectedModel.id, {
+                        width: 32,
+                        height: 32,
+                      }) || (
+                        <span className="text-lg font-bold text-zinc-400">
+                          {selectedModel.name[0]}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-lg font-bold text-white">
+                        {getShortName(selectedModel.name)}
+                      </h3>
+                      <p className="text-xs text-zinc-500">
+                        {AI_PROVIDER_CONFIG[selectedModel.provider]?.apiName ||
+                          selectedModel.provider}{' '}
+                        ·{' '}
+                        {AI_PROVIDER_CONFIG[selectedModel.provider]?.defaultModel ||
+                          selectedModel.id}
+                      </p>
+                    </div>
+                    {selectedModel.provider === 'comkun_ai' || selectedModel.id === 'comkun_ai' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose()
+                          navigate(ROUTES.recharge)
+                        }}
+                        className="w-full shrink-0 rounded-lg border border-[#558b2f]/45 bg-[#1b2218]/80 px-4 py-2 text-sm font-semibold text-[#d4ff33] transition-colors hover:border-[#d4ff33]/55 hover:bg-[#243018] sm:w-auto"
+                      >
+                        充值平台余额
+                      </button>
+                    ) : !!AI_PROVIDER_CONFIG[selectedModel.provider]?.apiUrl ? (
+                      <a
+                        href={AI_PROVIDER_CONFIG[selectedModel.provider].apiUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-sm font-medium text-[#a78bfa] hover:text-[#c4b5fd] hover:underline"
+                      >
+                        官方网站 →
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+                <StandardProviderConfigForm
+                  formId={MODEL_FORM_ID}
+                  embedChrome
+                  isComkunProvider={
+                    selectedModel.provider === 'comkun_ai' || selectedModel.id === 'comkun_ai'
+                  }
+                  selectedModel={selectedModel}
+                  apiKey={apiKey}
+                  baseUrl={baseUrl}
+                  modelName={modelName}
+                  editingModelId={editingModelId}
+                  onApiKeyChange={setApiKey}
+                  onBaseUrlChange={setBaseUrl}
+                  onModelNameChange={setModelName}
+                  onCancel={onClose}
+                  onSubmit={handleSubmit}
+                  language={language}
+                />
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-500">
+                请从左侧选择一个模型
+              </div>
+            )}
           </div>
-        )}
-
-        {/* Content */}
-        <div className="px-6 pb-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 16rem)' }}>
-          {/* Step 0: Select Model */}
-          {currentStep === 0 && !editingModelId && (
-            <ModelSelectionStep
-              availableModels={availableModels}
-              configuredIds={configuredIds}
-              selectedModelId={selectedModelId}
-              onSelectModel={handleSelectModel}
-              language={language}
-            />
-          )}
-
-          {/* Step 1: Configure — Claw402 Dedicated UI */}
-          {(currentStep === 1 || editingModelId) && selectedModel && (selectedModel.provider === 'claw402' || selectedModel.id === 'claw402') && (
-            <Claw402ConfigForm
-              apiKey={apiKey}
-              modelName={modelName}
-              configuredModel={configuredModel}
-              editingModelId={editingModelId}
-              onApiKeyChange={setApiKey}
-              onModelNameChange={setModelName}
-              onBack={handleBack}
-              onSubmit={handleSubmit}
-              language={language}
-            />
-          )}
-
-          {/* Step 1: Configure — Standard Providers (non-claw402) */}
-          {(currentStep === 1 || editingModelId) && selectedModel && selectedModel.provider !== 'claw402' && selectedModel.id !== 'claw402' && (
-            <StandardProviderConfigForm
-              selectedModel={selectedModel}
-              apiKey={apiKey}
-              baseUrl={baseUrl}
-              modelName={modelName}
-              editingModelId={editingModelId}
-              onApiKeyChange={setApiKey}
-              onBaseUrlChange={setBaseUrl}
-              onModelNameChange={setModelName}
-              onBack={handleBack}
-              onSubmit={handleSubmit}
-              language={language}
-            />
-          )}
         </div>
       </div>
     </div>
@@ -196,141 +345,121 @@ export function ModelConfigModal({
 
 // --- Sub-components for ModelConfigModal ---
 
-function ModelSelectionStep({
-  availableModels,
-  configuredIds,
-  selectedModelId,
-  onSelectModel,
+function comkunProxyModelLogo(provider: string, id: string): string {
+  const p = provider.toLowerCase()
+  const m = id.toLowerCase()
+  if (p.includes('openai') || m.includes('gpt')) return '/icons/openai.svg'
+  if (p.includes('anthropic') || m.includes('claude')) return '/icons/claude.svg'
+  if (p.includes('deepseek')) return '/icons/deepseek.svg'
+  if (p.includes('alibaba') || m.includes('qwen')) return '/icons/qwen.svg'
+  if (p.includes('moonshot') || m.includes('kimi')) return '/icons/kimi.svg'
+  if (p.includes('google') || m.includes('gemini')) return '/icons/gemini.svg'
+  if (p.includes('xai') || m.includes('grok')) return '/icons/grok.svg'
+  return '/icons/comkun_ai.svg'
+}
+
+function ComkunProxyConfigForm({
+  formId,
+  modelName,
+  editingModelId,
+  onModelNameChange,
+  onCancel,
+  onSubmit,
   language,
 }: {
-  availableModels: AIModel[]
-  configuredIds: Set<string>
-  selectedModelId: string
-  onSelectModel: (modelId: string) => void
+  formId: string
+  modelName: string
+  editingModelId: string | null
+  onModelNameChange: (value: string) => void
+  onCancel: () => void
+  onSubmit: (e: React.FormEvent) => void
   language: Language
 }) {
-  const [showOtherProviders, setShowOtherProviders] = useState(false)
-  const claw402Model = availableModels.find((m) => m.provider === 'claw402')
-  const otherProviders = availableModels.filter((m) => m.provider !== 'claw402')
-
+  const selected = modelName || 'glm-5'
   return (
-    <div className="space-y-4">
-      <div className="text-sm font-semibold" style={{ color: '#EAECEF' }}>
-        {t('modelConfig.chooseProvider', language)}
+    <form id={formId} onSubmit={onSubmit} className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="rounded-xl border border-[#d4ff33]/20 bg-[#d4ff33]/5 p-4">
+          <div className="flex items-center gap-3">
+            <img src="/icons/comkun_ai.svg" alt="" width={40} height={40} />
+            <div>
+              <h3 className="text-lg font-bold text-white">COMKUN-AI 代理模型</h3>
+              <p className="text-xs text-zinc-400">由平台统一管理 COMKUN 代理支付，费用从平台余额扣除，无需用户填写钱包私钥。</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-sm font-semibold text-zinc-200">选择底层模型</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CLAW402_MODELS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => onModelNameChange(m.id)}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  selected === m.id
+                    ? 'border-[#d4ff33]/70 bg-[#d4ff33]/15'
+                    : 'border-zinc-800 bg-black/20 hover:border-[#d4ff33]/35'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-sm font-bold text-white">
+                    <img src={comkunProxyModelLogo(m.provider, m.id)} alt="" className="h-5 w-5 rounded-sm" />
+                    {m.name}
+                  </span>
+                  <span className="text-xs text-[#d4ff33]">{m.desc}</span>
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">{m.provider}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed text-emerald-100/80">
+          每次调用会先读取 COMKUN 代理实际报价，再按平台规则从平台余额扣费；余额不足时会提示充值，不会继续付款调用。
+        </div>
       </div>
 
-      {/* Claw402 Featured Card */}
-      {claw402Model && (
+      <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-zinc-800/90 bg-nofx-bg px-4 py-3 sm:flex-row sm:justify-end sm:px-5 sm:py-4">
         <button
           type="button"
-          onClick={() => {
-            onSelectModel(claw402Model.id)
-          }}
-          className="w-full p-5 rounded-xl text-left transition-all hover:scale-[1.01]"
-          style={{ background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%)', border: '1.5px solid rgba(37, 99, 235, 0.4)' }}
+          onClick={onCancel}
+          className="rounded-xl bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-700"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden">
-                <img src="/icons/claw402.png" alt="Claw402" width={40} height={40} />
-              </div>
-              <div>
-                <div className="font-bold text-base" style={{ color: '#EAECEF' }}>
-                  Claw402
-                  <a href="https://claw402.ai" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ color: '#60A5FA', background: 'rgba(96, 165, 250, 0.1)' }}>↗ claw402.ai</a>
-                </div>
-                <div className="text-xs mt-0.5" style={{ color: '#A0AEC0' }}>
-                  {t('modelConfig.payPerCall', language)}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {configuredIds.has(claw402Model.id) && (
-                <div className="w-2 h-2 rounded-full" style={{ background: '#00E096' }} />
-              )}
-              <div className="px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)', color: '#fff' }}>
-                {'🔥 ' + t('modelConfig.recommended', language)}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mt-3 ml-[52px]">
-            <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0, 224, 150, 0.1)', color: '#00E096', border: '1px solid rgba(0, 224, 150, 0.2)' }}>
-              GPT · Claude · DeepSeek · Gemini · Grok · Qwen · Kimi
-            </span>
-          </div>
-          <div className="mt-4 ml-[52px] text-[11px]" style={{ color: '#A0AEC0' }}>
-            {t('modelConfig.claw402EntryDesc', language)}
-          </div>
+          取消
         </button>
-      )}
-
-      {otherProviders.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowOtherProviders((prev) => !prev)}
-            className="w-full flex items-center justify-between px-4 py-4 text-left transition-all hover:bg-white/5"
-          >
-            <div>
-              <div className="text-sm font-semibold" style={{ color: '#EAECEF' }}>
-                {t('modelConfig.otherApiEntry', language)}
-              </div>
-              <div className="mt-1 text-xs" style={{ color: '#848E9C' }}>
-                {t('modelConfig.otherApiEntryDesc', language)}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: '#A0AEC0' }}>
-                {otherProviders.length} API
-              </span>
-              <span className="text-sm" style={{ color: '#60A5FA' }}>
-                {showOtherProviders ? '−' : '+'}
-              </span>
-            </div>
-          </button>
-
-          {showOtherProviders && (
-            <div className="border-t border-white/5 px-4 py-4">
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                {otherProviders.map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    selected={selectedModelId === model.id}
-                    onClick={() => onSelectModel(model.id)}
-                    configured={configuredIds.has(model.id)}
-                  />
-                ))}
-              </div>
-              <div className="text-xs text-center pt-3" style={{ color: '#848E9C' }}>
-                {t('modelConfig.modelsConfigured', language)}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        <button
+          type="submit"
+          className="rounded-xl bg-[#6D5AC8] px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-900/20 transition-colors hover:bg-[#5d4cb8]"
+        >
+          {editingModelId ? t('saveConfig', language) : t('modelConfig.startTrading', language)}
+        </button>
+      </div>
+    </form>
   )
 }
 
 function Claw402ConfigForm({
+  formId,
   apiKey,
   modelName,
   configuredModel,
   editingModelId,
   onApiKeyChange,
   onModelNameChange,
-  onBack,
+  onCancel,
   onSubmit,
   language,
 }: {
+  formId: string
   apiKey: string
   modelName: string
   configuredModel: AIModel | null
   editingModelId: string | null
   onApiKeyChange: (value: string) => void
   onModelNameChange: (value: string) => void
-  onBack: () => void
+  onCancel: () => void
   onSubmit: (e: React.FormEvent) => void
   language: Language
 }) {
@@ -425,10 +554,10 @@ function Claw402ConfigForm({
           setClaw402Status(data.claw402_status || 'unknown')
           setKeyError('')
         } else {
-          setKeyError(data.error || 'Invalid key')
+          setKeyError(data.error || t('modelConfig.invalidKeyGeneric', language))
         }
       } catch {
-        setKeyError('Validation request failed')
+        setKeyError(t('modelConfig.validationRequestFailed', language))
       } finally {
         setValidating(false)
       }
@@ -476,7 +605,10 @@ function Claw402ConfigForm({
             : t('modelConfig.claw402Unreachable', language),
         })
       } else {
-        setTestResult({ status: 'error', message: data.error || 'Invalid key' })
+        setTestResult({
+          status: 'error',
+          message: data.error || t('modelConfig.invalidKeyGeneric', language),
+        })
       }
     } catch {
       setTestResult({ status: 'error', message: t('modelConfig.claw402Unreachable', language) })
@@ -488,14 +620,19 @@ function Claw402ConfigForm({
   const balanceNum = resolvedUsdcBalance ? parseFloat(resolvedUsdcBalance) : 0
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      {/* Claw402 Hero Header */}
-      <div className="p-5 rounded-xl text-center" style={{ background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)', border: '1px solid rgba(37, 99, 235, 0.3)' }}>
+    <form
+      id={formId}
+      onSubmit={onSubmit}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+    >
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+      {/* COMKUN 代理模型旧配置兼容页 */}
+      <div className="p-5 rounded-xl text-center" style={{ background: 'linear-gradient(135deg, rgba(212, 255, 51, 0.12) 0%, rgba(212, 255, 51, 0.12) 100%)', border: '1px solid rgba(212, 255, 51, 0.3)' }}>
         <div className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3 overflow-hidden">
-          <img src="/icons/claw402.png" alt="Claw402" width={56} height={56} />
+          <img src="/icons/comkun_ai.svg" alt="COMKUN" width={56} height={56} />
         </div>
         <a href="https://claw402.ai" target="_blank" rel="noopener noreferrer" className="text-lg font-bold inline-flex items-center gap-1.5 hover:underline" style={{ color: '#EAECEF' }}>
-          Claw402 <span className="text-xs font-normal" style={{ color: '#60A5FA' }}>↗</span>
+          COMKUN 代理 <span className="text-xs font-normal" style={{ color: '#dce76a' }}>↗</span>
         </a>
         <div className="text-sm mt-1" style={{ color: '#A0AEC0' }}>
           {t('modelConfig.allModelsClaw', language)}
@@ -513,7 +650,7 @@ function Claw402ConfigForm({
             onClick={handleTestConnection}
             disabled={testing || (!hasExistingWallet && !isKeyValid)}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: 'rgba(37, 99, 235, 0.15)', border: '1px solid rgba(37, 99, 235, 0.3)', color: '#60A5FA' }}
+            style={{ background: 'rgba(212, 255, 51, 0.15)', border: '1px solid rgba(212, 255, 51, 0.3)', color: '#dce76a' }}
           >
             <span>🔗</span>
             {testing ? t('modelConfig.testingConnection', language) : t('modelConfig.testConnection', language)}
@@ -531,7 +668,7 @@ function Claw402ConfigForm({
       {/* Step 1: Select AI Model */}
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <Brain className="w-4 h-4" style={{ color: '#2563EB' }} />
+          <Brain className="w-4 h-4" style={{ color: '#c4cf45' }} />
           {t('modelConfig.selectAiModel', language)}
         </label>
         <div className="text-xs mb-2" style={{ color: '#848E9C' }}>
@@ -547,24 +684,24 @@ function Claw402ConfigForm({
                 onClick={() => onModelNameChange(m.id)}
                 className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-left transition-all hover:scale-[1.02]"
                 style={{
-                  background: isSelected ? 'rgba(37, 99, 235, 0.2)' : '#0B0E11',
-                  border: isSelected ? '1.5px solid #2563EB' : '1px solid #2B3139',
+                  background: isSelected ? 'rgba(212, 255, 51, 0.2)' : '#0b0b0b',
+                  border: isSelected ? '1.5px solid #c4cf45' : '1px solid #2B3139',
                 }}
               >
                 <span className="text-base mt-0.5">{m.icon}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: isSelected ? '#60A5FA' : '#EAECEF' }}>
+                  <div className="text-xs font-semibold truncate" style={{ color: isSelected ? '#dce76a' : '#EAECEF' }}>
                     {m.name}
                   </div>
                   <div className="text-[10px] truncate" style={{ color: '#848E9C' }}>
-                    {m.provider} · {m.desc}
+                    {m.provider} · 参考价 {m.desc}
                   </div>
                   <div className="text-[10px]" style={{ color: '#00E096' }}>
-                    ~${m.price}/call
+                    约 ${m.price} / 次调用
                   </div>
                 </div>
                 {isSelected && (
-                  <span className="text-[10px] mt-1" style={{ color: '#60A5FA' }}>✓</span>
+                  <span className="text-[10px] mt-1" style={{ color: '#dce76a' }}>✓</span>
                 )}
               </button>
             )
@@ -575,13 +712,13 @@ function Claw402ConfigForm({
       {/* Step 2: Wallet Setup */}
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <svg className="w-4 h-4" style={{ color: '#2563EB' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" style={{ color: '#c4cf45' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
           </svg>
           {t('modelConfig.setupWallet', language)}
         </label>
 
-        <div className="p-3 rounded-xl" style={{ background: 'rgba(37, 99, 235, 0.06)', border: '1px solid rgba(37, 99, 235, 0.15)' }}>
+        <div className="p-3 rounded-xl" style={{ background: 'rgba(212, 255, 51, 0.06)', border: '1px solid rgba(212, 255, 51, 0.15)' }}>
           <div className="text-xs mb-2" style={{ color: '#A0AEC0' }}>
             {t('modelConfig.walletInfo', language)}
           </div>
@@ -642,7 +779,7 @@ function Claw402ConfigForm({
               }
               className="flex-1 px-4 py-3 rounded-xl font-mono text-sm"
               style={{
-                background: '#0B0E11',
+                background: '#0b0b0b',
                 border: keyError ? '1px solid #EF4444' : walletAddress ? '1px solid #00E096' : '1px solid #2B3139',
                 color: '#EAECEF',
               }}
@@ -671,7 +808,7 @@ function Claw402ConfigForm({
           <div className="space-y-2 pl-1">
             {/* Validating spinner */}
             {validating && (
-              <div className="flex items-center gap-2 text-xs" style={{ color: '#60A5FA' }}>
+              <div className="flex items-center gap-2 text-xs" style={{ color: '#dce76a' }}>
                 <span className="animate-spin">⏳</span>
                 {t('modelConfig.validating', language)}
               </div>
@@ -688,25 +825,26 @@ function Claw402ConfigForm({
             {/* Success: address + balance + status */}
             {resolvedWalletAddress && !validating && !keyError && (
               <>
-                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)' }}>
+                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(212,255,51,0.06)', border: '1px solid rgba(212,255,51,0.15)' }}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[11px]" style={{ color: '#A0AEC0' }}>
                       {t('modelConfig.walletAddress', language)}:
                     </span>
                     <button
                       type="button"
+                      title={copiedAddr ? t('modelConfig.copied', language) : t('modelConfig.copyAddress', language)}
                       onClick={() => {
                         navigator.clipboard.writeText(resolvedWalletAddress)
                         setCopiedAddr(true)
                         setTimeout(() => setCopiedAddr(false), 2000)
                       }}
                       className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(96,165,250,0.1)', color: '#60A5FA', border: 'none', cursor: 'pointer' }}
+                      style={{ background: 'rgba(212,255,51,0.1)', color: '#dce76a', border: 'none', cursor: 'pointer' }}
                     >
                       {copiedAddr ? '✅' : '📋'}
                     </button>
                   </div>
-                  <code className="text-[11px] font-mono block select-all" style={{ color: '#60A5FA' }}>{resolvedWalletAddress}</code>
+                  <code className="text-[11px] font-mono block select-all" style={{ color: '#dce76a' }}>{resolvedWalletAddress}</code>
                   <div className="text-[10px] mt-1.5" style={{ color: '#F59E0B' }}>
                     ⚠️ {language === 'zh' ? '请确认这是你的钱包地址（可在 MetaMask 中核对）' : 'Please confirm this is your wallet address (verify in MetaMask)'}
                   </div>
@@ -742,7 +880,7 @@ function Claw402ConfigForm({
                         <div className="text-[11px] mb-1" style={{ color: '#A0AEC0' }}>
                           {language === 'zh' ? '扫码或复制地址转账' : 'Scan QR or copy address to transfer'}
                         </div>
-                        <code className="text-[10px] font-mono break-all select-all block mb-1.5" style={{ color: '#60A5FA' }}>{resolvedWalletAddress}</code>
+                        <code className="text-[10px] font-mono break-all select-all block mb-1.5" style={{ color: '#dce76a' }}>{resolvedWalletAddress}</code>
                         <button
                           type="button"
                           onClick={() => {
@@ -751,16 +889,16 @@ function Claw402ConfigForm({
                             setTimeout(() => setCopiedAddr(false), 2000)
                           }}
                           className="text-[10px] px-2 py-0.5 rounded"
-                          style={{ background: 'rgba(96,165,250,0.1)', color: '#60A5FA', border: 'none', cursor: 'pointer' }}
+                          style={{ background: 'rgba(212,255,51,0.1)', color: '#dce76a', border: 'none', cursor: 'pointer' }}
                         >
-                          {copiedAddr ? '✅ Copied' : '📋 Copy Address'}
+                          {copiedAddr ? `✅ ${t('modelConfig.copied', language)}` : `📋 ${t('modelConfig.copyAddress', language)}`}
                         </button>
                       </div>
                     </div>
                     <div className="text-[10px] space-y-1" style={{ color: '#848E9C' }}>
                       <div>📱 {language === 'zh' ? '用交易所 App 扫描二维码直接转账' : 'Scan QR with exchange app to transfer'}</div>
                       <div>• {language === 'zh' ? '提币时网络选择 Base' : 'Choose Base network when withdrawing'}</div>
-                      <div>• {language === 'zh' ? '或跨链桥: ' : 'Or bridge: '}<a href="https://bridge.base.org" target="_blank" rel="noopener" className="underline" style={{ color: '#60A5FA' }}>bridge.base.org</a></div>
+                      <div>• {language === 'zh' ? '或跨链桥: ' : 'Or bridge: '}<a href="https://bridge.base.org" target="_blank" rel="noopener" className="underline" style={{ color: '#dce76a' }}>bridge.base.org</a></div>
                       <div>• {language === 'zh' ? '最低充值 $1 USDC 即可开始' : 'Min $1 USDC to start'}</div>
                     </div>
                   </div>
@@ -790,7 +928,7 @@ function Claw402ConfigForm({
                 onClick={handleTestConnection}
                 disabled={testing || (!hasExistingWallet && !isKeyValid)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:scale-[1.02] disabled:opacity-50"
-                style={{ background: 'rgba(37, 99, 235, 0.15)', border: '1px solid rgba(37, 99, 235, 0.3)', color: '#60A5FA' }}
+                style={{ background: 'rgba(212, 255, 51, 0.15)', border: '1px solid rgba(212, 255, 51, 0.3)', color: '#dce76a' }}
               >
                 <span>🔗</span>
                 {testing ? t('modelConfig.testingConnection', language) : t('modelConfig.testConnection', language)}
@@ -829,18 +967,23 @@ function Claw402ConfigForm({
         </div>
       </div>
 
-      {/* Buttons */}
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={onBack} className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5" style={{ background: '#2B3139', color: '#848E9C' }}>
-          {editingModelId ? t('cancel', language) : t('modelConfig.back', language)}
+      </div>
+      <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-zinc-800/90 bg-nofx-bg px-4 py-3 sm:flex-row sm:justify-end sm:px-5 sm:py-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-700"
+        >
+          取消
         </button>
         <button
           type="submit"
           disabled={!isKeyValid && !hasExistingWallet}
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: (isKeyValid || hasExistingWallet) ? 'linear-gradient(135deg, #2563EB, #7C3AED)' : '#2B3139', color: '#fff' }}
+          className="rounded-xl bg-[#6D5AC8] px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-900/20 transition-colors hover:bg-[#5d4cb8] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {'🚀 ' + t('modelConfig.startTrading', language)}
+          {editingModelId
+            ? t('saveConfig', language)
+            : t('modelConfig.startTrading', language)}
         </button>
       </div>
     </form>
@@ -848,6 +991,9 @@ function Claw402ConfigForm({
 }
 
 function StandardProviderConfigForm({
+  formId,
+  embedChrome,
+  isComkunProvider,
   selectedModel,
   apiKey,
   baseUrl,
@@ -856,10 +1002,13 @@ function StandardProviderConfigForm({
   onApiKeyChange,
   onBaseUrlChange,
   onModelNameChange,
-  onBack,
+  onCancel,
   onSubmit,
   language,
 }: {
+  formId: string
+  embedChrome?: boolean
+  isComkunProvider?: boolean
   selectedModel: AIModel
   apiKey: string
   baseUrl: string
@@ -868,145 +1017,161 @@ function StandardProviderConfigForm({
   onApiKeyChange: (value: string) => void
   onBaseUrlChange: (value: string) => void
   onModelNameChange: (value: string) => void
-  onBack: () => void
+  onCancel: () => void
   onSubmit: (e: React.FormEvent) => void
   language: Language
 }) {
-  return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      {/* Selected Model Header */}
-      <div className="p-4 rounded-xl flex items-center gap-4" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-black border border-white/10">
-          {getModelIcon(selectedModel.provider || selectedModel.id, { width: 32, height: 32 }) || (
-            <span className="text-lg font-bold" style={{ color: '#A78BFA' }}>{selectedModel.name[0]}</span>
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="font-semibold text-lg" style={{ color: '#EAECEF' }}>
-            {getShortName(selectedModel.name)}
-          </div>
-          <div className="text-xs" style={{ color: '#848E9C' }}>
-            {selectedModel.provider} • {AI_PROVIDER_CONFIG[selectedModel.provider]?.defaultModel || selectedModel.id}
-          </div>
-        </div>
-        {AI_PROVIDER_CONFIG[selectedModel.provider] && (
-          <a
-            href={AI_PROVIDER_CONFIG[selectedModel.provider].apiUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
-            style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-          >
-            <ExternalLink className="w-4 h-4" style={{ color: '#A78BFA' }} />
-            <span className="text-sm font-medium" style={{ color: '#A78BFA' }}>
-              {t('modelConfig.getApiKey', language)}
-            </span>
-          </a>
-        )}
-      </div>
+  const [showKey, setShowKey] = useState(false)
+  const keyOk = !!apiKey.trim() || !!editingModelId || !!isComkunProvider
+  const hideCredentialFields = !!isComkunProvider
 
-      {/* Kimi Warning */}
-      {selectedModel.provider === 'kimi' && (
-        <div className="p-4 rounded-xl" style={{ background: 'rgba(246, 70, 93, 0.1)', border: '1px solid rgba(246, 70, 93, 0.3)' }}>
-          <div className="flex items-start gap-2">
-            <span style={{ fontSize: '16px' }}>⚠️</span>
-            <div className="text-sm" style={{ color: '#F6465D' }}>
-              {t('kimiApiNote', language)}
+  return (
+    <form
+      id={formId}
+      onSubmit={onSubmit}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+    >
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+        {!embedChrome && (
+          <div className="flex items-center gap-4 rounded-xl border border-zinc-800/80 bg-nofx-bg-tertiary p-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-black">
+              {selectedModel.provider === 'comkun_ai' || selectedModel.id === 'comkun_ai' ? (
+                <img src="/icons/comkun-ai.png" alt="" width={36} height={36} className="object-contain" />
+              ) : (
+                getModelIcon(selectedModel.provider || selectedModel.id, {
+                  width: 32,
+                  height: 32,
+                }) || (
+                  <span className="text-lg font-bold text-zinc-400">{selectedModel.name[0]}</span>
+                )
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-lg font-semibold text-zinc-100">
+                {getShortName(selectedModel.name)}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {selectedModel.provider} ·{' '}
+                {AI_PROVIDER_CONFIG[selectedModel.provider]?.defaultModel || selectedModel.id}
+              </div>
+            </div>
+            {AI_PROVIDER_CONFIG[selectedModel.provider] && (
+              <a
+                href={AI_PROVIDER_CONFIG[selectedModel.provider].apiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex shrink-0 items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-sm font-medium text-[#c4b5fd] transition-colors hover:bg-violet-500/20"
+              >
+                <ExternalLink className="h-4 w-4" />
+                {t('modelConfig.getApiKey', language)}
+              </a>
+            )}
+          </div>
+        )}
+
+        {selectedModel.provider === 'kimi' && (
+          <div
+            className="rounded-xl border border-red-500/30 bg-red-500/10 p-4"
+          >
+            <div className="flex items-start gap-2 text-sm text-red-300">
+              <span>⚠️</span>
+              <span>{t('kimiApiNote', language)}</span>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* API Key / Wallet Private Key */}
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <svg className="w-4 h-4" style={{ color: '#A78BFA' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-          </svg>
-          {'API Key *'}
-        </label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => onApiKeyChange(e.target.value)}
-          placeholder={t('enterAPIKey', language)}
-          className="w-full px-4 py-3 rounded-xl"
-          style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-          required
-        />
+        {hideCredentialFields ? (
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-sm leading-relaxed text-emerald-100/80">
+            COMKUN-AI 费用直接从平台余额扣除，不需要填写 API Key、钱包私钥或自定义地址。
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">
+                {t('modelConfig.apiKeyLabel', language)}
+              </label>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => onApiKeyChange(e.target.value)}
+                  placeholder={t('enterAPIKey', language)}
+                  className="w-full rounded-xl border border-zinc-700/80 bg-nofx-bg-tertiary py-3 pl-4 pr-12 text-sm text-white outline-none ring-violet-500/30 placeholder:text-zinc-600 focus:border-violet-500/50 focus:ring-1"
+                  required={!editingModelId && !isComkunProvider}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                  aria-label={showKey ? '隐藏' : '显示'}
+                >
+                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-500">*API Key 将被加密存储，请确保密钥有效</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">{t('customBaseURL', language)}</label>
+              <input
+                type="url"
+                value={baseUrl}
+                onChange={(e) => onBaseUrlChange(e.target.value)}
+                placeholder={t('customBaseURLPlaceholder', language)}
+                className="w-full rounded-xl border border-zinc-700/80 bg-nofx-bg-tertiary px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
+              />
+              <p className="text-xs text-zinc-500">Base URL 用于自定义 API 服务器地址；留空则使用默认。</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">模型版本</label>
+              <input
+                type="text"
+                value={modelName}
+                onChange={(e) => onModelNameChange(e.target.value)}
+                placeholder={
+                  AI_PROVIDER_CONFIG[selectedModel.provider]?.defaultModel ||
+                  t('customModelNamePlaceholder', language)
+                }
+                className="w-full rounded-xl border border-zinc-700/80 bg-nofx-bg-tertiary px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30"
+              />
+              <p className="text-xs text-zinc-500">{t('leaveBlankForDefaultModel', language)}</p>
+            </div>
+          </>
+        )}
+
+        <div
+          className={`rounded-xl border p-4 ${embedChrome ? 'border-violet-500/25 bg-violet-500/5' : 'border-[rgba(212,255,51,0.2)] bg-[rgba(212,255,51,0.08)]'}`}
+        >
+          <div
+            className={`mb-2 flex items-center gap-2 text-sm font-semibold ${embedChrome ? 'text-violet-200' : ''}`}
+            style={embedChrome ? undefined : { color: '#dce76a' }}
+          >
+            <Brain className="h-4 w-4" />
+            {t('information', language)}
+          </div>
+          <div className="space-y-1 text-xs text-zinc-500">
+            <div>• {t('modelConfigInfo1', language)}</div>
+            <div>• {t('modelConfigInfo2', language)}</div>
+            <div>• {t('modelConfigInfo3', language)}</div>
+          </div>
+        </div>
       </div>
 
-      {/* Custom Base URL */}
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <svg className="w-4 h-4" style={{ color: '#A78BFA' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          {t('customBaseURL', language)}
-        </label>
-        <input
-          type="url"
-          value={baseUrl}
-          onChange={(e) => onBaseUrlChange(e.target.value)}
-          placeholder={t('customBaseURLPlaceholder', language)}
-          className="w-full px-4 py-3 rounded-xl"
-          style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-        />
-        <div className="text-xs" style={{ color: '#848E9C' }}>
-          {t('leaveBlankForDefault', language)}
-        </div>
-      </div>
-
-      {/* Custom Model Name */}
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <svg className="w-4 h-4" style={{ color: '#A78BFA' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-          </svg>
-          {t('customModelName', language)}
-        </label>
-        <input
-          type="text"
-          value={modelName}
-          onChange={(e) => onModelNameChange(e.target.value)}
-          placeholder={t('customModelNamePlaceholder', language)}
-          className="w-full px-4 py-3 rounded-xl"
-          style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-        />
-        <div className="text-xs" style={{ color: '#848E9C' }}>
-          {t('leaveBlankForDefaultModel', language)}
-        </div>
-      </div>
-
-
-      {/* Info Box */}
-      <div className="p-4 rounded-xl" style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
-        <div className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: '#A78BFA' }}>
-          <Brain className="w-4 h-4" />
-          {t('information', language)}
-        </div>
-        <div className="text-xs space-y-1" style={{ color: '#848E9C' }}>
-          <div>• {t('modelConfigInfo1', language)}</div>
-          <div>• {t('modelConfigInfo2', language)}</div>
-          <div>• {t('modelConfigInfo3', language)}</div>
-        </div>
-      </div>
-
-      {/* Buttons */}
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={onBack} className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5" style={{ background: '#2B3139', color: '#848E9C' }}>
-          {editingModelId ? t('cancel', language) : t('modelConfig.back', language)}
+      <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-zinc-800/90 bg-nofx-bg px-4 py-3 sm:flex-row sm:justify-end sm:px-5 sm:py-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:bg-zinc-700"
+        >
+          取消
         </button>
         <button
           type="submit"
-          disabled={!selectedModel || !apiKey.trim()}
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: '#8B5CF6', color: '#fff' }}
+          disabled={!selectedModel || !keyOk}
+          className="rounded-xl bg-[#6D5AC8] px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-900/20 transition-colors hover:bg-[#5d4cb8] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {t('saveConfig', language)}
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-          </svg>
+          {editingModelId ? t('saveConfig', language) : '确认选择'}
         </button>
       </div>
     </form>

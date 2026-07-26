@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -43,29 +44,23 @@ func (s *Server) handleLogout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out"})
 }
 
-// handleRegister Handle user registration request.
-// handleRegister allows registration only when no users exist yet (first-time setup).
-// This is a single-user system; subsequent registrations are permanently closed.
+// handleRegister 注册新用户：允许多账号；同一邮箱全局唯一（见 GetByEmail）。
 func (s *Server) handleRegister(c *gin.Context) {
-	userCount, err := s.store.User().Count()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check user count"})
-		return
-	}
-
-	if userCount > 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "System already initialized"})
-		return
-	}
-
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
-		Lang     string `json:"lang"`
+		Email      string `json:"email" binding:"required,email"`
+		Password   string `json:"password" binding:"required,min=6"`
+		EmailCode  string `json:"email_code" binding:"required,len=6"`
+		Lang       string `json:"lang"`
+		InviteCode string `json:"invite_code"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	if !emailOTPCheckAndConsume(purposeRegister(), req.Email, req.EmailCode) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "邮箱验证码无效或已过期"})
 		return
 	}
 
@@ -74,10 +69,13 @@ func (s *Server) handleRegister(c *gin.Context) {
 		lang = "en"
 	}
 
-	// Check if email already exists
-	_, err = s.store.User().GetByEmail(req.Email)
+	_, err := s.store.User().GetByEmail(req.Email)
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
+		return
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		SafeInternalError(c, "Failed to check email", err)
 		return
 	}
 
@@ -88,12 +86,29 @@ func (s *Server) handleRegister(c *gin.Context) {
 		return
 	}
 
-	// Create user
+	// Create user（随机昵称 + 与 ID 绑定的默认头像）
 	userID := uuid.New().String()
+	var inviter *store.User
+	inviterID := ""
+	inviteCode := store.NormalizeInviteCode(req.InviteCode)
+	if inviteCode != "" {
+		inv, ierr := s.store.User().GetByInviteCode(inviteCode)
+		if ierr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "邀请码不存在，请检查后重试；也可以留空继续注册"})
+			return
+		}
+		inviter = inv
+		inviterID = inviter.ID
+	}
 	user := &store.User{
-		ID:           userID,
-		Email:        req.Email,
-		PasswordHash: passwordHash,
+		ID:              userID,
+		Email:           req.Email,
+		PasswordHash:    passwordHash,
+		DisplayName:     "",
+		AvatarURL:       store.DefaultAvatarURL(userID),
+		InviteCode:      s.store.User().GenerateInviteCode(),
+		InvitedByUserID: inviterID,
+		ProfileNamed:    false,
 	}
 
 	err = s.store.User().Create(user)
@@ -101,6 +116,9 @@ func (s *Server) handleRegister(c *gin.Context) {
 		SafeInternalError(c, "Failed to create user", err)
 		return
 	}
+
+	// 返利子系统：整条邀请链从根到叶一次性同步（多级邀请上级均已写入后再写本人）
+	s.syncInviteChainToAgentRebate(user.ID)
 
 	// Adopt orphan records from previous account (e.g. after account reset)
 	// This preserves wallet keys and exchange configs so funds are not lost.
@@ -120,10 +138,17 @@ func (s *Server) handleRegister(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "Registration successful",
+		"token":         token,
+		"user_id":       user.ID,
+		"email":         user.Email,
+		"display_name":  user.DisplayName,
+		"avatar_url":    user.AvatarURL,
+		"balance_usdt":  user.BalanceUSDT,
+		"invite_code":   user.InviteCode,
+		"profile_named": user.ProfileNamed,
+		"is_admin":      isAdminEmail(user.Email),
+		"is_finance":    isFinanceEmail(user.Email),
+		"message":       "Registration successful",
 	})
 }
 
@@ -152,18 +177,36 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
+	fullUser, err := s.store.User().EnsureProfileDefaults(user.ID)
+	if err != nil {
+		SafeInternalError(c, "Failed to prepare user profile", err)
+		return
+	}
+
 	// Issue token directly after password verification.
-	token, err := auth.GenerateJWT(user.ID, user.Email)
+	token, err := auth.GenerateJWT(fullUser.ID, fullUser.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
+	// 登录成功后异步补同步整条邀请链到返利侧（老账号、曾失败的同步可在此对齐，不阻塞登录）
+	go func(uid string) {
+		s.syncInviteChainToAgentRebate(uid)
+	}(fullUser.ID)
+
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "Login successful",
+		"token":         token,
+		"user_id":       fullUser.ID,
+		"email":         fullUser.Email,
+		"display_name":  fullUser.DisplayName,
+		"avatar_url":    fullUser.AvatarURL,
+		"balance_usdt":  fullUser.BalanceUSDT,
+		"invite_code":   fullUser.InviteCode,
+		"profile_named": fullUser.ProfileNamed,
+		"is_admin":      isAdminEmail(fullUser.Email),
+		"is_finance":    isFinanceEmail(fullUser.Email),
+		"message":       "Login successful",
 	})
 }
 
@@ -189,15 +232,82 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
 }
 
+// handleGetMe 当前登录用户资料（并自动补齐旧数据的昵称/头像）
+func (s *Server) handleGetMe(c *gin.Context) {
+	userID := c.GetString("user_id")
+	u, err := s.store.User().EnsureProfileDefaults(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to load user", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":            u.ID,
+		"email":         u.Email,
+		"display_name":  u.DisplayName,
+		"avatar_url":    u.AvatarURL,
+		"balance_usdt":  u.BalanceUSDT,
+		"invite_code":   u.InviteCode,
+		"profile_named": u.ProfileNamed,
+		"is_admin":      isAdminEmail(u.Email),
+		"is_finance":    isFinanceEmail(u.Email),
+	})
+}
+
+// handleUpdateProfile 更新展示昵称
+func (s *Server) handleUpdateProfile(c *gin.Context) {
+	userID := c.GetString("user_id")
+	var req struct {
+		DisplayName string `json:"display_name" binding:"required,min=1,max=32"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "display_name required, 1-32 chars")
+		return
+	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if req.DisplayName == "" {
+		SafeBadRequest(c, "display_name cannot be empty")
+		return
+	}
+	if err := s.store.User().UpdatePublicProfile(userID, req.DisplayName); err != nil {
+		SafeInternalError(c, "Failed to update profile", err)
+		return
+	}
+	u, err := s.store.User().GetByID(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to reload user", err)
+		return
+	}
+	// 昵称变更同步到返利侧展示名（不改变邀请关系）
+	s.notifyAgentRebateUserSync(u.ID, nickFromUser(u), strings.TrimSpace(u.InvitedByUserID))
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":            u.ID,
+		"email":         u.Email,
+		"display_name":  u.DisplayName,
+		"avatar_url":    u.AvatarURL,
+		"balance_usdt":  u.BalanceUSDT,
+		"invite_code":   u.InviteCode,
+		"profile_named": u.ProfileNamed,
+		"is_admin":      isAdminEmail(u.Email),
+		"is_finance":    isFinanceEmail(u.Email),
+	})
+}
+
 // handleResetPassword Reset password via email and new password
 func (s *Server) handleResetPassword(c *gin.Context) {
 	var req struct {
 		Email       string `json:"email" binding:"required,email"`
 		NewPassword string `json:"new_password" binding:"required,min=6"`
+		EmailCode   string `json:"email_code" binding:"required,len=6"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	if !emailOTPCheckAndConsume(purposeReset(), req.Email, req.EmailCode) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "邮箱验证码无效或已过期"})
 		return
 	}
 
@@ -231,6 +341,9 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 // so funds are not lost — they will be adopted by the new account during onboarding.
 func (s *Server) handleResetAccount(c *gin.Context) {
 	err := s.store.Transaction(func(tx *gorm.DB) error {
+		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.UserNotification{})
+		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.WalletLedger{})
+		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.StrategyMarketEntitlement{})
 		// Delete traders and strategies (config, not funds)
 		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.Trader{})
 		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.Strategy{})
@@ -272,11 +385,8 @@ func (s *Server) adoptOrphanRecords(newUserID string) {
 
 // initUserDefaultConfigs Initialize default configs for new user
 func (s *Server) initUserDefaultConfigs(userID string, lang string) error {
-	if err := s.createDefaultStrategies(userID, lang); err != nil {
-		logger.Warnf("Failed to create default strategies for user %s: %v", userID, err)
-		// Non-fatal: user can create strategies manually
-	}
-	logger.Infof("✓ User %s registration completed with default strategies", userID)
+	// 新账号不再自动创建三套默认策略；用户可从策略市场购买/复制，或在策略工作室手动新建。
+	logger.Infof("✓ User %s registration completed without auto-created default strategies", userID)
 	return nil
 }
 

@@ -54,13 +54,13 @@ export function FAQContent({
   }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8 sm:space-y-12">
       {categories.map((category) => (
-        <div key={category.id} className="nofx-glass p-8 rounded-xl border border-white/5">
+        <div key={category.id} className="nofx-glass rounded-xl border border-white/5 p-5 sm:p-8">
           {/* Category Header */}
           <div className="flex items-center gap-3 mb-6 pb-3 border-b border-white/10">
-            <category.icon className="w-7 h-7 text-nofx-gold" />
-            <h2 className="text-2xl font-bold text-nofx-text-main">
+            <category.icon className="h-6 w-6 shrink-0 text-nofx-gold sm:h-7 sm:w-7" />
+            <h2 className="text-xl font-bold text-nofx-text-main sm:text-2xl">
               {t(category.titleKey, language)}
             </h2>
           </div>
@@ -76,12 +76,12 @@ export function FAQContent({
                 className="scroll-mt-24"
               >
                 {/* Question */}
-                <h3 className="text-xl font-semibold mb-3 text-nofx-text-main">
+                <h3 className="mb-3 text-lg font-semibold text-nofx-text-main sm:text-xl">
                   {t(item.questionKey, language)}
                 </h3>
 
                 {/* Answer */}
-                <div className="prose prose-invert max-w-none text-nofx-text-muted leading-relaxed">
+                <div className="prose prose-invert max-w-none break-words leading-relaxed text-nofx-text-muted [overflow-wrap:anywhere]">
                   {item.id === 'github-projects-tasks' ? (
                     <div className="space-y-3">
                       <div className="text-base">

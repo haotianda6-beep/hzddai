@@ -229,15 +229,15 @@ func probeExchangeAccountState(exchangeCfg *store.Exchange, userID string) Excha
 func buildExchangeProbeTrader(exchangeCfg *store.Exchange, userID string) (trader.Trader, error) {
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		return binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID), nil
+		return binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)), exchangeCfg.Testnet), nil
 	case "bybit":
-		return bybit.NewBybitTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey)), nil
+		return bybit.NewBybitTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), strings.TrimSpace(string(exchangeCfg.OutboundProxyURL))), nil
 	case "okx":
-		return okx.NewOKXTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase)), nil
+		return okx.NewOKXTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase), strings.TrimSpace(string(exchangeCfg.OutboundProxyURL))), nil
 	case "bitget":
-		return bitget.NewBitgetTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase)), nil
+		return bitget.NewBitgetTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase), strings.TrimSpace(string(exchangeCfg.OutboundProxyURL))), nil
 	case "gate":
-		return gate.NewGateTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey)), nil
+		return gate.NewGateTraderWithTestnet(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), exchangeCfg.Testnet, strings.TrimSpace(string(exchangeCfg.OutboundProxyURL))), nil
 	case "kucoin":
 		return kucoin.NewKuCoinTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), string(exchangeCfg.Passphrase)), nil
 	case "indodax":

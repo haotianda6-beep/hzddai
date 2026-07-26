@@ -1,3 +1,5 @@
 export * from './trading'
 export * from './strategy'
 export * from './config'
+export * from './marketBoard'
+export * from './news'

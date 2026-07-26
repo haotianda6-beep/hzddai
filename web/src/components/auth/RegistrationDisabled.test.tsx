@@ -46,11 +46,11 @@ describe('RegistrationDisabled Component', () => {
       expect(container).toBeTruthy()
     })
 
-    it('should display the NoFx logo', () => {
+    it('should display the COMKUN-AI logo', () => {
       renderComponent()
-      const logo = screen.getByAltText('NoFx Logo')
+      const logo = screen.getByTestId('brand-logo')
       expect(logo).toBeTruthy()
-      expect(logo.getAttribute('src')).toBe('/icons/nofx.svg')
+      expect(logo.getAttribute('src')).toBe('/icons/comkun-logo.png')
     })
 
     it('should display registration closed heading', () => {
@@ -90,7 +90,7 @@ describe('RegistrationDisabled Component', () => {
       const { container } = renderComponent()
       const mainDiv = container.firstChild as HTMLElement
       // Browser converts hex to rgb
-      expect(mainDiv.style.background).toMatch(/rgb\(11,\s*14,\s*17\)|#0B0E11/i)
+      expect(mainDiv.style.background).toMatch(/rgb\(11,\s*11,\s*11\)|#0b0b0b/i)
     })
 
     it('should have correct text color', () => {

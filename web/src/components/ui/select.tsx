@@ -15,9 +15,19 @@ interface NofxSelectProps {
   disabled?: boolean
   className?: string
   style?: React.CSSProperties
+  /** lum：下拉与选中态使用工作室配色 */
+  visualTheme?: 'binance' | 'lum'
 }
 
-export function NofxSelect({ value, onChange, options, disabled, className, style }: NofxSelectProps) {
+export function NofxSelect({
+  value,
+  onChange,
+  options,
+  disabled,
+  className,
+  style,
+  visualTheme = 'binance',
+}: NofxSelectProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -73,17 +83,26 @@ export function NofxSelect({ value, onChange, options, disabled, className, styl
       {open && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-[9999] rounded border border-[#2B3139] bg-[#0B0E11] shadow-xl shadow-black/50 max-h-60 overflow-y-auto"
+          className={cn(
+            'fixed z-[9999] max-h-60 overflow-y-auto rounded shadow-xl shadow-black/50',
+            visualTheme === 'lum'
+              ? 'border border-[#46484d] bg-nofx-bg-tertiary'
+              : 'border border-[#2B3139] bg-nofx-bg-tertiary',
+          )}
           style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
         >
           {options.map((opt) => (
             <div
               key={opt.value}
               className={cn(
-                'px-3 py-1.5 text-sm cursor-pointer transition-colors whitespace-nowrap',
+                'cursor-pointer whitespace-nowrap px-3 py-1.5 text-sm transition-colors',
                 String(opt.value) === String(value)
-                  ? 'bg-[#F0B90B]/10 text-[#F0B90B]'
-                  : 'text-[#EAECEF] hover:bg-[#1E2329]',
+                  ? visualTheme === 'lum'
+                    ? 'bg-[#d4ff33]/12 text-[#d4ff33]'
+                    : 'bg-[#F0B90B]/10 text-[#F0B90B]'
+                  : visualTheme === 'lum'
+                    ? 'text-[#f6f6fc] hover:bg-nofx-bg-secondary'
+                    : 'text-[#EAECEF] hover:bg-nofx-bg-secondary',
               )}
               onClick={(e) => {
                 e.stopPropagation()

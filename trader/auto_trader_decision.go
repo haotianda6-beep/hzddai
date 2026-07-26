@@ -88,6 +88,10 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 		if at.config.StrategyConfig.GridConfig != nil {
 			result["grid_symbol"] = at.config.StrategyConfig.GridConfig.Symbol
 		}
+		if store.IsComkunProgramMartingaleStrategy(at.config.StrategyConfig) &&
+			at.config.StrategyConfig.MartingaleProgram != nil {
+			result["martingale_symbol"] = at.config.StrategyConfig.MartingaleProgram.Symbol
+		}
 	}
 
 	return result

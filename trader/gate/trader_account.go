@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"nofx/trader/types"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/antihax/optional"
@@ -143,18 +144,94 @@ func (t *GateTrader) GetClosedPnL(startTime time.Time, limit int) ([]types.Close
 
 	records := make([]types.ClosedPnLRecord, 0, len(closedPositions))
 	for _, pos := range closedPositions {
-		pnl, _ := strconv.ParseFloat(pos.Pnl, 64)
-
-		record := types.ClosedPnLRecord{
-			Symbol:      t.revertSymbol(pos.Contract),
-			Side:        pos.Side,
-			RealizedPnL: pnl,
-			ExitTime:    time.Unix(int64(pos.Time), 0).UTC(),
-			CloseType:   "unknown",
+		quantoMultiplier := 1.0
+		contract, err := t.getContract(pos.Contract)
+		if err == nil && contract != nil {
+			qm, _ := strconv.ParseFloat(contract.QuantoMultiplier, 64)
+			if qm > 0 {
+				quantoMultiplier = qm
+			}
 		}
 
-		records = append(records, record)
+		record, ok := gateClosedPnLRecord(pos, quantoMultiplier)
+		if ok {
+			records = append(records, record)
+		}
 	}
 
 	return records, nil
+}
+
+func gateClosedPnLRecord(pos gateapi.PositionClose, quantoMultiplier float64) (types.ClosedPnLRecord, bool) {
+	if quantoMultiplier <= 0 {
+		quantoMultiplier = 1
+	}
+
+	side := strings.ToUpper(strings.TrimSpace(pos.Side))
+	switch side {
+	case "LONG", "BUY":
+		side = "LONG"
+	case "SHORT", "SELL":
+		side = "SHORT"
+	default:
+		return types.ClosedPnLRecord{}, false
+	}
+
+	longPrice, _ := strconv.ParseFloat(pos.LongPrice, 64)
+	shortPrice, _ := strconv.ParseFloat(pos.ShortPrice, 64)
+	entryPrice, exitPrice := longPrice, shortPrice
+	if side == "SHORT" {
+		entryPrice, exitPrice = shortPrice, longPrice
+	}
+
+	accumSize, _ := strconv.ParseFloat(pos.AccumSize, 64)
+	if accumSize < 0 {
+		accumSize = -accumSize
+	}
+	quantity := accumSize * quantoMultiplier
+
+	if quantity <= 0 || entryPrice <= 0 || exitPrice <= 0 || pos.Time <= 0 {
+		return types.ClosedPnLRecord{}, false
+	}
+
+	pnl, _ := strconv.ParseFloat(pos.Pnl, 64)
+	fee, _ := strconv.ParseFloat(pos.PnlFee, 64)
+	if fee < 0 {
+		fee = -fee
+	}
+
+	exitTime := time.Unix(int64(pos.Time), 0).UTC()
+	entryTime := exitTime
+	if pos.FirstOpenTime > 0 {
+		entryTime = time.Unix(pos.FirstOpenTime, 0).UTC()
+		if entryTime.After(exitTime) {
+			entryTime = exitTime
+		}
+	}
+
+	exchangeID := strings.TrimSpace(pos.Text)
+	if exchangeID == "" {
+		exchangeID = strings.Join([]string{
+			"gate_close",
+			pos.Contract,
+			side,
+			strconv.FormatInt(exitTime.Unix(), 10),
+			strings.TrimSpace(pos.AccumSize),
+		}, "_")
+	}
+
+	return types.ClosedPnLRecord{
+		Symbol:      strings.ReplaceAll(pos.Contract, "_", ""),
+		Side:        side,
+		EntryPrice:  entryPrice,
+		ExitPrice:   exitPrice,
+		Quantity:    quantity,
+		RealizedPnL: pnl,
+		Fee:         fee,
+		EntryTime:   entryTime,
+		ExitTime:    exitTime,
+		OrderID:     exchangeID,
+		CloseType:   "position_close",
+		ExchangeID:  exchangeID,
+	}, true
 }

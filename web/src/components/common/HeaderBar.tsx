@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, ChevronDown, Settings } from 'lucide-react'
+import useSWR from 'swr'
+import { Menu, X, ChevronDown, Gift, Wallet as WalletIcon } from 'lucide-react'
+import { AiTradeNotificationDropdown } from './AiTradeNotificationDropdown'
+import { VipTierBadge } from './VipTierBadge'
+import { api } from '../../lib/api'
 import { t, type Language } from '../../i18n/translations'
-import { OFFICIAL_LINKS } from '../../constants/branding'
 import {
-  getPostAuthPath,
-  getUserMode,
-  setUserMode,
-  type UserMode,
-} from '../../lib/onboarding'
-import { getCurrentPageForPath, ROUTES, type Page } from '../../router/paths'
+  getCurrentPageForPath,
+  ROUTES,
+  TRADERS_WIZARD_ENTRY,
+  type Page,
+} from '../../router/paths'
+import '../../pages/landing/luminescent.css'
+import '../../pages/landing/static-home.css'
 
 interface HeaderBarProps {
   onLoginClick?: () => void
@@ -19,18 +23,26 @@ interface HeaderBarProps {
   currentPage?: Page
   language?: Language
   onLanguageChange?: (lang: Language) => void
-  user?: { email: string } | null
+  user?: {
+    email: string
+    display_name?: string
+    avatar_url?: string
+    /** 策略市场站内余额（USDT） */
+    balance_usdt?: number
+    is_admin?: boolean
+    is_finance?: boolean
+  } | null
   onLogout?: () => void
   onPageChange?: (page: Page) => void
   onLoginRequired?: (featureName: string) => void
 }
 
+const lang: Language = 'zh'
+
 export default function HeaderBar({
   isLoggedIn = false,
   isHomePage = false,
   currentPage,
-  language = 'zh' as Language,
-  onLanguageChange,
   user,
   onLogout,
   onPageChange,
@@ -39,35 +51,47 @@ export default function HeaderBar({
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
-  const [userMode, setUserModeState] = useState<UserMode>(
-    () => getUserMode() ?? 'advanced'
-  )
-  const dropdownRef = useRef<HTMLDivElement>(null)
   const userDropdownRef = useRef<HTMLDivElement>(null)
-  const resolvedCurrentPage =
-    currentPage ?? getCurrentPageForPath(location.pathname)
+  const resolvedCurrentPage = currentPage ?? getCurrentPageForPath(location.pathname)
+
+  const { data: rebateBal } = useSWR(
+    isLoggedIn && user ? 'header-agent-rebate-vip' : null,
+    () => api.getAgentRebateBalance(),
+    { refreshInterval: 120_000, revalidateOnFocus: true }
+  )
+
+  const vipLevel =
+    rebateBal &&
+    rebateBal.configured &&
+    rebateBal.synced &&
+    typeof rebateBal.rebate_vip_level === 'number'
+      ? rebateBal.rebate_vip_level
+      : undefined
+
+  const userDisplayName =
+    (user?.display_name && user.display_name.trim()) ||
+    user?.email?.split('@')[0] ||
+    ''
+  const walletBalance = user?.balance_usdt ?? 0
+  const walletBalanceClass = walletBalance < 0 ? 'text-red-400' : 'text-[#d4ff33]'
 
   const navigateInApp = (path: string) => {
     navigate(path)
   }
 
-  const handleSwitchMode = (nextMode: UserMode) => {
-    setUserMode(nextMode)
-    setUserModeState(nextMode)
-    setUserDropdownOpen(false)
-    navigateInApp(getPostAuthPath(nextMode))
+  const tryNav = (path: string, page: Page, requiresAuth: boolean, featureLabel: string) => {
+    if (requiresAuth && !isLoggedIn) {
+      onLoginRequired?.(featureLabel)
+      return
+    }
+    onPageChange?.(page)
+    navigateInApp(path)
+    setMobileMenuOpen(false)
   }
-  // Close dropdown when clicking outside
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setLanguageDropdownOpen(false)
-      }
       if (
         userDropdownRef.current &&
         !userDropdownRef.current.contains(event.target as Node)
@@ -82,330 +106,316 @@ export default function HeaderBar({
     }
   }, [])
 
+  const marketActive =
+    resolvedCurrentPage === 'strategy-market' ||
+    resolvedCurrentPage === 'auto-arbitrage'
+  const boardActive =
+    resolvedCurrentPage === 'trader' || resolvedCurrentPage === 'data' || resolvedCurrentPage === 'news'
+  const tradersActive = resolvedCurrentPage === 'traders' || resolvedCurrentPage === 'strategy'
+
   return (
-    <nav className="fixed top-0 w-full z-50 header-bar">
-      <div className="flex items-center justify-between h-16 px-4 sm:px-6 max-w-[1920px] mx-auto">
-        {/* Logo - Always go to home page */}
-        <div
-          onClick={() => {
-            navigateInApp(ROUTES.home)
-          }}
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
-        >
-          <img src="/icons/nofx.svg" alt="NOFX Logo" className="w-7 h-7" />
-          <span className="text-lg font-bold text-nofx-gold">NOFX</span>
-        </div>
+    <header className="static-home-header z-50 font-lumbody">
+      <nav className="static-home-nav-inner flex items-center justify-between">
+        <Link to={ROUTES.home} className="sh-nav-brand">
+          <img
+            src="/icons/comkun-whale-logo.png"
+            alt=""
+            className="h-[30px] w-[30px] shrink-0 rounded-lg object-cover"
+            width={30}
+            height={30}
+            aria-hidden
+          />
+          <span className="sh-nav-name hidden lg:inline">COMKUN-AI</span>
+        </Link>
 
-        {/* Desktop Menu */}
-        <div className="hidden md:flex items-center justify-between flex-1 ml-8">
-          {/* Left Side - Navigation Tabs - Always show all tabs */}
-          <div className="flex items-center gap-2">
-            {/* Navigation tabs configuration */}
-            {(() => {
-              // Define all navigation tabs
-              const navTabs: {
-                page: Page
-                path: string
-                label: string
-                requiresAuth: boolean
-              }[] = [
-                {
-                  page: 'data',
-                  path: ROUTES.data,
-                  label:
-                    language === 'zh'
-                      ? '数据'
-                      : language === 'id'
-                        ? 'Data'
-                        : 'Data',
-                  requiresAuth: false,
-                },
-                {
-                  page: 'strategy-market',
-                  path: ROUTES.strategyMarket,
-                  label:
-                    language === 'zh'
-                      ? '策略市场'
-                      : language === 'id'
-                        ? 'Pasar'
-                        : 'Market',
-                  requiresAuth: true,
-                },
-                {
-                  page: 'traders',
-                  path: ROUTES.traders,
-                  label: t('configNav', language),
-                  requiresAuth: true,
-                },
-                {
-                  page: 'trader',
-                  path: ROUTES.dashboard,
-                  label: t('dashboardNav', language),
-                  requiresAuth: true,
-                },
-                {
-                  page: 'strategy',
-                  path: ROUTES.strategy,
-                  label: t('strategyNav', language),
-                  requiresAuth: true,
-                },
-                {
-                  page: 'competition',
-                  path: ROUTES.competition,
-                  label: t('realtimeNav', language),
-                  requiresAuth: true,
-                },
-                {
-                  page: 'faq',
-                  path: ROUTES.faq,
-                  label: t('faqNav', language),
-                  requiresAuth: false,
-                },
-              ]
-
-              const handleNavClick = (tab: (typeof navTabs)[0]) => {
-                // If requires auth and not logged in, show login prompt
-                if (tab.requiresAuth && !isLoggedIn) {
-                  onLoginRequired?.(tab.label)
-                  return
+        <div className="hidden items-center lg:flex sh-nav-center">
+          <div className="sh-nav-item">
+            <Link
+              to={ROUTES.strategyMarket}
+              className={marketActive ? '!text-[#d4ff33]' : undefined}
+            >
+              策略市场
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+            </Link>
+            <div className="sh-nav-dropdown">
+              <button
+                type="button"
+                onClick={() =>
+                  tryNav(ROUTES.strategyMarket, 'strategy-market', true, '策略市场')
                 }
-                // Navigate normally
-                if (onPageChange) {
-                  onPageChange(tab.page)
+              >
+                策略市场
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  tryNav(ROUTES.autoArbitrage, 'auto-arbitrage', true, '全自动套利系统')
                 }
-                navigateInApp(tab.path)
-              }
-
-              return navTabs.map((tab) => (
-                <button
-                  key={tab.page}
-                  onClick={() => handleNavClick(tab)}
-                  className={`text-sm font-bold transition-all duration-300 relative focus:outline-2 focus:outline-yellow-500 px-3 py-2 rounded-lg
-                    ${resolvedCurrentPage === tab.page ? 'text-nofx-gold' : 'text-nofx-text-muted hover:text-nofx-gold'}`}
-                >
-                  {resolvedCurrentPage === tab.page && (
-                    <span className="absolute inset-0 rounded-lg bg-nofx-gold/15 -z-10" />
-                  )}
-                  {tab.label}
-                </button>
-              ))
-            })()}
+              >
+                全自动套利系统
+              </button>
+            </div>
           </div>
 
-          {/* Right Side - Social Links and User Actions */}
-          <div className="flex items-center gap-4">
-            {/* Social Links - Always visible */}
-            <div className="flex items-center gap-1">
-              {/* GitHub */}
-              <a
-                href={OFFICIAL_LINKS.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-lg transition-all hover:scale-110 text-nofx-text-muted hover:text-white hover:bg-white/5"
-                title="GitHub"
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                >
-                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                </svg>
-              </a>
-              {/* Twitter/X */}
-              <a
-                href={OFFICIAL_LINKS.twitter}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-lg transition-all hover:scale-110 text-nofx-text-muted hover:text-[#1DA1F2] hover:bg-[#1DA1F2]/10"
-                title="Twitter"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
-              </a>
-              {/* Telegram */}
-              <a
-                href={OFFICIAL_LINKS.telegram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-lg transition-all hover:scale-110 text-nofx-text-muted hover:text-[#0088cc] hover:bg-[#0088cc]/10"
-                title="Telegram"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                </svg>
-              </a>
-            </div>
-
-            {/* Divider */}
-            <div className="h-5 w-px" style={{ background: '#2B3139' }} />
-
-            {/* User Info and Actions */}
-            {isLoggedIn && user ? (
-              <div className="flex items-center gap-3">
-                {/* User Info with Dropdown */}
-                <div className="relative" ref={userDropdownRef}>
-                  <button
-                    onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-2 rounded transition-colors bg-nofx-bg-lighter border border-nofx-gold/20 hover:bg-white/5"
-                  >
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold bg-nofx-gold text-black">
-                      {user.email[0].toUpperCase()}
-                    </div>
-                    <span className="text-sm text-nofx-text-muted">
-                      {user.email}
-                    </span>
-                    <ChevronDown className="w-4 h-4 text-nofx-text-muted" />
-                  </button>
-
-                  {userDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-lg overflow-hidden z-50 bg-nofx-bg-lighter border border-nofx-gold/20">
-                      <div className="px-3 py-2 border-b border-nofx-gold/20">
-                        <div className="text-xs text-nofx-text-muted">
-                          {t('loggedInAs', language)}
-                        </div>
-                        <div className="text-sm font-medium text-nofx-text-muted">
-                          {user.email}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigateInApp(ROUTES.settings)
-                          setUserDropdownOpen(false)
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-white/5 text-nofx-text-muted hover:text-white"
-                      >
-                        <Settings className="w-3.5 h-3.5" />
-                        Settings
-                      </button>
-                      <button
-                        onClick={() =>
-                          handleSwitchMode(
-                            userMode === 'beginner' ? 'advanced' : 'beginner'
-                          )
-                        }
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-white/5 text-nofx-text-muted hover:text-white"
-                      >
-                        <Settings className="w-3.5 h-3.5" />
-                        {userMode === 'beginner'
-                          ? language === 'zh'
-                            ? '切到老手模式'
-                            : 'Switch to Advanced'
-                          : language === 'zh'
-                            ? '切到新手模式'
-                            : 'Switch to Beginner'}
-                      </button>
-                      {onLogout && (
-                        <button
-                          onClick={() => {
-                            onLogout()
-                            setUserDropdownOpen(false)
-                          }}
-                          className="w-full px-3 py-2 text-sm font-semibold transition-colors hover:opacity-80 text-center bg-nofx-danger/20 text-nofx-danger"
-                        >
-                          {t('exitLogin', language)}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Show login/register buttons when not logged in and not on login/register pages */
-              resolvedCurrentPage !== 'login' &&
-              resolvedCurrentPage !== 'register' && (
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => navigateInApp(ROUTES.login)}
-                    className="px-3 py-2 text-sm font-medium transition-colors rounded text-nofx-text-muted hover:text-white"
-                  >
-                    {t('signIn', language)}
-                  </button>
-                </div>
-              )
-            )}
-
-            {/* Language Toggle - Always at the rightmost */}
-            <div className="relative" ref={dropdownRef}>
+          <div className="sh-nav-item">
+            <Link to={ROUTES.data} className={boardActive ? '!text-[#d4ff33]' : undefined}>
+              数据看板
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+            </Link>
+            <div className="sh-nav-dropdown">
               <button
-                onClick={() => setLanguageDropdownOpen(!languageDropdownOpen)}
-                className="flex items-center gap-2 px-3 py-2 rounded transition-colors text-nofx-text-muted hover:bg-white/5"
+                type="button"
+                onClick={() =>
+                  tryNav(ROUTES.dashboard, 'trader', true, t('dashboardNav', lang))
+                }
               >
-                <span className="text-lg">
-                  {language === 'zh' ? '🇨🇳' : language === 'id' ? '🇮🇩' : '🇺🇸'}
-                </span>
-                <ChevronDown className="w-4 h-4" />
+                AI策略数据看板
+              </button>
+              <button type="button" onClick={() => tryNav(ROUTES.data, 'data', false, '数据')}>
+                行情数据
+              </button>
+              <button
+                type="button"
+                onClick={() => tryNav(ROUTES.news, 'news', true, '新闻信息监控')}
+              >
+                新闻信息监控
+              </button>
+            </div>
+          </div>
+
+          <div className="sh-nav-item">
+            <Link to={ROUTES.traders} className={tradersActive ? '!text-[#d4ff33]' : undefined}>
+              AI交易员配置
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+            </Link>
+            <div className="sh-nav-dropdown">
+              <button
+                type="button"
+                onClick={() => tryNav(TRADERS_WIZARD_ENTRY, 'traders', true, t('configNav', lang))}
+              >
+                AI交易员配置
+              </button>
+              <button
+                type="button"
+                onClick={() => tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')}
+              >
+                策略构建器
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    onLoginRequired?.('AI模型配置')
+                    return
+                  }
+                  navigateInApp(ROUTES.settings)
+                }}
+              >
+                AI模型配置
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="sh-nav-right flex min-w-0 shrink items-center justify-end gap-1.5 sm:gap-3">
+          {isLoggedIn && user && (
+            <Link
+              to={ROUTES.invite}
+              title="邀请奖励 · 复制链接与下级列表"
+              className="hidden items-center gap-1.5 rounded-full border border-[#d4ff33]/25 bg-[#d4ff33]/10 px-3 py-1.5 text-xs font-bold text-[#d4ff33] transition-colors hover:border-[#d4ff33]/45 hover:bg-[#d4ff33]/15 xl:inline-flex"
+            >
+              <Gift className="h-3.5 w-3.5" />
+              邀请奖励
+            </Link>
+          )}
+          {isLoggedIn && user && (
+            <Link
+              to={ROUTES.wallet}
+              title={`钱包总览：${walletBalance.toFixed(4)} USDT`}
+              className={`hidden items-center rounded-full border border-outline-variant/30 bg-surface-container-high/50 px-3 py-1.5 text-xs font-semibold tabular-nums hover:border-primary-container/40 xl:inline-flex ${walletBalanceClass}`}
+            >
+              <WalletIcon className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              钱包
+            </Link>
+          )}
+          {isLoggedIn && (
+            <>
+              <div className="sh-header-bell hidden shrink-0 lg:block [&_button]:text-[#9d9daa] [&_button]:hover:text-[#d4ff33]">
+                <AiTradeNotificationDropdown />
+              </div>
+            </>
+          )}
+
+          {isLoggedIn && user ? (
+            <div className="relative" ref={userDropdownRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false)
+                  setUserDropdownOpen(!userDropdownOpen)
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(197,216,62,0.28)] bg-[#111114]/95 p-1 text-[#e8e8ec] transition-colors hover:border-[#d4ff33]/55 lg:h-auto lg:w-auto lg:gap-2 lg:px-2 lg:py-1.5 lg:pr-3"
+              >
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-primary-container/30"
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-container text-xs font-bold text-black">
+                    {(userDisplayName || user.email)[0].toUpperCase()}
+                  </div>
+                )}
+                {/* 名字与 VIP 徽章同一组：徽章紧跟在名字后面 */}
+                <div className="hidden min-w-0 max-w-[130px] items-center gap-1.5 lg:flex xl:max-w-[200px]">
+                  <span className="truncate text-sm text-[#d4ff33]/90">
+                    {userDisplayName || user.email}
+                  </span>
+                  {vipLevel != null && vipLevel >= 0 ? (
+                    <>
+                      <VipTierBadge level={vipLevel} />
+                      {rebateBal?.configured === true &&
+                      rebateBal.synced === true &&
+                      rebateBal.rebate_is_studio === true ? (
+                        <span
+                          title="工作室：直推名义分成额外 +5%"
+                          className="shrink-0 rounded border border-amber-400/45 bg-amber-500/15 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100"
+                        >
+                          工作室
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+                {/* 窄屏不显示昵称时：仅在头像与箭头之间保留徽章 */}
+                <div className="hidden shrink-0 items-center gap-1.5 sm:hidden">
+                  {vipLevel != null && vipLevel >= 0 ? (
+                    <>
+                      <VipTierBadge level={vipLevel} />
+                      {rebateBal?.configured === true &&
+                      rebateBal.synced === true &&
+                      rebateBal.rebate_is_studio === true ? (
+                        <span
+                          title="工作室：直推名义分成额外 +5%"
+                          className="shrink-0 rounded border border-amber-400/45 bg-amber-500/15 px-1 py-0.5 text-[9px] font-bold text-amber-100"
+                        >
+                          工作室
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+                <ChevronDown className="hidden h-4 w-4 shrink-0 text-[#9d9daa] lg:block" />
               </button>
 
-              {languageDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-32 rounded-lg shadow-lg overflow-hidden z-50 bg-nofx-bg-lighter border border-nofx-gold/20">
+              {userDropdownOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-[min(92vw,260px)] min-w-[200px] overflow-hidden rounded-2xl border border-outline-variant/25 bg-surface-container-high/95 py-1 shadow-2xl backdrop-blur-md">
+                  <div className="border-b border-outline-variant/20 px-3 py-2">
+                    <div className="text-[11px] text-on-surface-variant/80">{t('loggedInAs', lang)}</div>
+                    <div className="truncate text-sm font-medium text-on-surface">
+                      {userDisplayName || user.email}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-on-surface-variant/70">{user.email}</div>
+                  </div>
                   <button
+                    type="button"
                     onClick={() => {
-                      onLanguageChange?.('zh')
-                      setLanguageDropdownOpen(false)
+                      navigateInApp(ROUTES.profile)
+                      setUserDropdownOpen(false)
                     }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
-                      ${language === 'zh' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
+                    className="block w-full px-3 py-2.5 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-[#d4ff33]"
                   >
-                    <span className="text-base">🇨🇳</span>
-                    <span className="text-sm">中文</span>
+                    个人资料
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      onLanguageChange?.('en')
-                      setLanguageDropdownOpen(false)
+                      navigateInApp(ROUTES.wallet)
+                      setUserDropdownOpen(false)
                     }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
-                      ${language === 'en' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
+                    className="block w-full px-3 py-2.5 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-[#d4ff33]"
                   >
-                    <span className="text-base">🇺🇸</span>
-                    <span className="text-sm">English</span>
+                    钱包
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
-                      onLanguageChange?.('id')
-                      setLanguageDropdownOpen(false)
+                      navigateInApp(ROUTES.invite)
+                      setUserDropdownOpen(false)
                     }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 transition-colors text-nofx-text-muted hover:text-white
-                      ${language === 'id' ? 'bg-nofx-gold/10' : 'hover:bg-white/5'}`}
+                    className="block w-full px-3 py-2.5 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-[#d4ff33]"
                   >
-                    <span className="text-base">🇮🇩</span>
-                    <span className="text-sm">Bahasa</span>
+                    邀请奖励
                   </button>
+                  {user.is_admin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigateInApp(ROUTES.admin)
+                        setUserDropdownOpen(false)
+                      }}
+                      className="block w-full px-3 py-2.5 text-left text-sm font-semibold text-[#d4ff33] transition-colors hover:bg-surface-container-highest"
+                    >
+                      管理后台
+                    </button>
+                  )}
+                  {user.is_finance && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigateInApp(ROUTES.finance)
+                        setUserDropdownOpen(false)
+                      }}
+                      className="block w-full px-3 py-2.5 text-left text-sm font-semibold text-emerald-300 transition-colors hover:bg-surface-container-highest"
+                    >
+                      财务台
+                    </button>
+                  )}
+                  {onLogout && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLogout()
+                        setUserDropdownOpen(false)
+                      }}
+                      className="w-full px-3 py-2.5 text-left text-sm font-semibold text-error transition-colors hover:bg-error/10"
+                    >
+                      {t('exitLogin', lang)}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Mobile Menu Button */}
-        <motion.button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden text-nofx-text-muted hover:text-white"
-          whileTap={{ scale: 0.9 }}
-        >
-          {mobileMenuOpen ? (
-            <X className="w-6 h-6" />
           ) : (
-            <Menu className="w-6 h-6" />
+            resolvedCurrentPage !== 'login' &&
+            resolvedCurrentPage !== 'register' && (
+              <div className="hidden items-center gap-2 lg:flex lg:gap-3">
+                <Link to={ROUTES.login} className="sh-nav-cta ghost">
+                  登录
+                </Link>
+                <Link to={ROUTES.register} className="sh-nav-cta solid">
+                  注册
+                </Link>
+              </div>
+            )
           )}
-        </motion.button>
-      </div>
 
-      {/* Mobile Menu Overlay */}
+          <motion.button
+            type="button"
+            onClick={() => {
+              setUserDropdownOpen(false)
+              setMobileMenuOpen(!mobileMenuOpen)
+            }}
+            className="sh-mobile-menu-button shrink-0 rounded-lg p-2 text-[#9d9daa] transition-colors hover:bg-white/5 hover:text-[#d4ff33] lg:hidden"
+            whileTap={{ scale: 0.9 }}
+            aria-label={mobileMenuOpen ? '关闭菜单' : '打开菜单'}
+          >
+            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </motion.button>
+        </div>
+      </nav>
+
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
@@ -413,237 +423,187 @@ export default function HeaderBar({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 md:hidden bg-black/90 backdrop-blur-xl"
-            style={{ top: '64px' }} // Below header
+            className="absolute inset-x-0 top-full z-[9999] h-[calc(100dvh-62px)] bg-black/95 backdrop-blur-md lg:hidden"
           >
             <motion.div
-              initial={{ y: -20, opacity: 0 }}
+              initial={{ y: -12, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.3 }}
-              className="flex flex-col h-[calc(100vh-64px)] overflow-y-auto px-6 py-8"
+              exit={{ y: -12, opacity: 0 }}
+              transition={{ delay: 0.05, duration: 0.25 }}
+              className="flex h-full flex-col overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(16px+env(safe-area-inset-bottom))] font-lumbody sm:px-5 sm:py-5"
             >
-              {/* Navigation Links */}
-              <div className="flex flex-col gap-6 mb-12">
-                {(() => {
-                  const navTabs: {
-                    page: Page
-                    path: string
-                    label: string
-                    requiresAuth: boolean
-                  }[] = [
-                    {
-                      page: 'data',
-                      path: ROUTES.data,
-                      label:
-                        language === 'zh'
-                          ? '数据'
-                          : language === 'id'
-                            ? 'Data'
-                            : 'Data',
-                      requiresAuth: false,
-                    },
-                    {
-                      page: 'strategy-market',
-                      path: ROUTES.strategyMarket,
-                      label:
-                        language === 'zh'
-                          ? '策略市场'
-                          : language === 'id'
-                            ? 'Pasar'
-                            : 'Market',
-                      requiresAuth: true,
-                    },
-                    {
-                      page: 'traders',
-                      path: ROUTES.traders,
-                      label: t('configNav', language),
-                      requiresAuth: true,
-                    },
-                    {
-                      page: 'trader',
-                      path: ROUTES.dashboard,
-                      label: t('dashboardNav', language),
-                      requiresAuth: true,
-                    },
-                    {
-                      page: 'strategy',
-                      path: ROUTES.strategy,
-                      label: t('strategyNav', language),
-                      requiresAuth: true,
-                    },
-                    {
-                      page: 'competition',
-                      path: ROUTES.competition,
-                      label: t('realtimeNav', language),
-                      requiresAuth: true,
-                    },
-                    {
-                      page: 'faq',
-                      path: ROUTES.faq,
-                      label: t('faqNav', language),
-                      requiresAuth: false,
-                    },
-                  ]
-
-                  const handleMobileNavClick = (tab: (typeof navTabs)[0]) => {
-                    if (tab.requiresAuth && !isLoggedIn) {
-                      onLoginRequired?.(tab.label)
-                      setMobileMenuOpen(false)
+              <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">策略市场</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    tryNav(ROUTES.strategyMarket, 'strategy-market', true, '策略市场')
+                  }
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  策略市场
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    tryNav(ROUTES.autoArbitrage, 'auto-arbitrage', true, '全自动套利系统')
+                  }
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  全自动套利系统
+                </button>
+              </div>
+              <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">数据看板</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    tryNav(ROUTES.dashboard, 'trader', true, t('dashboardNav', lang))
+                  }
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  AI策略数据看板
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tryNav(ROUTES.data, 'data', false, '数据')}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  行情数据
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tryNav(ROUTES.news, 'news', true, '新闻信息监控')}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  新闻信息监控
+                </button>
+              </div>
+              <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">AI交易员配置</p>
+                <button
+                  type="button"
+                  onClick={() => tryNav(TRADERS_WIZARD_ENTRY, 'traders', true, t('configNav', lang))}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  AI交易员配置
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  策略构建器
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isLoggedIn) {
+                      onLoginRequired?.('AI模型配置')
                       return
                     }
-                    if (onPageChange) {
-                      onPageChange(tab.page)
-                    }
-                    navigateInApp(tab.path)
+                    navigateInApp(ROUTES.settings)
                     setMobileMenuOpen(false)
-                  }
-
-                  return navTabs.map((tab, i) => (
-                    <motion.button
-                      key={tab.page}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: 0.1 + i * 0.05 }}
-                      onClick={() => handleMobileNavClick(tab)}
-                      className={`text-2xl font-black tracking-tight text-left flex items-center gap-3
-                        ${resolvedCurrentPage === tab.page ? 'text-nofx-gold' : 'text-zinc-500'}`}
-                    >
-                      {resolvedCurrentPage === tab.page && (
-                        <motion.div
-                          layoutId="active-indicator"
-                          className="w-1.5 h-1.5 rounded-full bg-nofx-gold"
-                        />
-                      )}
-                      {tab.label}
-                      {tab.requiresAuth && !isLoggedIn && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 font-normal tracking-wide uppercase align-middle relative -top-1">
-                          LOGIN_REQ
-                        </span>
-                      )}
-                    </motion.button>
-                  ))
-                })()}
-
-                {/* Original Page Links */}
-                {isHomePage && (
-                  <div className="pt-6 border-t border-white/5 space-y-4">
-                    {[
-                      { key: 'features', label: t('features', language) },
-                      { key: 'howItWorks', label: t('howItWorks', language) },
-                    ].map((item, i) => (
-                      <motion.a
-                        key={item.key}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.5 + i * 0.1 }}
-                        href={`#${item.key === 'features' ? 'features' : 'how-it-works'}`}
-                        className="block text-lg font-mono text-zinc-600 hover:text-white"
-                        onClick={() => setMobileMenuOpen(false)}
-                      >
-                        {'>'} {item.label}
-                      </motion.a>
-                    ))}
-                  </div>
-                )}
+                  }}
+                  className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                >
+                  AI模型配置
+                </button>
               </div>
 
-              {/* Bottom Actions */}
-              <div className="mt-auto space-y-8">
-                {/* Social Links */}
-                <div className="flex items-center gap-4">
+              {isHomePage && (
+                <div className="mb-auto space-y-3 border-t border-white/10 pt-6">
                   {[
-                    {
-                      href: OFFICIAL_LINKS.github,
-                      icon: (
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                      ),
-                    },
-                    {
-                      href: OFFICIAL_LINKS.twitter,
-                      icon: (
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                      ),
-                    },
-                    {
-                      href: OFFICIAL_LINKS.telegram,
-                      icon: (
-                        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                      ),
-                    },
-                  ].map((link, i) => (
+                    { key: 'features', label: t('features', lang), href: '#features' },
+                    { key: 'howItWorks', label: t('howItWorks', lang), href: '#how-it-works' },
+                  ].map((item) => (
                     <a
-                      key={i}
-                      href={link.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-nofx-gold hover:border-nofx-gold transition-colors"
+                      key={item.key}
+                      href={item.href}
+                      className="block text-sm text-on-surface-variant/80 transition-colors hover:text-[#d4ff33]"
+                      onClick={() => setMobileMenuOpen(false)}
                     >
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 16 16"
-                        fill="currentColor"
-                      >
-                        {link.icon}
-                      </svg>
+                      {item.label}
                     </a>
                   ))}
                 </div>
+              )}
 
-                {/* Account / Lang */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Lang Switcher */}
-                  <div className="flex bg-zinc-900 rounded-lg p-1 border border-zinc-800">
-                    {['zh', 'en', 'id'].map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => {
-                          onLanguageChange?.(lang as Language)
-                          setMobileMenuOpen(false)
-                        }}
-                        className={`flex-1 py-3 text-sm font-bold rounded-md transition-colors ${
-                          language === lang
-                            ? 'bg-zinc-800 text-white shadow-sm'
-                            : 'text-zinc-500'
-                        }`}
-                      >
-                        {lang === 'zh' ? 'CN' : lang === 'id' ? 'ID' : 'EN'}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Auth Actions */}
-                  {isLoggedIn && user ? (
+              {isLoggedIn && user && (
+                <div className="mt-2 space-y-3 border-t border-white/10 pt-4">
+                  <Link
+                    to={ROUTES.invite}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 rounded-xl border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-4 py-3 text-sm font-bold text-[#d4ff33] transition-colors hover:bg-[#d4ff33]/15"
+                  >
+                    <Gift className="h-4 w-4 shrink-0" />
+                    邀请奖励（复制链接）
+                  </Link>
+                  <Link
+                    to={ROUTES.wallet}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`block rounded-xl border border-outline-variant/20 bg-surface-container-high/40 px-4 py-3 text-sm tabular-nums transition-colors hover:border-primary-container/40 ${walletBalanceClass}`}
+                  >
+                    钱包总览：{walletBalance.toFixed(4)} USDT（点按查看）
+                  </Link>
+                  {user.is_admin && (
                     <button
+                      type="button"
                       onClick={() => {
-                        onLogout?.()
+                        navigateInApp(ROUTES.admin)
                         setMobileMenuOpen(false)
                       }}
-                      className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg font-bold text-sm hover:bg-red-500/20 transition-colors"
+                      className="w-full rounded-xl border border-[#d4ff33]/40 py-3 text-sm font-bold text-[#d4ff33] transition-colors hover:bg-[#d4ff33]/10"
                     >
-                      {t('exitLogin', language)}
+                      管理后台
                     </button>
-                  ) : (
-                    resolvedCurrentPage !== 'login' &&
-                    resolvedCurrentPage !== 'register' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigateInApp(ROUTES.login)
-                          setMobileMenuOpen(false)
-                        }}
-                        className="flex items-center justify-center bg-nofx-gold text-black rounded-lg font-bold text-sm hover:bg-yellow-400 transition-colors"
-                      >
-                        {t('signIn', language)}
-                      </button>
-                    )
                   )}
+                  {user.is_finance && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigateInApp(ROUTES.finance)
+                        setMobileMenuOpen(false)
+                      }}
+                      className="w-full rounded-xl border border-emerald-500/40 py-3 text-sm font-bold text-emerald-300 transition-colors hover:bg-emerald-500/10"
+                    >
+                      财务台
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onLogout?.()
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full rounded-xl border border-error/30 bg-error/10 py-3 text-sm font-bold text-error transition-colors hover:bg-error/20"
+                  >
+                    {t('exitLogin', lang)}
+                  </button>
                 </div>
-              </div>
+              )}
+              {!isLoggedIn && resolvedCurrentPage !== 'login' && resolvedCurrentPage !== 'register' && (
+                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-4">
+                  <Link
+                    to={ROUTES.login}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                  >
+                    登录
+                  </Link>
+                  <Link
+                    to={ROUTES.register}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="rounded-xl bg-[#d4ff33] px-4 py-3 text-center text-sm font-bold text-black transition-colors hover:bg-[#d4e64a]"
+                  >
+                    注册
+                  </Link>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-    </nav>
+    </header>
   )
 }

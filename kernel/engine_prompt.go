@@ -17,7 +17,7 @@ import (
 func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string) string {
 	var sb strings.Builder
 	riskControl := e.config.RiskControl
-	promptSections := e.config.PromptSections
+	narrative := strings.TrimSpace(e.config.MergedStrategyNarrative())
 
 	// 0. Data Dictionary & Schema (ensure AI understands all fields)
 	lang := e.GetLanguage()
@@ -26,13 +26,19 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("\n\n")
 	sb.WriteString("---\n\n")
 
-	// 1. Role definition (editable)
-	if promptSections.RoleDefinition != "" {
-		sb.WriteString(promptSections.RoleDefinition)
+	// 1. User strategy narrative (single field or legacy sections merged)
+	if narrative != "" {
+		sb.WriteString(narrative)
 		sb.WriteString("\n\n")
 	} else {
 		sb.WriteString("# You are a professional cryptocurrency trading AI\n\n")
 		sb.WriteString("Your task is to make trading decisions based on provided market data.\n\n")
+	}
+
+	if lang == LangChinese {
+		sb.WriteString("# 输出语言（强制）\n")
+		sb.WriteString("- 所有自然语言分析、推理过程、<reasoning>...</reasoning> 与思维链必须使用**简体中文**书写。\n")
+		sb.WriteString("- 除非引用交易对代码、数字或 API 字段名，否则不要使用整段英文作答。\n\n")
 	}
 
 	// 2. Trading mode variant
@@ -81,36 +87,25 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
 
-	// 4. Trading frequency (editable)
-	if promptSections.TradingFrequency != "" {
-		sb.WriteString(promptSections.TradingFrequency)
-		sb.WriteString("\n\n")
+	if narrative != "" {
+		// Unified narrative path: one blob already covered user intent; add data context only.
+		sb.WriteString("# Indicator & Data Context\n\n")
+		sb.WriteString("You have the following indicator data:\n")
+		e.writeAvailableIndicators(&sb)
+		sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", riskControl.MinConfidence))
 	} else {
+		// Legacy default blocks when no narrative at all
 		sb.WriteString("# ⏱️ Trading Frequency Awareness\n\n")
 		sb.WriteString("- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour\n")
 		sb.WriteString("- >2 trades/hour = Overtrading\n")
 		sb.WriteString("- Single position hold time ≥ 30-60 minutes\n")
 		sb.WriteString("If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.\n\n")
-	}
 
-	// 5. Entry standards (editable)
-	if promptSections.EntryStandards != "" {
-		sb.WriteString(promptSections.EntryStandards)
-		sb.WriteString("\n\nYou have the following indicator data:\n")
-		e.writeAvailableIndicators(&sb)
-		sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", riskControl.MinConfidence))
-	} else {
 		sb.WriteString("# 🎯 Entry Standards (Strict)\n\n")
 		sb.WriteString("Only open positions when multiple signals resonate. You have:\n")
 		e.writeAvailableIndicators(&sb)
 		sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
-	}
 
-	// 6. Decision process (editable)
-	if promptSections.DecisionProcess != "" {
-		sb.WriteString(promptSections.DecisionProcess)
-		sb.WriteString("\n\n")
-	} else {
 		sb.WriteString("# 📋 Decision Process\n\n")
 		sb.WriteString("1. Check positions → Should we take profit/stop-loss\n")
 		sb.WriteString("2. Scan candidate coins + multi-timeframe → Are there strong signals\n")
@@ -122,8 +117,26 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
 	sb.WriteString("## Format Requirements\n\n")
 	sb.WriteString("<reasoning>\n")
-	sb.WriteString("Your chain of thought analysis...\n")
-	sb.WriteString("- Briefly analyze your thinking process \n")
+	if lang == LangChinese {
+		sb.WriteString("# 市场分析报告\n\n")
+		sb.WriteString("## 一、当前市场结构与趋势方向\n")
+		sb.WriteString("- 只分析本轮真实扫描到的候选币种和当前持仓币种，不要补充未扫描币种。\n")
+		sb.WriteString("- 每个币种最多 3-5 行，包含：AI500/趋势/关键共振/是否满足入场条件。\n\n")
+		sb.WriteString("## 二、关键支撑/阻力位\n")
+		sb.WriteString("- 只写重点币种，每个币种最多 2 个阻力位和 2 个支撑位。\n\n")
+		sb.WriteString("## 三、技术指标信号共振分析\n")
+		sb.WriteString("- 用 Markdown 表格输出：币种 | 多头信号 | 空头风险 | 结论。\n\n")
+		sb.WriteString("## 四、风险因素与潜在催化剂\n")
+		sb.WriteString("- 风险和催化剂各写 2-4 条，必须短句。\n\n")
+		sb.WriteString("## 五、仓位管理评估\n")
+		sb.WriteString("- 结合账户权益、可用保证金、杠杆上限和风控约束，写清楚是否开仓、开多大、止损止盈。\n\n")
+		sb.WriteString("## 六、综合决策建议\n")
+		sb.WriteString("- 用 Markdown 表格输出：币种 | 入场建议 | 优先级 | 原因。\n")
+		sb.WriteString("- 总长度控制在 900 字以内；不要为了排版写废话，不要输出未扫描币种。\n")
+	} else {
+		sb.WriteString("# Market Analysis Report\n\n")
+		sb.WriteString("Use concise markdown sections: market structure, support/resistance, signal confluence, risks/catalysts, position sizing, final decision. Only analyze scanned/held symbols. Keep the reasoning under 900 English words.\n")
+	}
 	sb.WriteString("</reasoning>\n\n")
 	sb.WriteString("<decision>\n")
 	sb.WriteString("Step 2: JSON decision array\n\n")
@@ -336,6 +349,50 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		sb.WriteString("Current Positions: None\n\n")
 	}
 
+	// 交易所挂单（限价 / 止盈止损等）
+	if len(ctx.PendingOrders) > 0 {
+		if e.GetLanguage() == LangChinese {
+			sb.WriteString("## 当前交易所挂单（未成交 / 含条件单）\n")
+			for i, o := range ctx.PendingOrders {
+				sb.WriteString(fmt.Sprintf(
+					"%d. %s | %s %s | 类型:%s | 委托价:%.6f | 触发价:%.6f | 数量:%.6f | 状态:%s | OrderID:%s\n",
+					i+1, o.Symbol, o.PositionSide, o.Side, o.Type, o.Price, o.StopPrice, o.Quantity, o.Status, o.OrderID))
+			}
+		} else {
+			sb.WriteString("## Open Exchange Orders (pending / conditional)\n")
+			for i, o := range ctx.PendingOrders {
+				sb.WriteString(fmt.Sprintf(
+					"%d. %s | %s %s | type:%s | price:%.6f | stop/trigger:%.6f | qty:%.6f | status:%s | id:%s\n",
+					i+1, o.Symbol, o.PositionSide, o.Side, o.Type, o.Price, o.StopPrice, o.Quantity, o.Status, o.OrderID))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// 限价单：强制要求在思维链中解读（与后台写入的「挂单扫描摘要」呼应）
+	if HasLimitStylePending(ctx.PendingOrders) {
+		if e.GetLanguage() == LangChinese {
+			sb.WriteString("## 思维链必填：交易所限价单解读\n")
+			sb.WriteString("若上文「当前交易所挂单」中存在 **限价类**（LIMIT / LIMIT_MAKER / STOP_LIMIT / TAKE_PROFIT_LIMIT 等），你必须在 `<reasoning>` 中增加独立小节，标题为 **【人工/交易所限价单解读】**。\n")
+			sb.WriteString("对该类委托逐条说明：交易对、方向、限价、数量、名义金额、杠杆含义、关联止盈/止损与现价的关系；并分别简述：\n")
+			sb.WriteString("（1）在此价位挂限价单的可能意图（如吸筹、埋伏突破、减仓、网格等，不确定须写明「不确定」）；（2）若存在止盈止损，其风控逻辑与盈亏比考量。\n\n")
+		} else {
+			sb.WriteString("## Required in <reasoning>: manual / exchange LIMIT orders\n")
+			sb.WriteString("If the pending orders list contains limit-style types (LIMIT, LIMIT_MAKER, STOP_LIMIT, TAKE_PROFIT_LIMIT, etc.), add a dedicated subsection titled **[Manual / exchange limit orders]**.\n")
+			sb.WriteString("For each: symbol, side, limit price, size, notional, leverage meaning, linked TP/SL vs spot price; explain (1) why that limit level may make sense; (2) TP/SL risk logic. Say \"uncertain\" when unsure.\n\n")
+		}
+	} else if HasConditionalTPSLPending(ctx.PendingOrders) {
+		// 仅有 STOP_MARKET / TAKE_PROFIT_MARKET 等、无限价时也要有思维链小节
+		if e.GetLanguage() == LangChinese {
+			sb.WriteString("## 思维链必填：交易所止盈/止损条件单解读\n")
+			sb.WriteString("上文「当前交易所挂单」中若存在 **止盈/止损类条件单**（如 STOP_MARKET、TAKE_PROFIT_MARKET 等），你必须在 `<reasoning>` 中增加独立小节，标题为 **【交易所止盈止损条件单】**。\n")
+			sb.WriteString("逐条说明：交易对、触发价与现价的关系、数量（含全仓平仓为 0 的含义）、对已有持仓的风险边界与盈亏比考量；不要编造交易所未返回的字段。\n\n")
+		} else {
+			sb.WriteString("## Required in <reasoning>: exchange TP/SL conditional orders\n")
+			sb.WriteString("If pending orders include TP/SL-style conditionals (e.g. STOP_MARKET, TAKE_PROFIT_MARKET), add a subsection **[Exchange TP/SL orders]** covering trigger vs price, size (0 may mean close-position), and risk for open positions. Do not invent fields.\n\n")
+		}
+	}
+
 	// Candidate coins (exclude coins already in positions to avoid duplicate data)
 	positionSymbols := make(map[string]bool)
 	for _, pos := range ctx.Positions {
@@ -394,7 +451,11 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	}
 
 	sb.WriteString("---\n\n")
-	sb.WriteString("Now please analyze and output your decision (Chain of Thought + JSON)\n")
+	if e.GetLanguage() == LangChinese {
+		sb.WriteString("请分析并输出决策（市场分析报告 + JSON）。<reasoning> 必须使用简体中文 Markdown 报告格式，包含标题、分区和必要表格；只写本轮真实扫描/持仓币种，内容保持精简。\n")
+	} else {
+		sb.WriteString("Now please analyze and output your decision (concise markdown market report + JSON).\n")
+	}
 
 	return sb.String()
 }

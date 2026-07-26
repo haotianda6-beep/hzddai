@@ -56,18 +56,12 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 		return
 	}
 
-	// If no models in database, return default models
+	// If no unified models in database, return default unified models
 	if len(models) == 0 {
 		logger.Infof("⚠️ No AI models in database, returning defaults")
 		defaultModels := []SafeModelConfig{
-			{ID: "deepseek", Name: "DeepSeek AI", Provider: "deepseek", Enabled: false},
-			{ID: "qwen", Name: "Qwen AI", Provider: "qwen", Enabled: false},
-			{ID: "openai", Name: "OpenAI", Provider: "openai", Enabled: false},
-			{ID: "claude", Name: "Claude AI", Provider: "claude", Enabled: false},
-			{ID: "gemini", Name: "Gemini AI", Provider: "gemini", Enabled: false},
-			{ID: "grok", Name: "Grok AI", Provider: "grok", Enabled: false},
-			{ID: "kimi", Name: "Kimi AI", Provider: "kimi", Enabled: false},
-			{ID: "minimax", Name: "MiniMax AI", Provider: "minimax", Enabled: false},
+			{ID: "comkun_ai", Name: "COMKUN-AI", Provider: "comkun_ai", Enabled: false},
+			{ID: "comkun_proxy", Name: "COMKUN-AI 代理模型", Provider: "comkun_proxy", Enabled: false, CustomModelName: "glm-5"},
 		}
 		c.JSON(http.StatusOK, defaultModels)
 		return
@@ -102,6 +96,15 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, safeModels)
+}
+
+func (s *Server) shouldShowNativeDeepSeekModel(userID string) bool {
+	user, err := s.store.User().GetByID(userID)
+	if err != nil {
+		logger.Warnf("⚠️ Failed to load user %s for native DeepSeek visibility: %v", userID, err)
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(user.Email), "haotianda6@gmail.com")
 }
 
 // handleUpdateModelConfigs Update AI model configurations (supports both encrypted and plain text based on config)
@@ -210,15 +213,16 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 func (s *Server) handleGetSupportedModels(c *gin.Context) {
 	// Return static list of supported AI models with default versions
 	supportedModels := []map[string]interface{}{
-		{"id": "deepseek", "name": "DeepSeek", "provider": "deepseek", "defaultModel": "deepseek-chat"},
-		{"id": "qwen", "name": "Qwen", "provider": "qwen", "defaultModel": "qwen3-max"},
-		{"id": "openai", "name": "OpenAI", "provider": "openai", "defaultModel": "gpt-5.1"},
-		{"id": "claude", "name": "Claude", "provider": "claude", "defaultModel": "claude-opus-4-6"},
-		{"id": "gemini", "name": "Google Gemini", "provider": "gemini", "defaultModel": "gemini-3-pro-preview"},
-		{"id": "grok", "name": "Grok (xAI)", "provider": "grok", "defaultModel": "grok-3-latest"},
-		{"id": "kimi", "name": "Kimi (Moonshot)", "provider": "kimi", "defaultModel": "moonshot-v1-auto"},
-		{"id": "minimax", "name": "MiniMax", "provider": "minimax", "defaultModel": "MiniMax-M2.7"},
-		{"id": "claw402", "name": "Claw402 (Base USDC)", "provider": "claw402", "defaultModel": "glm-5"},
+		{"id": "comkun_ai", "name": "COMKUN-AI", "provider": "comkun_ai", "defaultModel": "comkun-ai-follow"},
+		{"id": "comkun_proxy", "name": "COMKUN-AI 代理模型", "provider": "comkun_proxy", "defaultModel": "glm-5"},
+		{"id": "openai", "name": "OpenAI", "provider": "openai", "defaultModel": "gpt-5.5"},
+		{"id": "claude", "name": "Claude", "provider": "claude", "defaultModel": "claude-opus-4-8"},
+		{"id": "gemini", "name": "Gemini", "provider": "gemini", "defaultModel": "gemini-flash-latest"},
+		{"id": "grok", "name": "Grok", "provider": "grok", "defaultModel": "grok-4.3-latest"},
+		{"id": "deepseek", "name": "DeepSeek", "provider": "deepseek", "defaultModel": "deepseek-v4-flash"},
+		{"id": "qwen", "name": "Qwen", "provider": "qwen", "defaultModel": "qwen3.7-max"},
+		{"id": "kimi", "name": "Kimi", "provider": "kimi", "defaultModel": "kimi-k2.6"},
+		{"id": "minimax", "name": "MiniMax", "provider": "minimax", "defaultModel": "MiniMax-M3"},
 	}
 
 	c.JSON(http.StatusOK, supportedModels)

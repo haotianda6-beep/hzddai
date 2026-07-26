@@ -2,7 +2,9 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -102,6 +104,11 @@ type Statistics struct {
 	FailedCycles        int `json:"failed_cycles"`
 	TotalOpenPositions  int `json:"total_open_positions"`
 	TotalClosePositions int `json:"total_close_positions"`
+	// 已平仓成交维度（与 PositionHistory / GetFullStats 一致，供看板「胜率」展示）
+	TotalTrades int     `json:"total_trades"`
+	WinTrades   int     `json:"win_trades"`
+	LossTrades  int     `json:"loss_trades"`
+	WinRate     float64 `json:"win_rate"`
 }
 
 // NewDecisionStore creates a new DecisionStore
@@ -181,10 +188,61 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 	return nil
 }
 
+// GetLatestSuccessfulComkunFollowBroadcastID 从近期成功落库的 comkun 跟单决策中解析最大 broadcast_id，
+// 供被控进程重启后恢复「已消费主控广播」，避免同一广播重复扣 token、重复思维链。
+func (s *DecisionStore) GetLatestSuccessfulComkunFollowBroadcastID(traderID string) uint64 {
+	if s == nil || strings.TrimSpace(traderID) == "" {
+		return 0
+	}
+	var dbRecords []*DecisionRecordDB
+	if err := s.db.Select("id", "success", "raw_response").
+		Where("trader_id = ?", traderID).
+		Order("id DESC").
+		Limit(200).
+		Find(&dbRecords).Error; err != nil {
+		return 0
+	}
+	var maxID uint64
+	for _, r := range dbRecords {
+		if r == nil || !r.Success {
+			continue
+		}
+		raw := strings.TrimSpace(r.RawResponse)
+		if raw == "" {
+			continue
+		}
+		var meta map[string]interface{}
+		if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+			continue
+		}
+		if mode, _ := meta["mode"].(string); mode != "comkun_compliant_follow" {
+			continue
+		}
+		v, ok := meta["broadcast_id"]
+		if !ok || v == nil {
+			continue
+		}
+		var bid uint64
+		switch t := v.(type) {
+		case float64:
+			if t > 0 {
+				bid = uint64(t)
+			}
+		default:
+			continue
+		}
+		if bid > maxID {
+			maxID = bid
+		}
+	}
+	return maxID
+}
+
 // GetLatestRecords gets the latest N records for specified trader (sorted by time in ascending order: old to new)
 func (s *DecisionStore) GetLatestRecords(traderID string, n int) ([]*DecisionRecord, error) {
 	var dbRecords []*DecisionRecordDB
 	err := s.db.Where("trader_id = ?", traderID).
+		Where("LOWER(COALESCE(error_message, '')) NOT LIKE ?", "%database%locked%").
 		Order("timestamp DESC").
 		Limit(n).
 		Find(&dbRecords).Error
@@ -203,6 +261,35 @@ func (s *DecisionStore) GetLatestRecords(traderID string, n int) ([]*DecisionRec
 	}
 
 	return records, nil
+}
+
+// LatestNonEmptyErrorMessage 最近一条带 error_message 的决策记录（用于跟单状态提示）
+func (s *DecisionStore) LatestNonEmptyErrorMessage(traderID string) (msg string, at time.Time, ok bool) {
+	traderID = strings.TrimSpace(traderID)
+	if traderID == "" {
+		return "", time.Time{}, false
+	}
+	var db DecisionRecordDB
+	err := s.db.Where("trader_id = ? AND COALESCE(error_message, '') != ''", traderID).
+		Where("LOWER(error_message) NOT LIKE ?", "%database%locked%").
+		Order("timestamp DESC").
+		Limit(1).
+		First(&db).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", time.Time{}, false
+		}
+		return "", time.Time{}, false
+	}
+	msg = strings.TrimSpace(db.ErrorMessage)
+	if msg == "" {
+		return "", time.Time{}, false
+	}
+	if len([]rune(msg)) > 200 {
+		rs := []rune(msg)
+		msg = string(rs[:200]) + "…"
+	}
+	return msg, db.Timestamp, true
 }
 
 // GetAllLatestRecords gets the latest N records for all traders

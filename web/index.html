@@ -9,9 +9,54 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-TM429527');</script>
 <!-- End Google Tag Manager -->
-    <link rel="icon" type="image/svg+xml" href="/icons/nofx.svg" />
+    <link rel="icon" type="image/png" href="/icons/comkun-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NOFX - AI Auto Trading Dashboard</title>
+    <title>COMKUN-AI</title>
+    <!-- 主 CSS/主 JS 未执行时仍要有底色，避免误以为「死机」 -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #0b0b0b;
+        color: #eaecef;
+      }
+      #root:empty {
+        min-height: 100vh;
+      }
+    </style>
+    <script>
+      ;(function () {
+        var bootOk = false
+        window.__COMKUN_BOOT_OK = function () {
+          bootOk = true
+        }
+        window.addEventListener('error', function (ev) {
+          console.error('[boot-resource-error]', ev && (ev.filename || (ev.target && ev.target.src) || ev.message))
+        }, true)
+        window.addEventListener('unhandledrejection', function (ev) {
+          console.error('[boot-unhandledrejection]', ev && ev.reason)
+        })
+        function checkEmpty() {
+          if (bootOk) return
+          var r = document.getElementById('root')
+          if (!r) return
+          // 只要有子节点即视为已挂载（Suspense/纯图标可无文本节点）
+          if (r.children.length > 0) return
+          if (document.readyState === 'loading') return void setTimeout(checkEmpty, 400)
+          var elapsed = Date.now() - (window.__COMKUN_T0 || 0)
+          // 弱网主包加载可能超过 10s，适当放宽避免误报
+          if (elapsed < 22000) return void setTimeout(checkEmpty, 500)
+          r.innerHTML =
+            '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;text-align:center;max-width:480px;margin:0 auto">' +
+            '<h1 style="color:#d4ff33;font-size:18px">页面长时间未显示</h1>' +
+            '<p style="font-size:13px;line-height:1.65;opacity:.9">主程序可能执行失败、加载过慢，或被缓存干扰。请先点下方按钮强制刷新；如果仍失败，清除本站缓存后重试。</p>' +
+            '<button type="button" style="margin-top:16px;padding:10px 18px;border-radius:10px;border:0;background:#cafd00;color:#111;font-weight:600;cursor:pointer" onclick="try{var u=new URL(location.href);u.searchParams.set(\'_v\',Date.now());location.replace(u)}catch(e){location.reload()}">强制刷新</button></div>'
+        }
+        window.__COMKUN_T0 = Date.now()
+        setTimeout(checkEmpty, 1200)
+      })()
+    </script>
   </head>
   <body>
     <!-- Google Tag Manager (noscript) -->

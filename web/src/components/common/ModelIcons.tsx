@@ -15,6 +15,7 @@ const MODEL_COLORS: Record<string, string> = {
   openai: '#10A37F',
   minimax: '#E45735',
   claw402: '#7C3AED',
+  proxy: '#D4FF33',
 }
 
 // 获取AI模型图标的函数
@@ -25,6 +26,11 @@ export const getModelIcon = (modelType: string, props: IconProps = {}) => {
   let iconPath: string | null = null
 
   switch (type) {
+    case 'ai':
+    case 'comkun_ai':
+    case 'proxy':
+      iconPath = '/icons/comkun_ai.svg'
+      break
     case 'deepseek':
       iconPath = '/icons/deepseek.svg'
       break
@@ -50,7 +56,7 @@ export const getModelIcon = (modelType: string, props: IconProps = {}) => {
       iconPath = '/icons/minimax.svg'
       break
     case 'claw402':
-      iconPath = '/icons/claw402.png'
+      iconPath = '/icons/claw402.svg'
       break
     default:
       return null

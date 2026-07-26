@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gateio/gateapi-go/v6"
 	"github.com/stretchr/testify/assert"
 	"nofx/trader/testutil"
 	"nofx/trader/types"
@@ -225,6 +226,14 @@ func TestNewGateTrader(t *testing.T) {
 	}
 }
 
+func TestNewGateTraderWithTestnetUsesTestnetEndpoint(t *testing.T) {
+	testnetTrader := NewGateTraderWithTestnet("test_api_key", "test_secret_key", true)
+	assert.Equal(t, gateFuturesTestnetBasePath, testnetTrader.basePath)
+
+	mainnetTrader := NewGateTraderWithTestnet("test_api_key", "test_secret_key", false)
+	assert.Equal(t, "https://api.gateio.ws/api/v4", mainnetTrader.basePath)
+}
+
 // TestGateTrader_SymbolConversion tests symbol format conversion
 func TestGateTrader_SymbolConversion(t *testing.T) {
 	gt := NewGateTrader("test", "test")
@@ -254,6 +263,11 @@ func TestGateTrader_SymbolConversion(t *testing.T) {
 			input:    "SOLUSDT",
 			expected: "SOL_USDT",
 		},
+		{
+			name:     "XAUUSDT gold contract",
+			input:    "XAUUSDT",
+			expected: "XAU_USDT",
+		},
 	}
 
 	for _, tt := range tests {
@@ -262,6 +276,80 @@ func TestGateTrader_SymbolConversion(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestGateXAUContractQuantityConversion(t *testing.T) {
+	contract := &gateapi.Contract{
+		Name:             "XAU_USDT",
+		QuantoMultiplier: "0.0001",
+		OrderSizeMin:     1,
+		OrderSizeMax:     30_000_000,
+	}
+
+	tests := []struct {
+		name     string
+		quantity float64
+		want     int64
+	}{
+		{name: "MT4 0.01 lot on 10000U", quantity: 1, want: 10_000},
+		{name: "1000U follower at ten percent", quantity: 0.1, want: 1_000},
+		{name: "floating point close recovers exact contracts", quantity: 0.487999999999, want: 4_880},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := gateContractSize(tt.quantity, contract)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGateXAUOpenLongUsesCrossMarginAndContractUnits(t *testing.T) {
+	var placed gateapi.FuturesOrder
+	var leverage, crossLimit string
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/contracts/XAU_USDT"):
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"name": "XAU_USDT", "quanto_multiplier": "0.0001",
+				"order_size_min": 1, "order_size_max": 30_000_000,
+			})
+		case strings.HasSuffix(r.URL.Path, "/positions/XAU_USDT/leverage"):
+			leverage = r.URL.Query().Get("leverage")
+			crossLimit = r.URL.Query().Get("cross_leverage_limit")
+			json.NewEncoder(w).Encode(map[string]interface{}{"contract": "XAU_USDT", "leverage": "0"})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/orders"):
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&placed))
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": 901, "contract": placed.Contract, "size": placed.Size,
+				"status": "finished", "finish_as": "filled", "fill_price": "4060.60",
+			})
+		case strings.Contains(r.URL.Path, "/price_orders"):
+			json.NewEncoder(w).Encode([]interface{}{})
+		default:
+			json.NewEncoder(w).Encode([]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	gt := NewGateTrader("test", "test")
+	gt.client.ChangeBasePath(mockServer.URL)
+	assert.NoError(t, gt.SetMarginMode("XAUUSDT", true))
+	_, err := gt.OpenLong("XAUUSDT", 0.1, 20)
+	assert.NoError(t, err)
+	assert.Equal(t, "XAU_USDT", placed.Contract)
+	assert.Equal(t, int64(1_000), placed.Size)
+	assert.False(t, placed.ReduceOnly)
+	assert.Equal(t, "0", leverage)
+	assert.Equal(t, "20", crossLimit)
+
+	_, err = gt.CloseLong("XAUUSDT", 0.487999999999)
+	assert.NoError(t, err)
+	assert.Equal(t, "XAU_USDT", placed.Contract)
+	assert.Equal(t, int64(-4_880), placed.Size)
+	assert.True(t, placed.ReduceOnly)
 }
 
 // TestGateTrader_RevertSymbol tests symbol reversion
@@ -298,6 +386,31 @@ func TestGateTrader_RevertSymbol(t *testing.T) {
 	}
 }
 
+func TestGateClosedPnLRecordParsesShortPositionClose(t *testing.T) {
+	record, ok := gateClosedPnLRecord(gateapi.PositionClose{
+		Time:          1783518600,
+		Contract:      "BTC_USDT",
+		Side:          "short",
+		Pnl:           "4.12",
+		PnlFee:        "-0.05",
+		AccumSize:     "15.8",
+		FirstOpenTime: 1783517822,
+		LongPrice:     "62483",
+		ShortPrice:    "62784.6",
+	}, 0.001)
+
+	assert.True(t, ok)
+	assert.Equal(t, "BTCUSDT", record.Symbol)
+	assert.Equal(t, "SHORT", record.Side)
+	assert.Equal(t, 62784.6, record.EntryPrice)
+	assert.Equal(t, 62483.0, record.ExitPrice)
+	assert.Equal(t, 0.0158, record.Quantity)
+	assert.Equal(t, 4.12, record.RealizedPnL)
+	assert.Equal(t, 0.05, record.Fee)
+	assert.Equal(t, int64(1783517822), record.EntryTime.Unix())
+	assert.Equal(t, int64(1783518600), record.ExitTime.Unix())
+}
+
 // TestGateTrader_CacheDuration tests cache duration
 func TestGateTrader_CacheDuration(t *testing.T) {
 	gt := NewGateTrader("test", "test")
@@ -320,6 +433,53 @@ func TestGateTrader_ClearCache(t *testing.T) {
 	// Verify cache is cleared
 	assert.Nil(t, gt.cachedBalance)
 	assert.Nil(t, gt.cachedPositions)
+}
+
+func TestGateTrader_CrossMarginLeverageParameters(t *testing.T) {
+	var gotLeverage, gotCrossLimit string
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/futures/usdt/positions/BTC_USDT/leverage") {
+			gotLeverage = r.URL.Query().Get("leverage")
+			gotCrossLimit = r.URL.Query().Get("cross_leverage_limit")
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"contract": "BTC_USDT",
+				"leverage": "0",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockServer.Close()
+
+	gt := NewGateTrader("test", "test")
+	gt.client.ChangeBasePath(mockServer.URL)
+
+	assert.NoError(t, gt.SetMarginMode("BTCUSDT", true))
+	assert.NoError(t, gt.SetLeverage("BTCUSDT", 9))
+	assert.Equal(t, "0", gotLeverage)
+	assert.Equal(t, "9", gotCrossLimit)
+}
+
+func TestGateTrader_DefaultLeverageUsesCrossMargin(t *testing.T) {
+	var gotLeverage, gotCrossLimit string
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLeverage = r.URL.Query().Get("leverage")
+		gotCrossLimit = r.URL.Query().Get("cross_leverage_limit")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"contract": "BTC_USDT",
+			"leverage": "0",
+		})
+	}))
+	defer mockServer.Close()
+
+	gt := NewGateTrader("test", "test")
+	gt.client.ChangeBasePath(mockServer.URL)
+
+	assert.NoError(t, gt.SetLeverage("BTCUSDT", 9))
+	assert.Equal(t, "0", gotLeverage)
+	assert.Equal(t, "9", gotCrossLimit)
 }
 
 // ============================================================

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"nofx/logger"
+	"nofx/trader/proxyhttp"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,10 +82,14 @@ type BitgetResponse struct {
 }
 
 // NewBitgetTrader creates a Bitget trader
-func NewBitgetTrader(apiKey, secretKey, passphrase string) *BitgetTrader {
-	httpClient := &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: http.DefaultTransport,
+func NewBitgetTrader(apiKey, secretKey, passphrase string, outboundProxyURL ...string) *BitgetTrader {
+	proxyURL := ""
+	if len(outboundProxyURL) > 0 {
+		proxyURL = strings.TrimSpace(outboundProxyURL[0])
+	}
+	httpClient, err := proxyhttp.Client(proxyURL, 30*time.Second)
+	if err != nil {
+		logger.Warnf("Bitget 出口代理 URL 无效，忽略: %v", err)
 	}
 
 	trader := &BitgetTrader{

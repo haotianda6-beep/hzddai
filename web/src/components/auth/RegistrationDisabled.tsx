@@ -13,17 +13,19 @@ export function RegistrationDisabled() {
   return (
     <div
       className="min-h-screen flex items-center justify-center"
-      style={{ background: '#0B0E11', color: '#EAECEF' }}
+      style={{ background: '#0b0b0b', color: '#EAECEF' }}
     >
-      <div className="text-center max-w-md px-6">
-        <img
-          src="/icons/nofx.svg"
-          alt="NoFx Logo"
-          className="w-16 h-16 mx-auto mb-4"
-        />
-        <h1 className="text-2xl font-semibold mb-3">
-          {t('registrationClosed', language)}
-        </h1>
+      <div className="max-w-md px-6 text-center">
+        <div className="mb-4 flex items-center justify-center gap-2.5 text-2xl font-semibold leading-none">
+          <img
+            src="/icons/comkun-logo.png"
+            alt=""
+            data-testid="brand-logo"
+            className="h-10 w-10 shrink-0 rounded-lg object-cover sm:h-11 sm:w-11"
+            aria-hidden
+          />
+          <h1 className="font-semibold leading-none">{t('registrationClosed', language)}</h1>
+        </div>
         <p className="text-sm text-gray-400">
           {t('registrationClosedMessage', language)}
         </p>

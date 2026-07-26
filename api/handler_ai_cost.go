@@ -2,6 +2,9 @@ package api
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -39,5 +42,29 @@ func (s *Server) handleGetAICostsSummary(c *gin.Context) {
 		"total":    total,
 		"count":    count,
 		"by_model": byModel,
+	})
+}
+
+// handleGetAIPlatformUsage returns the current user's platform AI billing ledger.
+func (s *Server) handleGetAIPlatformUsage(c *gin.Context) {
+	userID := strings.TrimSpace(c.GetString("user_id"))
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing user context"})
+		return
+	}
+	limit := 50
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	rows, err := s.store.AIPlatformUsage().ListAdmin(userID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":        rows,
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
 	})
 }

@@ -63,7 +63,7 @@ export default function DeploymentHub() {
                         {/* Glow effect */}
                         <div className="absolute -inset-1 bg-gradient-to-r from-nofx-gold/20 to-blue-500/20 rounded-xl blur-xl opacity-50"></div>
 
-                        <div className="relative rounded-xl overflow-hidden bg-[#0a0a0a] border border-zinc-800 shadow-2xl">
+                        <div className="relative rounded-xl overflow-hidden bg-nofx-bg-secondary border border-zinc-800 shadow-2xl">
                             {/* Terminal Header */}
                             <div className="flex items-center justify-between px-4 py-3 bg-zinc-900/80 border-b border-zinc-800">
                                 <div className="flex gap-2">

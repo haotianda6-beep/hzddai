@@ -107,6 +107,16 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 3. Build User Prompt using strategy engine
 	userPrompt := engine.BuildUserPrompt(ctx)
+	if engine.GetLanguage() == LangChinese {
+		userPrompt += "\n【输出语言】思维链、<reasoning>、决策说明必须使用简体中文（勿整段英文）。\n"
+	}
+	if cfg := engine.GetConfig(); cfg != nil && cfg.ComkunFollowListingTemplate &&
+		!store.IsComkunMarketFollowStrategy(cfg) {
+		if cfg.ComkunListingMasterSolManualBroadcastMode {
+			userPrompt = appendComkunSolManualListingInstructions(ctx, userPrompt)
+		}
+		userPrompt = AppendComkunListingFollowerBriefInstructions(userPrompt, HasLimitStylePending(ctx.PendingOrders))
+	}
 
 	// 4. Call AI API
 	aiCallStart := time.Now()
@@ -368,7 +378,7 @@ func validateJSONFormat(jsonStr string) error {
 		return fmt.Errorf("JSON must start with [{ (whitespace allowed), actual: %s", trimmed[:min(20, len(trimmed))])
 	}
 
-	if strings.Contains(jsonStr, "~") {
+	if containsRangeSymbolOutsideString(jsonStr) {
 		return fmt.Errorf("JSON cannot contain range symbol ~, all numbers must be precise single values")
 	}
 
@@ -383,6 +393,87 @@ func validateJSONFormat(jsonStr string) error {
 	}
 
 	return nil
+}
+
+func containsRangeSymbolOutsideString(jsonStr string) bool {
+	inString := false
+	escaped := false
+
+	for _, r := range jsonStr {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inString && r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inString = !inString
+			continue
+		}
+		if !inString && r == '~' {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasSolUsdtPositionForPrompt(ctx *Context) bool {
+	if ctx == nil {
+		return false
+	}
+	for _, p := range ctx.Positions {
+		if strings.EqualFold(strings.TrimSpace(p.Symbol), "SOLUSDT") && p.Quantity > 1e-12 {
+			return true
+		}
+	}
+	return false
+}
+
+// appendComkunSolManualListingInstructions SOL 专项模板：只围绕 SOLUSDT 输出固定报告结构；
+// 禁止出现「主控/被控/广播/订阅/人工」等措辞，呈现为 AI 自主分析输出。
+func appendComkunSolManualListingInstructions(ctx *Context, userPrompt string) string {
+	var phase string
+	if hasSolUsdtPositionForPrompt(ctx) {
+		phase = `【阶段：已检测到 SOLUSDT 合约持仓】
+- 本轮只分析 **SOLUSDT**，不要提及任何其它币种。
+- 你的输出必须使用下面这个固定模板（标题与小标题尽量保持一致），内容全部用简体中文：
+
+# 市场深度分析报告
+
+## 1. 当前市场结构与趋势方向
+### SOLUSDT - <用一句话概括趋势，例如：强势整理/回调修复/震荡>
+- **AI500评分**：<数字>
+- **多周期趋势分析**：分别写 4H / 15m / 1m 的 MACD 状态与结论（用你看到的指标，不要编造不存在的数据）
+- **价格结构**：用 1-2 句说明当前价格处在什么结构里（区间/趋势线/前高前低附近）
+
+## 2. 关键支撑阻力位
+- **阻力位**：<从近到远列 2-4 个价位>
+- **支撑位**：<从近到远列 2-4 个价位>
+
+## 3. 技术指标信号共振分析
+- 用 5 条以内 bullet 总结：资金流、OI变化、MACD/RSI/成交量（有啥写啥，没有就不写）
+- 最后用一句话写结论：<例如：中期偏多，但短期需等回踩确认>
+
+## 4. 风险因素与催化剂
+- 列 3 条以内，写清楚“什么情况会变坏/什么情况会更好”
+
+## 5. 仓位管理评估
+- 结合账户权益、最大杠杆、单笔仓位限制，用 3 条以内给出“怎么控仓”
+
+## 综合交易建议
+- **策略**：<做多/做空/观望/减仓>
+- **入场条件**：<价位区间或触发条件>
+- **杠杆**：<x 倍>
+- **止损/止盈逻辑**：只讲逻辑，不要虚构交易所里不存在的精确挂单价格；若快照里看不到挂单明细，必须明确写“当前快照未包含挂单明细，以下为基于持仓与行情的推断”。`
+	} else {
+		phase = `【阶段：未检测到 SOLUSDT 合约持仓】
+- 本轮只分析 **SOLUSDT**，不要提及任何其它币种。
+- 仍按上面的固定模板输出，但在「综合交易建议」里必须写清楚：**观望，不自动进场**，并说明需要等待哪些条件出现（例如：回踩到关键支撑/量能与 OI 同步回升/结构确认等）。`
+	}
+	return userPrompt + "\n\n--- SOL 专项输出规则（系统附加）---\n" + phase + "\n"
 }
 
 func min(a, b int) int {

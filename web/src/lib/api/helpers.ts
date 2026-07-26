@@ -1,5 +1,6 @@
 import { CryptoService } from '../crypto'
 import { httpClient } from '../httpClient'
+import { formatUserFacingFetchError } from '../userFacingFetchError'
 
 export const API_BASE = '/api'
 
@@ -22,16 +23,10 @@ export function getAuthHeaders(): Record<string, string> {
 export async function handleJSONResponse<T>(res: Response): Promise<T> {
   const text = await res.text()
   if (!res.ok) {
-    let message = text || res.statusText
-    try {
-      const data = text ? JSON.parse(text) : null
-      if (data && typeof data === 'object') {
-        message = data.error || data.message || message
-      }
-    } catch {
-      /* ignore JSON parse errors */
+    if (import.meta.env.DEV && text.trim()) {
+      console.warn('[handleJSONResponse] non-ok', { status: res.status, bodyPreview: text.slice(0, 400) })
     }
-    throw new Error(message || 'Request failed')
+    throw new Error(formatUserFacingFetchError(res.status, text || res.statusText))
   }
   if (!text) {
     return {} as T

@@ -3,6 +3,7 @@ package kernel
 import (
 	"fmt"
 	"nofx/logger"
+	"strings"
 )
 
 // ============================================================================
@@ -11,11 +12,116 @@ import (
 
 func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
 	for i := range decisions {
+		normalizeDecisionAction(&decisions[i])
 		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
+			if canDowngradeDecisionToWait(decisions[i]) {
+				logger.Warnf("⚠️  [Decision Fallback] decision #%d %s %s rejected (%v), converted to wait",
+					i+1, decisions[i].Symbol, decisions[i].Action, err)
+				convertDecisionToWait(&decisions[i], err.Error())
+				continue
+			}
 			return fmt.Errorf("decision #%d validation failed: %w", i+1, err)
 		}
 	}
 	return nil
+}
+
+func normalizeDecisionAction(d *Decision) {
+	action, ok := canonicalDecisionAction(d.Action, d)
+	if ok {
+		if d.Action != action {
+			logger.Infof("⚠️  [Decision Fallback] normalized action %q -> %q for %s", d.Action, action, d.Symbol)
+		}
+		d.Action = action
+		return
+	}
+
+	raw := d.Action
+	convertDecisionToWait(d, fmt.Sprintf("invalid action: %s", raw))
+	logger.Warnf("⚠️  [Decision Fallback] invalid action %q for %s, converted to wait", raw, d.Symbol)
+}
+
+func canonicalDecisionAction(raw string, d *Decision) (string, bool) {
+	action := strings.ToLower(strings.TrimSpace(raw))
+	action = strings.ReplaceAll(action, "-", "_")
+	action = strings.ReplaceAll(action, " ", "_")
+	action = strings.ReplaceAll(action, "/", "_")
+
+	switch action {
+	case "open_long", "open_short", "close_long", "close_short", "hold", "wait":
+		return action, true
+	case "openlong":
+		return "open_long", true
+	case "openshort":
+		return "open_short", true
+	case "closelong":
+		return "close_long", true
+	case "closeshort":
+		return "close_short", true
+	case "open_new", "open", "add_position", "add":
+		return inferOpenActionFromStops(d)
+	case "long", "buy", "open_buy":
+		return "open_long", true
+	case "short", "sell", "open_sell":
+		return "open_short", true
+	case "full_close_long", "partial_close_long", "close_position_long":
+		return "close_long", true
+	case "full_close_short", "partial_close_short", "close_position_short":
+		return "close_short", true
+	case "full_close", "partial_close", "close", "":
+		return "", false
+	default:
+		if strings.Contains(action, "open") && strings.Contains(action, "long") {
+			return "open_long", true
+		}
+		if strings.Contains(action, "open") && strings.Contains(action, "short") {
+			return "open_short", true
+		}
+		if strings.Contains(action, "close") && strings.Contains(action, "long") {
+			return "close_long", true
+		}
+		if strings.Contains(action, "close") && strings.Contains(action, "short") {
+			return "close_short", true
+		}
+	}
+
+	return "", false
+}
+
+func inferOpenActionFromStops(d *Decision) (string, bool) {
+	if d.StopLoss > 0 && d.TakeProfit > 0 {
+		if d.StopLoss < d.TakeProfit {
+			return "open_long", true
+		}
+		if d.StopLoss > d.TakeProfit {
+			return "open_short", true
+		}
+	}
+	return "", false
+}
+
+func canDowngradeDecisionToWait(d Decision) bool {
+	return d.Action == "wait" || d.Action == "open_long" || d.Action == "open_short"
+}
+
+func convertDecisionToWait(d *Decision, reason string) {
+	if strings.TrimSpace(d.Symbol) == "" {
+		d.Symbol = "ALL"
+	}
+	d.Action = "wait"
+	d.Leverage = 0
+	d.PositionSizeUSD = 0
+	d.StopLoss = 0
+	d.TakeProfit = 0
+	d.RiskUSD = 0
+	d.Confidence = 0
+
+	fallbackReason := fmt.Sprintf("Decision was converted to wait because it was not executable safely: %s", reason)
+	if strings.TrimSpace(d.Reasoning) == "" {
+		d.Reasoning = fallbackReason
+		return
+	}
+	d.Reasoning = strings.TrimSpace(d.Reasoning) + "\n\n" + fallbackReason
 }
 
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {

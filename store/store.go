@@ -18,18 +18,24 @@ type Store struct {
 	driver *DBDriver // Database driver for abstraction (legacy)
 
 	// Sub-stores (lazy initialization)
-	user           *UserStore
-	aiModel        *AIModelStore
-	exchange       *ExchangeStore
-	trader         *TraderStore
-	decision       *DecisionStore
-	position       *PositionStore
-	strategy       *StrategyStore
-	equity         *EquityStore
-	order          *OrderStore
-	grid           *GridStore
-	aiCharge       *AIChargeStore
-	telegramConfig TelegramConfigStore
+	user              *UserStore
+	aiModel           *AIModelStore
+	exchange          *ExchangeStore
+	trader            *TraderStore
+	decision          *DecisionStore
+	position          *PositionStore
+	strategy          *StrategyStore
+	equity            *EquityStore
+	order             *OrderStore
+	grid              *GridStore
+	aiCharge          *AIChargeStore
+	aiPlatformUsage   *AIPlatformUsageStore
+	telegramConfig    TelegramConfigStore
+	billing           *BillingStore
+	notification      *NotificationStore
+	comkunFollow      *ComkunFollowStore
+	proxyPool         *ProxyPoolStore
+	proxyFault        *OutboundProxyFaultStore
 
 	mu sync.RWMutex
 }
@@ -164,6 +170,27 @@ func (s *Store) initTables() error {
 	if err := s.AICharge().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize AI charge tables: %w", err)
 	}
+	if err := s.AIPlatformUsage().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize AI platform usage tables: %w", err)
+	}
+	if err := s.Billing().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize billing tables: %w", err)
+	}
+	if err := s.User().BackfillMarketWeeklyTrialUsedFromLedger(); err != nil {
+		return fmt.Errorf("backfill market weekly trial flags: %w", err)
+	}
+	if err := s.Notification().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize notification tables: %w", err)
+	}
+	if err := s.ComkunFollow().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize comkun follow tables: %w", err)
+	}
+	if err := s.ProxyPool().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize outbound proxy pool tables: %w", err)
+	}
+	if err := s.ProxyFault().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize outbound proxy fault tables: %w", err)
+	}
 	return nil
 }
 
@@ -176,6 +203,9 @@ func (s *Store) initDefaultData() error {
 		return err
 	}
 	if err := s.Strategy().initDefaultData(); err != nil {
+		return err
+	}
+	if err := s.EnsureComkunFollowListingSeed(); err != nil {
 		return err
 	}
 	// Migrate old decision_account_snapshots data to new trader_equity_snapshots table
@@ -295,6 +325,66 @@ func (s *Store) AICharge() *AIChargeStore {
 		s.aiCharge = NewAIChargeStore(s.gdb)
 	}
 	return s.aiCharge
+}
+
+// AIPlatformUsage 平台统一 AI 调用账单
+func (s *Store) AIPlatformUsage() *AIPlatformUsageStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.aiPlatformUsage == nil {
+		s.aiPlatformUsage = NewAIPlatformUsageStore(s.gdb)
+	}
+	return s.aiPlatformUsage
+}
+
+// Billing 钱包流水与策略市场购买
+func (s *Store) Billing() *BillingStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.billing == nil {
+		s.billing = NewBillingStore(s.gdb)
+	}
+	return s.billing
+}
+
+// Notification 用户站内通知
+func (s *Store) Notification() *NotificationStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.notification == nil {
+		s.notification = NewNotificationStore(s.gdb)
+	}
+	return s.notification
+}
+
+// ComkunFollow 合规跟单主广播与虚拟 token
+func (s *Store) ComkunFollow() *ComkunFollowStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.comkunFollow == nil {
+		s.comkunFollow = NewComkunFollowStore(s.gdb)
+	}
+	return s.comkunFollow
+}
+
+// ProxyPool 管理员 SOCKS5 代理池（币安 REST 出口）
+func (s *Store) ProxyPool() *ProxyPoolStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.proxyPool == nil {
+		s.proxyPool = NewProxyPoolStore(s.gdb)
+	}
+	return s.proxyPool
+}
+
+// ProxyFault 出口代理 REST 失败告警（管理端）
+func (s *Store) ProxyFault() *OutboundProxyFaultStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.proxyFault == nil {
+		s.proxyFault = NewOutboundProxyFaultStore(s.gdb)
+	}
+	return s.proxyFault
 }
 
 // TelegramConfig gets Telegram bot configuration storage

@@ -5,13 +5,13 @@ import (
 	"nofx/auth"
 	"nofx/config"
 	"nofx/crypto"
-	"nofx/telemetry"
 	"nofx/logger"
 	"nofx/manager"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/store"
 	"nofx/telegram"
+	"nofx/telemetry"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,7 +29,7 @@ func main() {
 	logger.Init(nil)
 
 	logger.Info("╔════════════════════════════════════════════════════════════╗")
-	logger.Info("║           🚀 NOFX - AI-Powered Trading System              ║")
+	logger.Info("║           🚀 COMKUN-AI · AI-Powered Trading System           ║")
 	logger.Info("╚════════════════════════════════════════════════════════════╝")
 
 	// Initialize global configuration (loaded from .env)
@@ -98,6 +98,23 @@ func main() {
 	// Create TraderManager
 	traderManager := manager.NewTraderManager()
 
+	// Start API server before loading traders so slow exchange startup cannot block the web UI.
+	server := api.NewServer(traderManager, st, cryptoService, cfg.APIServerPort)
+
+	// Create hot-reload channel for Telegram bot; wire it to the API server
+	// so that POST /api/telegram can trigger a bot restart when the token changes.
+	telegramReloadCh := make(chan struct{}, 1)
+	server.SetTelegramReloadCh(telegramReloadCh)
+
+	go func() {
+		if err := server.Start(); err != nil {
+			logger.Fatalf("❌ Failed to start API server: %v", err)
+		}
+	}()
+
+	// Start Telegram bot (if TELEGRAM_BOT_TOKEN is configured)
+	go telegram.Start(cfg, st, telegramReloadCh)
+
 	// Load all traders from database to memory (may auto-start traders with IsRunning=true)
 	if err := traderManager.LoadTradersFromStore(st); err != nil {
 		logger.Fatalf("❌ Failed to load traders: %v", err)
@@ -119,30 +136,13 @@ func main() {
 				status = "✅ Running"
 			}
 			idShort := t.ID
-		if len(idShort) > 8 {
-			idShort = idShort[:8]
-		}
-		logger.Infof("  • %s [%s] %s - AI Model: %s, Exchange: %s",
+			if len(idShort) > 8 {
+				idShort = idShort[:8]
+			}
+			logger.Infof("  • %s [%s] %s - AI Model: %s, Exchange: %s",
 				t.Name, idShort, status, t.AIModelID, t.ExchangeID)
 		}
 	}
-
-	// Start API server
-	server := api.NewServer(traderManager, st, cryptoService, cfg.APIServerPort)
-
-	// Create hot-reload channel for Telegram bot; wire it to the API server
-	// so that POST /api/telegram can trigger a bot restart when the token changes.
-	telegramReloadCh := make(chan struct{}, 1)
-	server.SetTelegramReloadCh(telegramReloadCh)
-
-	go func() {
-		if err := server.Start(); err != nil {
-			logger.Fatalf("❌ Failed to start API server: %v", err)
-		}
-	}()
-
-	// Start Telegram bot (if TELEGRAM_BOT_TOKEN is configured)
-	go telegram.Start(cfg, st, telegramReloadCh)
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)

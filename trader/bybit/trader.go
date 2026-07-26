@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"nofx/logger"
+	"nofx/trader/proxyhttp"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,22 +41,29 @@ type BybitTrader struct {
 }
 
 // NewBybitTrader creates a Bybit trader
-func NewBybitTrader(apiKey, secretKey string) *BybitTrader {
+func NewBybitTrader(apiKey, secretKey string, outboundProxyURL ...string) *BybitTrader {
 	const src = "Up000938"
+	proxyURL := ""
+	if len(outboundProxyURL) > 0 {
+		proxyURL = strings.TrimSpace(outboundProxyURL[0])
+	}
 
 	client := bybit.NewBybitHttpClient(apiKey, secretKey, bybit.WithBaseURL(bybit.MAINNET))
 
 	// Set HTTP transport
-	if client != nil && client.HTTPClient != nil {
-		defaultTransport := client.HTTPClient.Transport
-		if defaultTransport == nil {
-			defaultTransport = http.DefaultTransport
+	if client != nil {
+		if client.HTTPClient == nil {
+			client.HTTPClient = &http.Client{}
 		}
-
+		baseTransport, err := proxyhttp.Transport(proxyURL)
+		if err != nil {
+			logger.Warnf("Bybit 出口代理 URL 无效，忽略: %v", err)
+		}
 		client.HTTPClient.Transport = &headerRoundTripper{
-			base:      defaultTransport,
+			base:      baseTransport,
 			refererID: src,
 		}
+		client.HTTPClient.Timeout = 30 * time.Second
 	}
 
 	trader := &BybitTrader{
@@ -94,7 +102,11 @@ func (t *BybitTrader) getQtyStep(symbol string) float64 {
 
 	// Call public API directly to get contract information
 	url := fmt.Sprintf("https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=%s", symbol)
-	resp, err := http.Get(url)
+	httpClient := http.DefaultClient
+	if t.client != nil && t.client.HTTPClient != nil {
+		httpClient = t.client.HTTPClient
+	}
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		logger.Infof("⚠️ [Bybit] Failed to get precision info for %s: %v", symbol, err)
 		return 1 // Default to integer

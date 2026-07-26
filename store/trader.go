@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -57,6 +59,35 @@ type TraderFullConfig struct {
 	Strategy *Strategy
 }
 
+// RunningStrategyRef 是策略市场统计用的轻量引用：
+// 当前正在运行的交易员绑定了哪个策略，以及该策略配置里是否指向某个市场源策略。
+type RunningStrategyRef struct {
+	StrategyID string
+	Config     string
+}
+
+// MarketStrategyTraderRef 策略市场统计用：所有交易员及其绑定策略配置。
+type MarketStrategyTraderRef struct {
+	TraderID       string
+	StrategyID     string
+	Config         string
+	InitialBalance float64
+	IsRunning      bool
+	CreatedAt      time.Time
+	ExchangeType   string `gorm:"column:exchange_type"`
+}
+
+type ComkunFollowerTraderRef struct {
+	TraderID     string
+	TraderName   string
+	UserID       string
+	StrategyID   string
+	StrategyName string
+	IsRunning    bool
+	ExchangeID   string
+	ExchangeType string
+}
+
 func (s *TraderStore) initTables() error {
 	// For PostgreSQL with existing table, skip AutoMigrate
 	if s.db.Dialector.Name() == "postgres" {
@@ -71,6 +102,25 @@ func (s *TraderStore) initTables() error {
 		return fmt.Errorf("failed to migrate traders table: %w", err)
 	}
 	return nil
+}
+
+// CountTradersLinkedToMarketSource 同一主站用户下，策略副本的 source_strategy_id 指向同一市场源 id 的交易员数量（可排除某 trader_id）。
+// 与 Billing.HasEntitlement 配合：已购某市场源的用户，该源下仅能有一个交易员绑定副本策略。
+func (s *TraderStore) CountTradersLinkedToMarketSource(userID, marketSourceStrategyID, excludeTraderID string) (int64, error) {
+	uid := strings.TrimSpace(userID)
+	ms := strings.TrimSpace(marketSourceStrategyID)
+	if uid == "" || ms == "" {
+		return 0, nil
+	}
+	q := s.db.Table("traders AS t").
+		Joins("INNER JOIN strategies AS s ON s.id = t.strategy_id AND s.user_id = t.user_id").
+		Where("t.user_id = ? AND TRIM(COALESCE(s.source_strategy_id, '')) = ?", uid, ms)
+	if x := strings.TrimSpace(excludeTraderID); x != "" {
+		q = q.Where("t.id <> ?", x)
+	}
+	var n int64
+	err := q.Count(&n).Error
+	return n, err
 }
 
 // Create creates trader
@@ -110,11 +160,11 @@ func (s *TraderStore) Update(trader *Trader) error {
 		trader.ID, trader.Name, trader.AIModelID, trader.StrategyID)
 
 	updates := map[string]interface{}{
-		"name":           trader.Name,
-		"ai_model_id":    trader.AIModelID,
-		"exchange_id":    trader.ExchangeID,
-		"strategy_id":    trader.StrategyID,
-		"is_cross_margin": trader.IsCrossMargin,
+		"name":                trader.Name,
+		"ai_model_id":         trader.AIModelID,
+		"exchange_id":         trader.ExchangeID,
+		"strategy_id":         trader.StrategyID,
+		"is_cross_margin":     trader.IsCrossMargin,
 		"show_in_competition": trader.ShowInCompetition,
 	}
 
@@ -267,4 +317,117 @@ func (s *TraderStore) ListByAIModelID(userID, aiModelID string) ([]*Trader, erro
 		return nil, err
 	}
 	return traders, nil
+}
+
+func (s *TraderStore) ListRunningStrategyRefs() ([]RunningStrategyRef, error) {
+	var refs []RunningStrategyRef
+	err := s.db.Table("traders AS t").
+		Select("t.strategy_id AS strategy_id, COALESCE(s.config, '') AS config").
+		Joins("LEFT JOIN strategies AS s ON s.id = t.strategy_id").
+		Where("t.is_running = ?", true).
+		Scan(&refs).Error
+	return refs, err
+}
+
+func (s *TraderStore) ListMarketStrategyTraderRefs() ([]MarketStrategyTraderRef, error) {
+	var refs []MarketStrategyTraderRef
+	err := s.db.Table("traders AS t").
+		Select(`t.id AS trader_id, t.strategy_id AS strategy_id, COALESCE(s.config, '') AS config,
+			t.initial_balance AS initial_balance, t.is_running AS is_running, t.created_at AS created_at,
+			COALESCE(e.exchange_type, '') AS exchange_type`).
+		Joins("LEFT JOIN strategies AS s ON s.id = t.strategy_id").
+		Joins("LEFT JOIN exchanges AS e ON e.id = t.exchange_id").
+		Scan(&refs).Error
+	return refs, err
+}
+
+func (s *TraderStore) ListComkunFollowersBySourceStrategyID(sourceID string) ([]ComkunFollowerTraderRef, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return nil, nil
+	}
+	var rows []struct {
+		TraderID     string
+		TraderName   string
+		UserID       string
+		StrategyID   string
+		StrategyName string
+		IsRunning    bool
+		ExchangeID   string
+		ExchangeType string
+		Config       string
+	}
+	configNeedle := `%"comkun_market_source_strategy_id":"` + sourceID + `"%`
+	if err := s.db.Table("traders AS t").
+		Select(`t.id AS trader_id, t.name AS trader_name, t.user_id, t.strategy_id, t.is_running, t.exchange_id, COALESCE(e.type, '') AS exchange_type, COALESCE(s.config, '') AS config, COALESCE(s.name, '') AS strategy_name`).
+		Joins("LEFT JOIN strategies AS s ON s.id = t.strategy_id").
+		Joins("LEFT JOIN exchanges AS e ON e.id = t.exchange_id").
+		Where("s.config LIKE ? AND s.config LIKE ?", configNeedle, `%"comkun_market_follow":true%`).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ComkunFollowerTraderRef, 0)
+	for _, row := range rows {
+		var cfg StrategyConfig
+		if strings.TrimSpace(row.Config) == "" || json.Unmarshal([]byte(row.Config), &cfg) != nil {
+			continue
+		}
+		if !cfg.ComkunMarketFollow || strings.TrimSpace(cfg.ComkunMarketSourceStrategyID) != sourceID {
+			continue
+		}
+		out = append(out, ComkunFollowerTraderRef{
+			TraderID:     row.TraderID,
+			TraderName:   row.TraderName,
+			UserID:       row.UserID,
+			StrategyID:   row.StrategyID,
+			StrategyName: strings.TrimSpace(row.StrategyName),
+			IsRunning:    row.IsRunning,
+			ExchangeID:   row.ExchangeID,
+			ExchangeType: row.ExchangeType,
+		})
+	}
+	return out, nil
+}
+
+// ListAllComkunMarketFollowTraderRefs 枚举策略为「市场合规跟单」（被控端）的全部交易员，用于管理员一键平仓等。
+func (s *TraderStore) ListAllComkunMarketFollowTraderRefs() ([]ComkunFollowerTraderRef, error) {
+	var rows []struct {
+		TraderID     string
+		TraderName   string
+		UserID       string
+		StrategyID   string
+		StrategyName string
+		IsRunning    bool
+		ExchangeID   string
+		ExchangeType string
+		Config       string
+	}
+	if err := s.db.Table("traders AS t").
+		Select(`t.id AS trader_id, t.name AS trader_name, t.user_id, t.strategy_id, t.is_running, t.exchange_id, COALESCE(e.type, '') AS exchange_type, COALESCE(s.config, '') AS config, COALESCE(s.name, '') AS strategy_name`).
+		Joins("LEFT JOIN strategies AS s ON s.id = t.strategy_id").
+		Joins("LEFT JOIN exchanges AS e ON e.id = t.exchange_id").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ComkunFollowerTraderRef, 0)
+	for _, row := range rows {
+		var cfg StrategyConfig
+		if strings.TrimSpace(row.Config) == "" || json.Unmarshal([]byte(row.Config), &cfg) != nil {
+			continue
+		}
+		if !IsComkunMarketFollowStrategy(&cfg) {
+			continue
+		}
+		out = append(out, ComkunFollowerTraderRef{
+			TraderID:     row.TraderID,
+			TraderName:   row.TraderName,
+			UserID:       row.UserID,
+			StrategyID:   row.StrategyID,
+			StrategyName: strings.TrimSpace(row.StrategyName),
+			IsRunning:    row.IsRunning,
+			ExchangeID:   row.ExchangeID,
+			ExchangeType: row.ExchangeType,
+		})
+	}
+	return out, nil
 }

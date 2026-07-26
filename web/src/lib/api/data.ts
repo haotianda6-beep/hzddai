@@ -2,10 +2,13 @@ import type {
   SystemStatus,
   AccountInfo,
   Position,
+  ExchangeOpenOrder,
   DecisionRecord,
   Statistics,
   CompetitionData,
   PositionHistoryResponse,
+  MarketBoardPayload,
+  CryptoNewsPayload,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
@@ -37,6 +40,26 @@ export const dataApi = {
     return result.data!
   },
 
+  /**
+   * 交易所未成交挂单。不传 symbol 时拉取账户全部挂单（限价、止盈止损等），用于 AI 策略数据看板。
+   */
+  async getOpenOrders(
+    traderId: string,
+    symbol?: string,
+    silent?: boolean
+  ): Promise<ExchangeOpenOrder[]> {
+    const q = new URLSearchParams({ trader_id: traderId })
+    if (symbol && symbol.trim()) {
+      q.set('symbol', symbol.trim())
+    }
+    const result = await httpClient.request<ExchangeOpenOrder[]>(
+      `${API_BASE}/open-orders?${q.toString()}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch open orders')
+    return Array.isArray(result.data) ? result.data : []
+  },
+
   async getDecisions(traderId?: string): Promise<DecisionRecord[]> {
     const url = traderId
       ? `${API_BASE}/decisions?trader_id=${traderId}`
@@ -65,6 +88,27 @@ export const dataApi = {
     return result.data!
   },
 
+  async getMarketBoard(opts?: { silent?: boolean; quick?: boolean }): Promise<MarketBoardPayload> {
+    const silent = opts?.silent ?? true
+    const quick = opts?.quick ?? false
+    const qs = quick ? '?quick=1' : ''
+    const result = await httpClient.request<MarketBoardPayload>(`${API_BASE}/market/board${qs}`, {
+      method: 'GET',
+      silent,
+    })
+    if (!result.success || !result.data) throw new Error('获取行情看板失败')
+    return result.data
+  },
+
+  async getCryptoNews(silent?: boolean): Promise<CryptoNewsPayload> {
+    const result = await httpClient.request<CryptoNewsPayload>(`${API_BASE}/news/crypto`, {
+      method: 'GET',
+      silent: silent ?? true,
+    })
+    if (!result.success || !result.data) throw new Error('Failed to fetch crypto news')
+    return result.data
+  },
+
   async getStatistics(traderId?: string, silent?: boolean): Promise<Statistics> {
     const url = traderId
       ? `${API_BASE}/statistics?trader_id=${traderId}`
@@ -76,8 +120,8 @@ export const dataApi = {
 
   async getEquityHistory(traderId?: string, silent?: boolean): Promise<any[]> {
     const url = traderId
-      ? `${API_BASE}/equity-history?trader_id=${traderId}`
-      : `${API_BASE}/equity-history`
+      ? `${API_BASE}/equity-history?trader_id=${traderId}&limit=300`
+      : `${API_BASE}/equity-history?limit=300`
     const result = await httpClient.request<any[]>(url, { silent })
     if (!result.success) throw new Error('Failed to fetch equity history')
     return result.data!

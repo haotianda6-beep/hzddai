@@ -259,7 +259,7 @@ export function MetricTooltip({
     >
       <div
         style={{
-          background: 'linear-gradient(145deg, #1E2329 0%, #2B3139 100%)',
+          background: 'linear-gradient(145deg, #1c1c1c 0%, #2B3139 100%)',
           border: '1px solid #3B4149',
           borderRadius: '12px',
           padding: '16px',

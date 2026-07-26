@@ -80,6 +80,15 @@ func formatContextData(ctx *Context, lang Language) string {
 		}
 	}
 
+	// 5b. 交易所挂单（限价 / 止盈止损等）
+	if len(ctx.PendingOrders) > 0 {
+		if lang == LangChinese {
+			sb.WriteString(formatPendingOrdersZH(ctx.PendingOrders))
+		} else {
+			sb.WriteString(formatPendingOrdersEN(ctx.PendingOrders))
+		}
+	}
+
 	// 6. Candidate coins (with market data)
 	if len(ctx.CandidateCoins) > 0 {
 		if lang == LangChinese {
@@ -621,6 +630,29 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 	return sb.String()
 }
 
+func formatPendingOrdersZH(orders []PendingOrder) string {
+	var sb strings.Builder
+	sb.WriteString("## 当前交易所挂单\n\n")
+	for i, o := range orders {
+		sb.WriteString(fmt.Sprintf(
+			"%d. %s | %s %s | 类型:%s | 委托价:%.6f | 触发价:%.6f | 数量:%.6f | %s | id:%s\n",
+			i+1, o.Symbol, o.PositionSide, o.Side, o.Type, o.Price, o.StopPrice, o.Quantity, o.Status, o.OrderID))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+func formatPendingOrdersEN(orders []PendingOrder) string {
+	var sb strings.Builder
+	sb.WriteString("## Open Exchange Orders\n\n")
+	for i, o := range orders {
+		sb.WriteString(fmt.Sprintf(
+			"%d. %s | %s %s | type:%s | price:%.6f | trigger/stop:%.6f | qty:%.6f | %s | id:%s\n",
+			i+1, o.Symbol, o.PositionSide, o.Side, o.Type, o.Price, o.StopPrice, o.Quantity, o.Status, o.OrderID))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
 
 // getOIInterpretationEN returns OI change interpretation (English)
 func getOIInterpretationEN(oiChange, priceChange string) string {

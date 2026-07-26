@@ -1,23 +1,23 @@
+import { ROUTES } from '../router/paths'
+
 export type UserMode = 'beginner' | 'advanced'
 
 const USER_MODE_KEY = 'nofx_user_mode'
 const BEGINNER_WALLET_ADDRESS_KEY = 'nofx_beginner_wallet_address'
 const BEGINNER_ONBOARDING_COMPLETED_KEY = 'nofx_beginner_onboarding_completed'
 
-export function getUserMode(): UserMode | null {
-  const value = localStorage.getItem(USER_MODE_KEY)
-  if (value === 'beginner' || value === 'advanced') {
-    return value
-  }
-  return null
+/** 产品已统一为新手模式；本地若曾存老手也按新手处理 */
+export function getUserMode(): UserMode {
+  return 'beginner'
 }
 
-export function setUserMode(mode: UserMode) {
-  localStorage.setItem(USER_MODE_KEY, mode)
+export function setUserMode(_mode?: UserMode) {
+  localStorage.setItem(USER_MODE_KEY, 'beginner')
 }
 
-export function getPostAuthPath(mode: UserMode | null | undefined): string {
-  return mode === 'beginner' ? '/welcome' : '/traders'
+/** 登录/注册成功后的默认落地页（不再弹出新手钱包准备页） */
+export function getPostAuthPath(_mode?: UserMode | null): string {
+  return ROUTES.traders
 }
 
 export function setBeginnerWalletAddress(address: string) {

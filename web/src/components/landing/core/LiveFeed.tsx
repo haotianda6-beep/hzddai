@@ -62,13 +62,13 @@ export default function LiveFeed() {
     }, [])
 
     return (
-        <section className="w-full bg-[#020304] border-y border-zinc-800 py-1 overflow-hidden relative">
+        <section className="relative w-full overflow-hidden border-y border-white/[0.06] bg-gradient-to-b from-nofx-bg via-nofx-bg-tertiary/80 to-nofx-bg py-1">
             <div className="absolute inset-0 bg-scanlines opacity-10 pointer-events-none"></div>
 
             <div className="max-w-[1920px] mx-auto px-4 flex flex-col md:flex-row gap-0 md:gap-8 items-stretch h-[240px] md:h-12 text-xs font-mono">
 
                 {/* Left Status Bar (Static) */}
-                <div className="hidden md:flex items-center gap-6 text-zinc-600 border-r border-zinc-900 pr-6 shrink-0">
+                <div className="hidden md:flex shrink-0 items-center gap-6 border-r border-white/[0.06] pr-6 text-zinc-600">
                     <div className="flex items-center gap-2">
                         <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
                         <span className="font-bold text-zinc-400">WS_CONN: STABLE</span>
@@ -103,7 +103,7 @@ export default function LiveFeed() {
                     {/* Mobile View: Vertical Stack */}
                     <div className="md:hidden flex flex-col gap-2 w-full p-4 h-full overflow-hidden">
                         {logs.map((log) => (
-                            <div key={log.id} className="flex gap-2 w-full truncate border-b border-zinc-900/50 pb-1 last:border-0">
+                            <div key={log.id} className="flex w-full gap-2 truncate border-b border-white/[0.05] pb-1 last:border-0">
                                 <span className="text-zinc-700 w-16 shrink-0">{log.time.split('.')[0]}</span>
                                 <span className={`font-bold w-8 shrink-0 ${log.type === 'LIQ' ? 'text-red-500' :
                                     log.type === 'ARB' ? 'text-nofx-gold' :

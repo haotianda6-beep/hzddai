@@ -49,7 +49,10 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux \
     CGO_CFLAGS="-D_LARGEFILE64_SOURCE" \
-    go build -trimpath -ldflags="-s -w" -o nofx .
+    go build -trimpath -ldflags="-s -w" -o nofx . && \
+    CGO_ENABLED=1 GOOS=linux \
+    CGO_CFLAGS="-D_LARGEFILE64_SOURCE" \
+    go build -trimpath -ldflags="-s -w" -o loadtest_invite ./cmd/loadtest_invite
 
 # ──────────────────────────────────────────────────────────────
 # Runtime Stage (Minimal Executable Environment)
@@ -61,6 +64,7 @@ RUN apk update && apk add --no-cache ca-certificates tzdata sqlite
 COPY --from=ta-lib-builder /usr/local /usr/local
 WORKDIR /app
 COPY --from=backend-builder /app/nofx .
+COPY --from=backend-builder /app/loadtest_invite .
 
 EXPOSE 8080
 

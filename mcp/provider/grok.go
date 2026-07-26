@@ -8,7 +8,7 @@ import (
 
 const (
 	DefaultGrokBaseURL = "https://api.x.ai/v1"
-	DefaultGrokModel   = "grok-3-latest"
+	DefaultGrokModel   = "grok-4.3-latest"
 )
 
 func init() {

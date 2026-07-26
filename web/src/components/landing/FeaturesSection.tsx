@@ -59,7 +59,7 @@ export default function FeaturesSection({ language }: FeaturesSectionProps) {
   ]
 
   return (
-    <section className="py-24 relative" style={{ background: '#0B0E11' }}>
+    <section className="relative py-24" style={{ background: '#0b0b0b' }}>
       {/* Background */}
       <div
         className="absolute inset-0 opacity-[0.02]"

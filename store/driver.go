@@ -185,20 +185,20 @@ func openSQLite(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
-	// Use DELETE mode for Docker compatibility
-	if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
+	// WAL 允许并发读写：避免写入时阻塞读取（策略市场/看板接口最怕这个）
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to set journal_mode: %w", err)
 	}
 
-	// Set synchronous=FULL
-	if _, err := db.Exec("PRAGMA synchronous=FULL"); err != nil {
+	// WAL 场景下常用 NORMAL，能显著减少写入持锁时间
+	if _, err := db.Exec("PRAGMA synchronous=NORMAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to set synchronous: %w", err)
 	}
 
 	// Set busy_timeout
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+	if _, err := db.Exec("PRAGMA busy_timeout = 10000"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}

@@ -13,17 +13,20 @@ const (
 	ProviderKimi     = "kimi"
 	ProviderMiniMax  = "minimax"
 
-	ProviderClaw402 = "claw402"
+	ProviderClaw402     = "claw402"
+	ProviderComkunProxy = "comkun_proxy"
+	// ProviderComkunAI 平台合规跟单占位模型（与策略 config 中 comkun_market_follow 配合使用）
+	ProviderComkunAI = "comkun_ai"
 
 	// Default DeepSeek configuration (used as fallback in NewClient)
 	DefaultDeepSeekBaseURL = "https://api.deepseek.com"
-	DefaultDeepSeekModel   = "deepseek-chat"
+	DefaultDeepSeekModel   = "deepseek-v4-flash"
 
 	// Default Qwen configuration (used by WithQwenConfig convenience option)
 	DefaultQwenBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	DefaultQwenModel   = "qwen3-max"
+	DefaultQwenModel   = "qwen3.7-max"
 
 	// Default MiniMax configuration (used by WithMiniMaxConfig convenience option)
 	DefaultMiniMaxBaseURL = "https://api.minimax.io/v1"
-	DefaultMiniMaxModel   = "MiniMax-M2.7"
+	DefaultMiniMaxModel   = "MiniMax-M3"
 )

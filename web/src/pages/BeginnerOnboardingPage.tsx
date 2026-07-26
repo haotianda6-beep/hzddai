@@ -10,6 +10,7 @@ import {
   setBeginnerWalletAddress,
   markBeginnerOnboardingCompleted,
 } from '../lib/onboarding'
+import { TRADERS_WIZARD_ENTRY } from '../router/paths'
 
 export function BeginnerOnboardingPage() {
   const { language } = useLanguage()
@@ -77,25 +78,25 @@ export function BeginnerOnboardingPage() {
 
   const handleContinue = () => {
     markBeginnerOnboardingCompleted()
-    navigate('/traders')
+    navigate(TRADERS_WIZARD_ENTRY)
   }
 
   return (
-    <div className="fixed inset-0 z-[80]">
+    <div className="fixed inset-0 z-[80] overflow-y-auto">
       <div className="absolute inset-0 bg-black/58 backdrop-blur-[2px]" />
-      <div className="relative flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
+      <div className="relative flex min-h-screen items-start justify-center px-3 py-16 sm:px-6 sm:py-10 lg:items-center">
         <button
           type="button"
           onClick={handleContinue}
-          className="absolute right-6 top-6 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-400 transition hover:border-white/20 hover:bg-white/10 hover:text-white sm:right-6 sm:top-6"
           aria-label={isZh ? '跳过' : 'Skip'}
         >
           <X className="h-5 w-5" />
         </button>
         <div className="w-full max-w-[1120px]">
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-[22px] border border-nofx-gold/20 bg-nofx-gold/8 text-nofx-gold shadow-[0_0_30px_rgba(240,185,11,0.12)]">
+            <div className="flex items-start gap-3 sm:items-center sm:gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] border border-nofx-gold/20 bg-nofx-gold/8 text-nofx-gold shadow-[0_0_30px_rgba(240,185,11,0.12)] sm:h-14 sm:w-14 sm:rounded-[22px]">
                 <Shield className="h-6 w-6" />
               </div>
               <div>
@@ -111,7 +112,7 @@ export function BeginnerOnboardingPage() {
                 <h1
                   className={`mt-2 font-bold leading-[1.04] text-white ${
                     isZh
-                      ? 'text-[34px] tracking-tight sm:text-[44px] xl:text-[52px] xl:whitespace-nowrap'
+                      ? 'text-[28px] tracking-tight sm:text-[44px] xl:text-[52px] xl:whitespace-nowrap'
                       : 'max-w-[720px] text-[27px] tracking-[-0.03em] sm:text-[35px] xl:text-[42px]'
                   }`}
                 >
@@ -127,12 +128,12 @@ export function BeginnerOnboardingPage() {
                   : 'text-[13px] tracking-[0.12em] lg:whitespace-nowrap'
               }`}
             >
-              Claw402 + DeepSeek <span className="mx-2 text-zinc-700">·</span>
+              COMKUN 代理 + DeepSeek <span className="mx-2 text-zinc-700">·</span>
               {isZh ? '按次付费' : 'Pay per call'}
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,11,16,0.94),rgba(5,7,10,0.88))] shadow-[0_24px_120px_rgba(0,0,0,0.58)] backdrop-blur-2xl">
+          <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,11,16,0.94),rgba(5,7,10,0.88))] shadow-[0_24px_120px_rgba(0,0,0,0.58)] backdrop-blur-2xl sm:rounded-[32px]">
             {loading ? (
               <div className="flex min-h-[390px] items-center justify-center px-6 text-sm text-zinc-400">
                 {isZh
@@ -141,7 +142,7 @@ export function BeginnerOnboardingPage() {
               </div>
             ) : data ? (
               <div className="grid lg:grid-cols-[0.82fr_1.18fr]">
-                <section className="flex flex-col justify-center px-8 py-7 sm:px-9 lg:min-h-[430px]">
+                <section className="flex flex-col justify-center px-4 py-7 sm:px-9 lg:min-h-[430px]">
                   <div className="mx-auto w-full max-w-[248px] text-center">
                     <div className="mx-auto inline-flex rounded-[28px] border border-black/10 bg-white p-4 shadow-[0_20px_60px_rgba(255,255,255,0.08)]">
                       <QRCodeSVG value={data.address} size={164} level="M" />
@@ -153,7 +154,7 @@ export function BeginnerOnboardingPage() {
                         : 'Deposit address (Base USDC)'}
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between gap-3 rounded-[24px] border border-emerald-400/20 bg-emerald-500/7 px-5 py-3.5 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-[24px] border border-emerald-400/20 bg-emerald-500/7 px-4 py-3.5 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] sm:px-5">
                       <div className="text-left">
                         <div className="flex items-baseline gap-3 font-mono font-bold tracking-tight text-emerald-300">
                           <span className="text-[22px]">
@@ -183,14 +184,14 @@ export function BeginnerOnboardingPage() {
                   </div>
                 </section>
 
-                <section className="border-t border-white/8 px-8 py-7 lg:border-l lg:border-t-0 lg:px-9">
+                <section className="border-t border-white/8 px-4 py-7 sm:px-8 lg:border-l lg:border-t-0 lg:px-9">
                   <div className="space-y-5">
                     <div>
                       <div className="mb-3 flex items-center gap-2 text-sm font-medium text-nofx-gold">
                         <Wallet className="h-4 w-4" />
                         <span>{isZh ? '钱包地址' : 'Wallet address'}</span>
                       </div>
-                      <div className="flex items-stretch gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
                         <div className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/30 px-5 py-3 font-mono text-[14px] text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                           <div className="break-all">{data.address}</div>
                         </div>
@@ -199,7 +200,7 @@ export function BeginnerOnboardingPage() {
                           onClick={() =>
                             copyText(data.address, isZh ? '地址' : 'Address')
                           }
-                          className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+                          className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white sm:h-14 sm:w-14"
                           aria-label={isZh ? '复制地址' : 'Copy address'}
                         >
                           <Copy className="h-5 w-5" />
@@ -216,7 +217,7 @@ export function BeginnerOnboardingPage() {
                             : 'Private key, back it up now'}
                         </span>
                       </div>
-                      <div className="flex items-stretch gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
                         <div className="min-w-0 flex-1 rounded-[24px] border border-nofx-gold/20 bg-[linear-gradient(180deg,rgba(32,25,7,0.44),rgba(14,10,3,0.28))] px-5 py-3 font-mono text-[13px] leading-6 text-amber-100 shadow-[0_0_0_1px_rgba(240,185,11,0.05)]">
                           <div className="overflow-x-auto whitespace-nowrap">
                             {data.private_key}
@@ -231,7 +232,7 @@ export function BeginnerOnboardingPage() {
                                 isZh ? '私钥' : 'Private key'
                               )
                             }
-                            className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-nofx-gold/20 bg-nofx-gold/10 text-nofx-gold transition hover:bg-nofx-gold/15"
+                            className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-nofx-gold/20 bg-nofx-gold/10 text-nofx-gold transition hover:bg-nofx-gold/15 sm:h-14 sm:w-14"
                             aria-label={isZh ? '复制私钥' : 'Copy private key'}
                           >
                             <Copy className="h-5 w-5" />

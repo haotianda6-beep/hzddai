@@ -12,6 +12,7 @@ describe('router paths helpers', () => {
     expect(getCurrentPageForPath(ROUTES.welcome)).toBe('traders')
     expect(getCurrentPageForPath(ROUTES.dashboard)).toBe('trader')
     expect(getCurrentPageForPath(ROUTES.strategyMarket)).toBe('strategy-market')
+    expect(getCurrentPageForPath('/strategy-market/some-id')).toBe('strategy-market')
   })
 
   it('builds dashboard path with optional trader query', () => {

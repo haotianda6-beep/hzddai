@@ -1,4 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import useSWR from 'swr'
 import { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/charts/ChartTabs'
@@ -8,24 +10,45 @@ import { PunkAvatar, getTraderAvatar } from '../components/common/PunkAvatar'
 import { confirmToast, notify } from '../lib/notify'
 import { formatPrice, formatQuantity } from '../utils/format'
 import { t, type Language } from '../i18n/translations'
-import { LogOut, Loader2, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import {
+    LogOut,
+    Loader2,
+    Eye,
+    EyeOff,
+    Copy,
+    Check,
+    Pencil,
+    Trash2,
+    Play,
+    Square,
+    Target,
+    TrendingUp,
+    Diamond,
+    Wallet,
+} from 'lucide-react'
 import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { NofxSelect } from '../components/ui/select'
 import { GridRiskPanel } from '../components/strategy/GridRiskPanel'
+import { ROUTES } from '../router/paths'
+import { SourceUserAccountsPanel, TraderOpenOrdersPanel } from '../components/trader/TraderOpenOrdersPanel'
+import { ComkunMasterFollowersSidebar } from '../components/trader/ComkunMasterFollowersSidebar'
 import type {
     SystemStatus,
     AccountInfo,
     Position,
     DecisionRecord,
-    Statistics,
     TraderInfo,
     Exchange,
+    Statistics,
+    Strategy,
 } from '../types'
 
 // --- Helper Functions ---
 
-// Get friendly AI model display name
-function getModelDisplayName(modelId: string): string {
+// Get friendly AI model display name（后端偶发缺字段时不能抛错，否则整页黑屏）
+function getModelDisplayName(rawModelId: string | undefined | null): string {
+    if (rawModelId == null || rawModelId === '') return '—'
+    const modelId = rawModelId.split('_').pop() || rawModelId
     switch (modelId.toLowerCase()) {
         case 'deepseek':
             return 'DeepSeek'
@@ -33,6 +56,8 @@ function getModelDisplayName(modelId: string): string {
             return 'Qwen'
         case 'claude':
             return 'Claude'
+        case 'comkun_ai':
+            return 'COMKUN-AI'
         default:
             return modelId.toUpperCase()
     }
@@ -46,7 +71,10 @@ function getExchangeDisplayNameFromList(
     if (!exchangeId) return 'Unknown'
     const exchange = exchanges?.find((e) => e.id === exchangeId)
     if (!exchange) return exchangeId.substring(0, 8).toUpperCase() + '...'
-    const typeName = exchange.exchange_type?.toUpperCase() || exchange.name
+    const typeName =
+        (exchange.exchange_type && String(exchange.exchange_type).toUpperCase()) ||
+        exchange.name ||
+        '—'
     return exchange.account_name
         ? `${typeName} - ${exchange.account_name}`
         : typeName
@@ -108,10 +136,7 @@ interface TraderDashboardPageProps {
     positionsFailed?: boolean
     decisions?: DecisionRecord[]
     decisionsFailed?: boolean
-    decisionsLimit: number
-    onDecisionsLimitChange: (limit: number) => void
     stats?: Statistics
-    lastUpdate: string
     language: Language
     exchanges?: Exchange[]
 }
@@ -125,9 +150,6 @@ export function TraderDashboardPage({
     positionsFailed,
     decisions,
     decisionsFailed,
-    decisionsLimit,
-    onDecisionsLimitChange,
-    lastUpdate,
     language,
     traders,
     tradersError,
@@ -135,7 +157,12 @@ export function TraderDashboardPage({
     onTraderSelect,
     onNavigateToTraders,
     exchanges,
+    stats,
 }: TraderDashboardPageProps) {
+    const navigate = useNavigate()
+    const [dataTab, setDataTab] = useState<'positions' | 'history' | 'orders'>('positions')
+    const [runBusy, setRunBusy] = useState(false)
+    const [deleteBusy, setDeleteBusy] = useState(false)
     const [closingPosition, setClosingPosition] = useState<string | null>(null)
     const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>(undefined)
     const [chartUpdateKey, setChartUpdateKey] = useState<number>(0)
@@ -174,6 +201,14 @@ export function TraderDashboardPage({
     const walletAddress = getWalletAddress(currentExchange)
     const isPerpDex = isPerpDexExchange(currentExchange?.exchange_type)
 
+    const strategyIdForTrader = selectedTrader?.strategy_id?.trim() || ''
+    const { data: boundStrategy } = useSWR<Strategy>(
+        strategyIdForTrader ? ['dashboard-strategy', strategyIdForTrader] : null,
+        () => api.getStrategy(strategyIdForTrader),
+        { revalidateOnFocus: false, dedupingInterval: 60_000 }
+    )
+    const isComkunMasterListing = boundStrategy?.config?.comkun_follow_listing_template === true
+
     // Copy wallet address to clipboard
     const handleCopyAddress = async () => {
         if (!walletAddress) return
@@ -185,6 +220,17 @@ export function TraderDashboardPage({
             console.error('Failed to copy address:', err)
         }
     }
+
+    const winRatePct = useMemo(() => {
+        if (!stats) return undefined
+        if (stats.total_trades != null && stats.total_trades > 0 && stats.win_rate != null) {
+            return stats.win_rate
+        }
+        return undefined
+    }, [stats])
+
+    const ordersTabLabel = language === 'zh' ? '订单与挂单' : 'Orders & pending'
+    const historyTabLabel = language === 'zh' ? '成交与历史' : 'Trade History'
 
     // Handle symbol click from Decision Card
     const handleSymbolClick = (symbol: string) => {
@@ -228,6 +274,64 @@ export function TraderDashboardPage({
             notify.error(errorMsg)
         } finally {
             setClosingPosition(null)
+        }
+    }
+
+    const handleToggleRun = async () => {
+        if (!selectedTraderId) return
+        setRunBusy(true)
+        try {
+            if (status?.is_running) {
+                // 先乐观改 UI：后端 StopAsync 不阻塞长 AI，界面立刻显示已停
+                void mutate(
+                    `status-${selectedTraderId}`,
+                    (prev: SystemStatus | undefined) =>
+                        prev ? { ...prev, is_running: false } : prev,
+                    { revalidate: false }
+                )
+                await api.stopTrader(selectedTraderId)
+                notify.success(language === 'zh' ? '已停止' : 'Stopped')
+            } else {
+                await api.startTrader(selectedTraderId)
+                notify.success(language === 'zh' ? '已启动' : 'Started')
+            }
+            await Promise.all([
+                mutate(`status-${selectedTraderId}`),
+                mutate(`account-${selectedTraderId}`),
+                mutate(`positions-${selectedTraderId}`),
+                mutate('traders-dashboard'),
+            ])
+        } catch (err: unknown) {
+            notify.error(err instanceof Error ? err.message : '操作失败')
+            void mutate(`status-${selectedTraderId}`)
+        } finally {
+            setRunBusy(false)
+        }
+    }
+
+    const handleDeleteTrader = async () => {
+        if (!selectedTraderId) return
+        const ok = await confirmToast(
+            language === 'zh'
+                ? '确定删除该交易员？此操作不可恢复。'
+                : 'Delete this trader? This cannot be undone.',
+            {
+                title: language === 'zh' ? '删除交易员' : 'Delete trader',
+                okText: language === 'zh' ? '删除' : 'Delete',
+                cancelText: language === 'zh' ? '取消' : 'Cancel',
+            },
+        )
+        if (!ok) return
+        setDeleteBusy(true)
+        try {
+            await api.deleteTrader(selectedTraderId)
+            await mutate('traders-dashboard')
+            notify.success(language === 'zh' ? '已删除' : 'Deleted')
+            navigate(ROUTES.dashboard, { replace: true })
+        } catch (err: unknown) {
+            notify.error(err instanceof Error ? err.message : '删除失败')
+        } finally {
+            setDeleteBusy(false)
         }
     }
 
@@ -320,84 +424,191 @@ export function TraderDashboardPage({
     // If traders is still loading or selectedTrader is not ready, show skeleton
     if (!selectedTrader) {
         return (
-            <div className="space-y-6 relative z-10">
-                <div className="nofx-glass p-6 animate-pulse">
-                    <div className="h-8 w-48 mb-3 bg-nofx-bg/50 rounded"></div>
-                    <div className="flex gap-4">
-                        <div className="h-4 w-32 bg-nofx-bg/50 rounded"></div>
-                        <div className="h-4 w-24 bg-nofx-bg/50 rounded"></div>
-                        <div className="h-4 w-28 bg-nofx-bg/50 rounded"></div>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="nofx-glass p-5 animate-pulse">
-                            <div className="h-4 w-24 mb-3 bg-nofx-bg/50 rounded"></div>
-                            <div className="h-8 w-32 bg-nofx-bg/50 rounded"></div>
+            <div className="relative z-10 w-full min-w-0 space-y-4 px-3 pt-0 md:px-5 lg:px-6 xl:px-8">
+                <div className="grid w-full min-w-0 grid-cols-1 content-start items-start gap-y-4 lg:grid-cols-[minmax(0,6fr)_minmax(0,4fr)] lg:items-start lg:gap-x-4 lg:gap-y-0 xl:gap-x-5">
+                    <div className="order-1 flex w-full flex-col gap-5 lg:order-none lg:col-start-1 lg:row-start-1">
+                        <div className="nofx-glass animate-pulse rounded-2xl p-3 md:p-4">
+                            <div className="mb-3 h-8 w-48 rounded bg-nofx-bg/50"></div>
+                            <div className="flex gap-4">
+                                <div className="h-4 w-32 rounded bg-nofx-bg/50"></div>
+                                <div className="h-4 w-24 rounded bg-nofx-bg/50"></div>
+                            </div>
                         </div>
-                    ))}
-                </div>
-                <div className="nofx-glass p-6 animate-pulse">
-                    <div className="h-6 w-40 mb-4 bg-nofx-bg/50 rounded"></div>
-                    <div className="h-64 w-full bg-nofx-bg/50 rounded"></div>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
+                                {[1, 2, 3, 4].map((i) => (
+                                    <div key={i} className="nofx-glass animate-pulse rounded-xl p-5">
+                                        <div className="mb-3 h-4 w-24 rounded bg-nofx-bg/50"></div>
+                                        <div className="h-8 w-32 rounded bg-nofx-bg/50"></div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="nofx-glass animate-pulse rounded-2xl p-6">
+                                <div className="mb-4 h-6 w-40 rounded bg-nofx-bg/50"></div>
+                                <div className="h-64 w-full rounded bg-nofx-bg/50"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="order-2 hidden h-[min(420px,55vh)] animate-pulse self-start rounded-2xl bg-nofx-bg/40 lg:order-none lg:col-start-2 lg:row-start-1 lg:block"></div>
                 </div>
             </div>
         )
     }
 
     return (
-        <DeepVoidBackground className="min-h-screen pb-12" disableAnimation>
-            <div className="w-full px-4 md:px-8 relative z-10 pt-6">
-                {/* Trader Header */}
-                <div
-                    className="mb-6 rounded-lg p-6 animate-scale-in nofx-glass group"
-                    style={{
-                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.6) 0%, rgba(15, 23, 42, 0.4) 100%)',
-                    }}
-                >
-                    <div className="flex items-start justify-between mb-4">
-                        <h2 className="text-2xl font-bold flex items-center gap-4 text-nofx-text-main">
-                            <div className="relative">
+        <DeepVoidBackground className="min-h-screen pb-8" disableAnimation>
+            <div className="relative z-10 w-full min-w-0 px-3 pt-0 md:px-5 lg:px-6 xl:px-8">
+                {/* 主区：左 60% / 右 40；显式 col 防止列错位；aside 内勿用 flex-1 撑高（否则右侧会出现大块空白） */}
+                <div className="mb-4 grid w-full min-w-0 grid-cols-1 content-start items-start gap-y-4 lg:grid-cols-[minmax(0,6fr)_minmax(0,4fr)] lg:items-start lg:gap-x-4 lg:gap-y-0 xl:gap-x-5">
+                    <div className="order-1 flex min-w-0 w-full flex-col gap-5 lg:order-none lg:col-start-1 lg:row-start-1 lg:min-h-0">
+                        {/* 多交易员时：并列看板卡片；当前交易员不显示「看板」按钮，仅高亮 */}
+                        {traders && traders.length > 1 && (
+                            <div className="w-full shrink-0 rounded-xl border border-[#2b3139]/60 bg-nofx-bg-tertiary/50 p-2.5 shadow-inner md:p-3">
+                                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#5e6673]">
+                                    {language === 'zh' ? '交易员看板' : 'Traders'}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {traders.map((tr) => {
+                                        const active = tr.trader_id === selectedTraderId
+                                        return (
+                                            <div
+                                                key={tr.trader_id}
+                                                className={`flex min-w-0 max-w-full flex-[1_1_10rem] items-center gap-2 rounded-lg border px-2 py-1.5 sm:flex-[1_1_11rem] md:max-w-[14rem] ${
+                                                    active
+                                                        ? 'border-[#d4ff33]/45 bg-[#d4ff33]/10 shadow-[0_0_12px_rgba(212,255,51,0.12)]'
+                                                        : 'border-[#2b3139] bg-nofx-bg-secondary/80'
+                                                }`}
+                                            >
+                                                <PunkAvatar
+                                                    seed={getTraderAvatar(tr.trader_id, tr.trader_name)}
+                                                    size={28}
+                                                    className={`shrink-0 rounded-md border ${
+                                                        active ? 'border-[#d4ff33]/40' : 'border-[#2b3139]'
+                                                    }`}
+                                                />
+                                                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[#EAECEF]">
+                                                    {tr.trader_name}
+                                                </span>
+                                                {active ? (
+                                                    <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold text-[#d4ff33]">
+                                                        {language === 'zh' ? '当前' : 'Active'}
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onTraderSelect(tr.trader_id)}
+                                                        className="shrink-0 rounded-md border border-[#2b3139] bg-nofx-bg-tertiary px-2 py-1 text-[10px] font-bold text-[#d4ff33] transition-colors hover:border-[#d4ff33]/40 hover:bg-[#d4ff33]/10"
+                                                    >
+                                                        {language === 'zh' ? '看板' : 'View'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        {/* 交易员顶栏 — 独立板块，与下方四宫格用 gap 拉开 */}
+                        <div className="w-full shrink-0 self-start rounded-2xl border-0 bg-nofx-bg-secondary/95 p-3 shadow-[0_0_32px_rgba(0,0,0,0.45)] md:p-4">
+                    <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                            <div className="relative shrink-0">
                                 <PunkAvatar
                                     seed={getTraderAvatar(
                                         selectedTrader.trader_id,
                                         selectedTrader.trader_name
                                     )}
-                                    size={56}
-                                    className="rounded-xl border-2 border-nofx-gold/30 shadow-[0_0_15px_rgba(240,185,11,0.2)]"
+                                    size={40}
+                                    className="rounded-lg border border-[#d4ff33]/35 shadow-[0_0_12px_rgba(212,255,51,0.15)]"
                                 />
-                                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-nofx-green rounded-full border-2 border-[#0B0E11] shadow-[0_0_8px_rgba(14,203,129,0.8)] animate-pulse" />
+                                <div
+                                    className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-nofx-bg-tertiary ${status?.is_running ? 'bg-[#0ECB81]' : 'bg-[#5e6673]'}`}
+                                    title={status?.is_running ? 'running' : 'stopped'}
+                                />
                             </div>
-                            <div className="flex flex-col">
-                                <span className="text-3xl tracking-tight text-nofx-text font-semibold">
-                                    {selectedTrader.trader_name}
-                                </span>
-                                <span className="text-xs font-mono text-nofx-text-muted opacity-60 flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 bg-nofx-gold rounded-full" />
-                                    ID: {selectedTrader.trader_id.slice(0, 8)}...
-                                </span>
-                            </div>
-                        </h2>
-
-                        <div className="flex items-center gap-4">
-                            {/* Trader Selector */}
-                            {traders && traders.length > 0 && (
-                                <div className="flex items-center gap-2 nofx-glass px-1 py-1 rounded-lg border border-white/5">
-                                    <NofxSelect
-                                        value={selectedTraderId || ''}
-                                        onChange={(val) => onTraderSelect(val)}
-                                        options={traders.map(t => ({ value: t.trader_id, label: t.trader_name }))}
-                                        className="bg-transparent text-sm font-medium cursor-pointer transition-colors text-nofx-text-main px-2 py-1"
-                                    />
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <h1 className="max-w-[min(100%,14rem)] truncate font-['Space_Grotesk',sans-serif] text-lg font-bold tracking-tight text-[#EAECEF] sm:max-w-[20rem] sm:text-xl">
+                                        {selectedTrader.trader_name}
+                                    </h1>
+                                    <Link
+                                        to={ROUTES.traders}
+                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#2b3139] text-[#848E9C] transition-colors hover:border-[#d4ff33]/40 hover:text-[#d4ff33]"
+                                        title={language === 'zh' ? '编辑配置' : 'Edit'}
+                                    >
+                                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+                                    </Link>
+                                    <span
+                                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${status?.is_running ? 'border border-[#d4ff33]/35 bg-[#d4ff33]/10 text-[#d4ff33]' : 'bg-white/10 text-[#848E9C]'}`}
+                                    >
+                                        {status?.is_running
+                                            ? language === 'zh'
+                                                ? '运行中'
+                                                : 'On'
+                                            : language === 'zh'
+                                              ? '停止'
+                                              : 'Off'}
+                                    </span>
                                 </div>
-                            )}
-
-                            {/* Wallet Address Display for Perp-DEX */}
+                                <p className="mt-0.5 text-[10px] leading-snug text-[#5e6673]">
+                                    ID {selectedTrader.trader_id.slice(0, 8)}…
+                                    {account && !accountFailed ? (
+                                        <>
+                                            {' · '}
+                                            <span className="text-[#848E9C]">
+                                                {language === 'zh' ? '净值' : 'Eq'}
+                                            </span>{' '}
+                                            <span className="font-mono tabular-nums text-[#b7bdc6]">
+                                                {account.total_equity?.toFixed(2)}
+                                            </span>
+                                            <span className="text-[#5e6673]"> USDT</span>
+                                        </>
+                                    ) : null}
+                                    {status ? (
+                                        <>
+                                            {' · '}
+                                            <span className="text-[#848E9C]">
+                                                {language === 'zh' ? '周期' : 'Cy'}
+                                            </span>{' '}
+                                            <span className="text-[#b7bdc6]">{status.call_count}</span>
+                                            {' · '}
+                                            <span className="text-[#848E9C]">
+                                                {language === 'zh' ? '运行' : 'Run'}
+                                            </span>{' '}
+                                            <span className="text-[#b7bdc6]">{status.runtime_minutes}m</span>
+                                        </>
+                                    ) : null}
+                                </p>
+                                <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-[#848E9C]">
+                                    <span className="text-[#5e6673]">AI</span>{' '}
+                                    {getModelDisplayName(selectedTrader.ai_model)}
+                                    <span className="mx-1 text-[#2b3139]">|</span>
+                                    <span className="text-[#5e6673]">
+                                        {language === 'zh' ? '所' : 'Ex'}
+                                    </span>{' '}
+                                    <span className="text-[#b7bdc6]">
+                                        {getExchangeDisplayNameFromList(
+                                            selectedTrader.exchange_id,
+                                            exchanges,
+                                        )}
+                                    </span>
+                                    <span className="mx-1 text-[#2b3139]">|</span>
+                                    <span className="text-[#5e6673]">
+                                        {language === 'zh' ? '策' : 'St'}
+                                    </span>{' '}
+                                    <span className="text-[#d4ff33]/90">
+                                        {selectedTrader.strategy_name ||
+                                            (language === 'zh' ? '未绑定' : '—')}
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
                             {exchanges && isPerpDex && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg nofx-glass border border-nofx-gold/20">
+                                <div className="flex max-w-full flex-1 items-center gap-1 rounded-lg border border-[#2b3139] bg-nofx-bg-tertiary/60 px-2 py-1 sm:max-w-[min(100%,11rem)] sm:flex-none">
                                     {walletAddress ? (
                                         <>
-                                            <span className="text-xs font-mono text-nofx-gold">
+                                            <span className="truncate font-mono text-[10px] text-[#b7bdc6]">
                                                 {showWalletAddress
                                                     ? walletAddress
                                                     : truncateAddress(walletAddress)}
@@ -405,7 +616,7 @@ export function TraderDashboardPage({
                                             <button
                                                 type="button"
                                                 onClick={() => setShowWalletAddress(!showWalletAddress)}
-                                                className="p-1 rounded hover:bg-white/10 transition-colors"
+                                                className="shrink-0 rounded p-0.5 hover:bg-white/10"
                                                 title={
                                                     showWalletAddress
                                                         ? t('traderDashboard.hideAddress', language)
@@ -413,156 +624,153 @@ export function TraderDashboardPage({
                                                 }
                                             >
                                                 {showWalletAddress ? (
-                                                    <EyeOff className="w-3.5 h-3.5 text-nofx-text-muted" />
+                                                    <EyeOff className="h-3 w-3 text-[#848E9C]" />
                                                 ) : (
-                                                    <Eye className="w-3.5 h-3.5 text-nofx-text-muted" />
+                                                    <Eye className="h-3 w-3 text-[#848E9C]" />
                                                 )}
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={handleCopyAddress}
-                                                className="p-1 rounded hover:bg-white/10 transition-colors"
+                                                className="shrink-0 rounded p-0.5 hover:bg-white/10"
                                                 title={t('traderDashboard.copyAddress', language)}
                                             >
                                                 {copiedAddress ? (
-                                                    <Check className="w-3.5 h-3.5 text-nofx-green" />
+                                                    <Check className="h-3 w-3 text-[#0ECB81]" />
                                                 ) : (
-                                                    <Copy className="w-3.5 h-3.5 text-nofx-text-muted" />
+                                                    <Copy className="h-3 w-3 text-[#848E9C]" />
                                                 )}
                                             </button>
                                         </>
                                     ) : (
-                                        <span className="text-xs text-nofx-text-muted">
+                                        <span className="text-[10px] text-[#848E9C]">
                                             {t('traderDashboard.noAddressConfigured', language)}
                                         </span>
                                     )}
                                 </div>
                             )}
+                            <button
+                                type="button"
+                                disabled={runBusy || !selectedTraderId}
+                                onClick={() => void handleToggleRun()}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#d4ff33] px-3 py-2 text-xs font-bold text-black shadow-[0_0_16px_rgba(212,255,51,0.2)] transition-opacity hover:opacity-90 disabled:opacity-50 sm:flex-none sm:text-sm"
+                            >
+                                {runBusy ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
+                                ) : status?.is_running ? (
+                                    <Square className="h-3.5 w-3.5 shrink-0 fill-current" aria-hidden />
+                                ) : (
+                                    <Play className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                )}
+                                {runBusy
+                                    ? language === 'zh'
+                                        ? '处理中'
+                                        : 'Wait'
+                                    : status?.is_running
+                                      ? language === 'zh'
+                                          ? '停止'
+                                          : 'Stop'
+                                      : language === 'zh'
+                                        ? '启动'
+                                        : 'Start'}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={deleteBusy || !selectedTraderId}
+                                onClick={() => void handleDeleteTrader()}
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#F6465D]/35 text-[#F6465D] transition-colors hover:bg-[#F6465D]/10 disabled:opacity-40"
+                                title={language === 'zh' ? '删除交易员' : 'Delete trader'}
+                            >
+                                {deleteBusy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                                ) : (
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                )}
+                            </button>
                         </div>
                     </div>
-                    <div className="flex items-center gap-6 text-sm flex-wrap text-nofx-text-muted font-mono pl-2">
-                        <span className="flex items-center gap-2">
-                            <span className="opacity-60">AI Model:</span>
-                            <span
-                                className="font-bold px-2 py-0.5 rounded text-xs tracking-wide"
-                                style={{
-                                    background: selectedTrader.ai_model.includes('qwen') ? 'rgba(192, 132, 252, 0.15)' : 'rgba(96, 165, 250, 0.15)',
-                                    color: selectedTrader.ai_model.includes('qwen') ? '#c084fc' : '#60a5fa',
-                                    border: `1px solid ${selectedTrader.ai_model.includes('qwen') ? '#c084fc' : '#60a5fa'}40`
-                                }}
-                            >
-                                {getModelDisplayName(
-                                    selectedTrader.ai_model.split('_').pop() ||
-                                    selectedTrader.ai_model
-                                )}
-                            </span>
-                        </span>
-                        <span className="w-px h-3 bg-white/10 hidden md:block" />
-                        <span className="flex items-center gap-2">
-                            <span className="opacity-60">Exchange:</span>
-                            <span className="text-nofx-text-main font-semibold">
-                                {getExchangeDisplayNameFromList(
-                                    selectedTrader.exchange_id,
-                                    exchanges
-                                )}
-                            </span>
-                        </span>
-                        <span className="w-px h-3 bg-white/10 hidden md:block" />
-                        <span className="flex items-center gap-2">
-                            <span className="opacity-60">Strategy:</span>
-                            <span className="text-nofx-gold font-semibold tracking-wide">
-                                {selectedTrader.strategy_name || 'No Strategy'}
-                            </span>
-                        </span>
-                        {status && (
-                            <div className="hidden md:contents">
-                                <span className="w-px h-3 bg-white/10" />
-                                <span>Cycles: <span className="text-nofx-text-main">{status.call_count}</span></span>
-                                <span className="w-px h-3 bg-white/10" />
-                                <span>Runtime: <span className="text-nofx-text-main">{status.runtime_minutes} min</span></span>
+                </div>
+
+                        {/* 数据区：四宫格 + 图表 + 持仓（单独一块，不与交易员卡片合并） */}
+                        <div className="min-w-0 space-y-4">
+                        {/* 指标四宫格 — 左侧主栏 */}
+                        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3">
+                            <StatCard
+                                title={language === 'zh' ? '胜率' : 'Win Rate'}
+                                value={
+                                    winRatePct === undefined
+                                        ? '--'
+                                        : `${winRatePct.toFixed(1)}`
+                                }
+                                unit="%"
+                                subtitle={
+                                    stats && stats.total_trades != null && stats.total_trades > 0
+                                        ? language === 'zh'
+                                            ? `盈利 ${stats.win_trades ?? 0} / 共 ${stats.total_trades} 笔（已平仓）`
+                                            : `${stats.win_trades ?? 0} wins / ${stats.total_trades} closed`
+                                        : language === 'zh'
+                                          ? '暂无已平仓成交'
+                                          : 'No closed trades yet'
+                                }
+                                iconKind="cycle"
+                                loading={false}
+                            />
+                            <StatCard
+                                title={t('totalPnL', language)}
+                                value={
+                                    accountFailed && !account
+                                        ? '--'
+                                        : `${account?.total_pnl !== undefined && account.total_pnl >= 0 ? '+' : ''}${account?.total_pnl?.toFixed(2) ?? '--'}`
+                                }
+                                unit="USDT"
+                                change={account ? account.total_pnl_pct || 0 : undefined}
+                                positive={(account?.total_pnl ?? 0) >= 0}
+                                iconKind="pnl"
+                                loading={!account && !accountFailed}
+                            />
+                            <StatCard
+                                title={language === 'zh' ? '保证金占用' : 'Margin Used'}
+                                value={
+                                    accountFailed && !account
+                                        ? '--'
+                                        : `${account?.margin_used_pct?.toFixed(1) ?? '--'}`
+                                }
+                                unit="%"
+                                subtitle={
+                                    language === 'zh'
+                                        ? `持仓 ${account?.position_count ?? '--'}`
+                                        : `${account?.position_count ?? '--'} open`
+                                }
+                                iconKind="margin"
+                                loading={!account && !accountFailed}
+                            />
+                            <StatCard
+                                title={t('availableBalance', language)}
+                                value={accountFailed && !account ? '--' : `${account?.available_balance?.toFixed(2) ?? '--'}`}
+                                unit="USDT"
+                                subtitle={
+                                    accountFailed && !account
+                                        ? '--'
+                                        : `${account?.available_balance != null && account?.total_equity ? ((account.available_balance / account.total_equity) * 100).toFixed(1) : '--'}% ${t('free', language)}`
+                                }
+                                iconKind="balance"
+                                loading={!account && !accountFailed}
+                            />
+                        </div>
+
+                        {status?.strategy_type === 'grid_trading' && selectedTraderId && (
+                            <div className="animate-slide-in" style={{ animationDelay: '0.05s' }}>
+                                <GridRiskPanel
+                                    traderId={selectedTraderId}
+                                    language={language}
+                                    refreshInterval={5000}
+                                />
                             </div>
                         )}
-                    </div>
-                </div>
 
-                {/* Debug Info */}
-                <div className="mb-4 px-3 py-1.5 rounded bg-black/40 border border-white/5 text-[10px] font-mono text-nofx-text-muted flex justify-between items-center opacity-60 hover:opacity-100 transition-opacity">
-                    <span style={{ color: '#0ECB81' }}>SYSTEM_STATUS::ONLINE</span>
-                    {account ? (
-                        <div className="flex gap-4">
-                            <span>LAST_UPDATE::{lastUpdate}</span>
-                            <span>EQ::{account.total_equity?.toFixed(2)}</span>
-                            <span>PNL::{account.total_pnl?.toFixed(2)}</span>
-                        </div>
-                    ) : accountFailed ? (
-                        <span style={{ color: '#F6465D' }}>{t('traderDashboard.accountFetchFailed', language)}</span>
-                    ) : (
-                        <div className="flex gap-4">
-                            <span className="inline-block w-32 h-3 rounded bg-white/5 animate-pulse" />
-                            <span className="inline-block w-16 h-3 rounded bg-white/5 animate-pulse" />
-                            <span className="inline-block w-16 h-3 rounded bg-white/5 animate-pulse" />
-                        </div>
-                    )}
-                </div>
-
-                {/* Account Overview */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <StatCard
-                        title={t('totalEquity', language)}
-                        value={accountFailed && !account ? '--' : `${account?.total_equity?.toFixed(2) ?? '--'}`}
-                        unit="USDT"
-                        change={account ? (account.total_pnl_pct || 0) : undefined}
-                        positive={(account?.total_pnl ?? 0) > 0}
-                        icon="💰"
-                        loading={!account && !accountFailed}
-                    />
-                    <StatCard
-                        title={t('availableBalance', language)}
-                        value={accountFailed && !account ? '--' : `${account?.available_balance?.toFixed(2) ?? '--'}`}
-                        unit="USDT"
-                        subtitle={accountFailed && !account ? '--' : `${account?.available_balance && account?.total_equity ? ((account.available_balance / account.total_equity) * 100).toFixed(1) : '--'}% ${t('free', language)}`}
-                        icon="💳"
-                        loading={!account && !accountFailed}
-                    />
-                    <StatCard
-                        title={t('totalPnL', language)}
-                        value={accountFailed && !account ? '--' : `${account?.total_pnl !== undefined && account.total_pnl >= 0 ? '+' : ''}${account?.total_pnl?.toFixed(2) ?? '--'}`}
-                        unit="USDT"
-                        change={account ? (account.total_pnl_pct || 0) : undefined}
-                        positive={(account?.total_pnl ?? 0) >= 0}
-                        icon="📈"
-                        loading={!account && !accountFailed}
-                    />
-                    <StatCard
-                        title={t('positions', language)}
-                        value={accountFailed && !account ? '--' : `${account?.position_count ?? '--'}`}
-                        unit="ACTIVE"
-                        subtitle={accountFailed && !account ? `${t('margin', language)}: --` : `${t('margin', language)}: ${account?.margin_used_pct?.toFixed(1) ?? '--'}%`}
-                        icon="📊"
-                        loading={!account && !accountFailed}
-                    />
-                </div>
-
-                {/* Grid Risk Panel - Only show for grid trading strategy */}
-                {status?.strategy_type === 'grid_trading' && selectedTraderId && (
-                    <div className="mb-8 animate-slide-in" style={{ animationDelay: '0.05s' }}>
-                        <GridRiskPanel
-                            traderId={selectedTraderId}
-                            language={language}
-                            refreshInterval={5000}
-                        />
-                    </div>
-                )}
-
-                {/* Main Content Area */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    {/* Left Column: Charts + Positions */}
-                    <div className="space-y-6">
-                        {/* Chart Tabs (Equity / K-line) */}
                         <div
                             ref={chartSectionRef}
-                            className="chart-container animate-slide-in scroll-mt-32 backdrop-blur-sm"
-                            style={{ animationDelay: '0.1s' }}
+                            className="chart-container scroll-mt-28 rounded-xl border border-[#2b3139] bg-nofx-bg-secondary/85 p-1 shadow-[0_0_24px_rgba(0,0,0,0.35)] md:p-1.5"
                         >
                             <ChartTabs
                                 traderId={selectedTrader.trader_id}
@@ -575,27 +783,136 @@ export function TraderDashboardPage({
                             />
                         </div>
 
-                        {/* Current Positions */}
-                        <div
-                            className="nofx-glass p-6 animate-slide-in relative overflow-hidden group"
-                            style={{ animationDelay: '0.15s' }}
-                        >
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <div className="w-24 h-24 rounded-full bg-blue-500 blur-3xl" />
+                        <div className="overflow-hidden rounded-xl border border-[#2b3139] bg-nofx-bg-secondary/95 shadow-[0_0_24px_rgba(0,0,0,0.3)]">
+                            <div className="flex flex-wrap gap-1 border-b border-[#2b3139] bg-nofx-bg-tertiary/70 p-1.5">
+                                {(
+                                    [
+                                        { id: 'positions' as const, label: t('currentPositions', language) },
+                                        { id: 'history' as const, label: historyTabLabel },
+                                        { id: 'orders' as const, label: ordersTabLabel },
+                                    ] as const
+                                ).map(({ id, label }) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        onClick={() => setDataTab(id)}
+                                        className={`rounded-lg px-3 py-2 text-left text-xs font-bold transition-colors md:text-sm ${
+                                            dataTab === id
+                                                ? 'bg-[#d4ff33]/14 text-[#d4ff33] ring-1 ring-[#d4ff33]/35'
+                                                : 'text-[#848E9C] hover:bg-white/[0.06] hover:text-[#EAECEF]'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
                             </div>
-                            <div className="flex items-center justify-between mb-5 relative z-10">
-                                <h2 className="text-lg font-bold flex items-center gap-2 text-nofx-text-main uppercase tracking-wide">
-                                    <span className="text-blue-500">◈</span> {t('currentPositions', language)}
+                            <div className="relative p-4 md:p-5">
+                                {dataTab === 'positions' && (
+                        <div className="group relative overflow-hidden rounded-xl bg-nofx-bg-tertiary/35 p-2 md:p-4">
+                            <div className="pointer-events-none absolute right-0 top-0 p-3 opacity-[0.07]">
+                                <div className="h-24 w-24 rounded-full bg-[#d4ff33] blur-3xl" />
+                            </div>
+                            <div className="relative z-10 mb-3 flex items-center justify-between">
+                                <h2 className="flex items-center gap-2 text-base font-bold uppercase tracking-wide text-[#EAECEF] md:text-lg">
+                                    <span className="text-[#d4ff33]">◈</span> {t('currentPositions', language)}
                                 </h2>
                                 {positions && positions.length > 0 && (
-                                    <div className="text-xs px-2 py-1 rounded bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 font-mono shadow-[0_0_10px_rgba(240,185,11,0.1)]">
+                                    <div className="rounded-md border border-[#d4ff33]/30 bg-[#d4ff33]/10 px-2 py-1 font-mono text-xs font-semibold text-[#d4ff33]">
                                         {positions.length} {t('active', language)}
                                     </div>
                                 )}
                             </div>
                             {positions && positions.length > 0 ? (
                                 <div>
-                                    <div className="overflow-x-auto">
+                                    <div className="space-y-2 md:hidden">
+                                        {paginatedPositions.map((pos, i) => {
+                                            const pnl = pos.unrealized_pnl ?? 0
+                                            const side = String(pos.side ?? '').toUpperCase()
+                                            return (
+                                                <button
+                                                    key={`${pos.symbol}-${i}`}
+                                                    type="button"
+                                                    className="w-full rounded-lg border border-[#2b3139] bg-black/25 p-3 text-left transition-colors hover:border-[#d4ff33]/30"
+                                                    onClick={() => {
+                                                        setSelectedChartSymbol(pos.symbol)
+                                                        setChartUpdateKey(Date.now())
+                                                        chartSectionRef.current?.scrollIntoView({
+                                                            behavior: 'smooth',
+                                                            block: 'start',
+                                                        })
+                                                    }}
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="truncate font-mono text-sm font-bold text-[#EAECEF]">
+                                                                {pos.symbol}
+                                                            </div>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#848E9C]">
+                                                                <span
+                                                                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                                                                        pos.side === 'long'
+                                                                            ? 'bg-nofx-green/10 text-nofx-green'
+                                                                            : 'bg-nofx-red/10 text-nofx-red'
+                                                                    }`}
+                                                                >
+                                                                    {t(pos.side === 'long' ? 'long' : 'short', language)}
+                                                                </span>
+                                                                <span>{pos.leverage ?? 0}x</span>
+                                                                <span>{formatQuantity(pos.quantity)}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="shrink-0 text-right">
+                                                            <div
+                                                                className={`font-mono text-base font-bold ${
+                                                                    pnl >= 0 ? 'text-nofx-green' : 'text-nofx-red'
+                                                                }`}
+                                                            >
+                                                                {pnl >= 0 ? '+' : ''}
+                                                                {pnl.toFixed(2)}
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    if (!side) return
+                                                                    handleClosePosition(pos.symbol, side)
+                                                                }}
+                                                                disabled={closingPosition === pos.symbol || !pos.side}
+                                                                className="mt-2 inline-flex h-8 items-center justify-center rounded-md border border-[#F6465D]/35 px-2 text-[11px] text-[#F6465D] disabled:opacity-40"
+                                                            >
+                                                                {closingPosition === pos.symbol ? (
+                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                ) : (
+                                                                    t('traderDashboard.closePosition', language)
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                                                        <div>
+                                                            <div className="text-[#5e6673]">{t('traderDashboard.entry', language)}</div>
+                                                            <div className="font-mono text-[#EAECEF]">{formatPrice(pos.entry_price)}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-[#5e6673]">{t('traderDashboard.mark', language)}</div>
+                                                            <div className="font-mono text-[#EAECEF]">{formatPrice(pos.mark_price)}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-[#5e6673]">{t('traderDashboard.value', language)}</div>
+                                                            <div className="font-mono text-[#EAECEF]">
+                                                                {((pos.quantity ?? 0) * (pos.mark_price ?? 0)).toFixed(2)}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-[#5e6673]">{t('traderDashboard.liq', language)}</div>
+                                                            <div className="font-mono text-[#EAECEF]">{formatPrice(pos.liquidation_price)}</div>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                    <div className="hidden overflow-x-auto md:block">
                                         <table className="w-full text-xs">
                                             <thead className="text-left border-b border-white/5">
                                                 <tr>
@@ -642,32 +959,42 @@ export function TraderDashboardPage({
                                                                 type="button"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation()
-                                                                    handleClosePosition(pos.symbol, pos.side.toUpperCase())
+                                                                    const s = String(pos.side ?? '').toUpperCase()
+                                                                    if (!s) return
+                                                                    handleClosePosition(pos.symbol, s)
                                                                 }}
-                                                                disabled={closingPosition === pos.symbol}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed mx-auto bg-nofx-red/10 text-nofx-red border border-nofx-red/30 hover:bg-nofx-red/20"
+                                                                disabled={closingPosition === pos.symbol || !pos.side}
+                                                                className="mx-auto inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#2b3139] text-[#848E9C] transition-colors hover:border-[#F6465D]/40 hover:text-[#F6465D] disabled:cursor-not-allowed disabled:opacity-40"
                                                                 title={t('traderDashboard.closePosition', language)}
                                                             >
                                                                 {closingPosition === pos.symbol ? (
-                                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                                 ) : (
-                                                                    <LogOut className="w-3 h-3" />
+                                                                    <LogOut className="h-3.5 w-3.5" />
                                                                 )}
-                                                                {t('traderDashboard.close', language)}
                                                             </button>
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.entry_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.mark_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main">{formatQuantity(pos.quantity)}</td>
-                                                        <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{(pos.quantity * pos.mark_price).toFixed(2)}</td>
-                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-center text-nofx-gold hidden md:table-cell">{pos.leverage}x</td>
+                                                        <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">
+                                                            {((pos.quantity ?? 0) * (pos.mark_price ?? 0)).toFixed(2)}
+                                                        </td>
+                                                        <td className="hidden px-1 py-3 text-center font-mono whitespace-nowrap text-[#d4ff33] md:table-cell">
+                                                            {pos.leverage ?? 0}x
+                                                        </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right">
                                                             <span
-                                                                className={`font-bold ${pos.unrealized_pnl >= 0 ? 'text-nofx-green shadow-nofx-green' : 'text-nofx-red shadow-nofx-red'}`}
-                                                                style={{ textShadow: pos.unrealized_pnl >= 0 ? '0 0 10px rgba(14,203,129,0.3)' : '0 0 10px rgba(246,70,93,0.3)' }}
+                                                                className={`font-bold ${(pos.unrealized_pnl ?? 0) >= 0 ? 'text-nofx-green shadow-nofx-green' : 'text-nofx-red shadow-nofx-red'}`}
+                                                                style={{
+                                                                    textShadow:
+                                                                        (pos.unrealized_pnl ?? 0) >= 0
+                                                                            ? '0 0 10px rgba(14,203,129,0.3)'
+                                                                            : '0 0 10px rgba(246,70,93,0.3)',
+                                                                }}
                                                             >
-                                                                {pos.unrealized_pnl >= 0 ? '+' : ''}
-                                                                {pos.unrealized_pnl.toFixed(2)}
+                                                                {(pos.unrealized_pnl ?? 0) >= 0 ? '+' : ''}
+                                                                {(pos.unrealized_pnl ?? 0).toFixed(2)}
                                                             </span>
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-muted hidden md:table-cell">{formatPrice(pos.liquidation_price)}</td>
@@ -740,47 +1067,53 @@ export function TraderDashboardPage({
                                 </div>
                             )}
                         </div>
+                                )}
+                                {dataTab === 'history' && selectedTraderId && (
+                                    <div className="min-h-[240px] rounded-xl border border-[#2b3139]/70 bg-nofx-bg-tertiary/40 p-2">
+                                        <PositionHistory traderId={selectedTraderId} />
+                                    </div>
+                                )}
+                                {dataTab === 'orders' && selectedTraderId && (
+                                    <div className="min-h-[240px] rounded-xl border border-[#2b3139]/70 bg-nofx-bg-tertiary/40 p-3 md:p-4">
+                                        <TraderOpenOrdersPanel
+                                            traderId={selectedTraderId}
+                                            language={language}
+                                            refreshMs={15000}
+                                        />
+                                        <SourceUserAccountsPanel
+                                            strategyId={selectedTrader?.strategy_id}
+                                            language={language}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        </div>
                     </div>
 
-                    {/* Right Column: Recent Decisions */}
-                    <div
-                        className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] flex flex-col"
-                        style={{ animationDelay: '0.2s' }}
-                    >
-                        {/* Header */}
-                        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/5 shrink-0">
-                            <div
-                                className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-[0_4px_14px_rgba(99,102,241,0.4)]"
-                                style={{
-                                    background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-                                }}
-                            >
+                    {/* 主控上架模板：右侧同时展示 AI 决策 + 跟单客户看板 */}
+                    <div className="order-2 flex min-h-0 min-w-0 w-full flex-col gap-3 self-start lg:order-none lg:col-start-2 lg:row-start-1 lg:w-auto lg:self-start">
+                    <aside className="flex min-h-[min(34vh,20rem)] min-w-0 w-full max-h-[min(62vh,38rem)] flex-none flex-col overflow-hidden rounded-xl border-0 bg-nofx-bg-secondary/95 p-3 shadow-[0_0_24px_rgba(0,0,0,0.35)] md:p-4 lg:min-h-[min(38vh,24rem)]">
+                        <div className="mb-2 flex shrink-0 items-center gap-2 border-b border-[#2b3139]/80 pb-2">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#c4cf45]/40 bg-[#c4cf45]/12 text-base shadow-[0_0_14px_rgba(212,255,51,0.22)]">
                                 🧠
                             </div>
-                            <div className="flex-1">
-                                <h2 className="text-xl font-bold text-nofx-text-main">
-                                    {t('recentDecisions', language)}
+                            <div className="min-w-0 flex-1">
+                                <h2 className="font-['Space_Grotesk',sans-serif] text-lg font-bold text-[#EAECEF]">
+                                    {language === 'zh' ? 'AI 分析' : 'AI Analysis'}
                                 </h2>
+                                <p className="text-[11px] text-[#848E9C]">
+                                    {language === 'zh' ? '最近决策' : 'Recent decisions'}
+                                </p>
                                 {decisions && decisions.length > 0 && (
-                                    <div className="text-xs text-nofx-text-muted">
+                                    <div className="mt-0.5 text-[10px] text-[#5e6673]">
                                         {t('lastCycles', language, { count: decisions.length })}
                                     </div>
                                 )}
                             </div>
-                            {/* Limit Selector */}
-                            <NofxSelect
-                                value={decisionsLimit}
-                                onChange={(val) => onDecisionsLimitChange(Number(val))}
-                                options={[{ value: 5, label: '5' }, { value: 10, label: '10' }, { value: 20, label: '20' }, { value: 50, label: '50' }, { value: 100, label: '100' }]}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent"
-                            />
                         </div>
 
-                        {/* Decisions List - Scrollable */}
-                        <div
-                            className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-                            style={{ maxHeight: 'calc(100vh - 280px)' }}
-                        >
+                        <div className="custom-scrollbar mt-0 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1 pt-0">
                             {decisions && decisions.length > 0 ? (
                                 decisions.map((decision, i) => (
                                     <DecisionCard key={i} decision={decision} language={language} onSymbolClick={handleSymbolClick} />
@@ -802,30 +1135,48 @@ export function TraderDashboardPage({
                                 </div>
                             )}
                         </div>
+                    </aside>
+                    {isComkunMasterListing && strategyIdForTrader ? (
+                        <ComkunMasterFollowersSidebar
+                            strategyId={strategyIdForTrader}
+                            language={language}
+                            embedded
+                        />
+                    ) : null}
                     </div>
                 </div>
-
-                {/* Position History Section */}
-                {selectedTraderId && (
-                    <div
-                        className="nofx-glass p-6 animate-slide-in"
-                        style={{ animationDelay: '0.25s' }}
-                    >
-                        <div className="flex items-center justify-between mb-5">
-                            <h2 className="text-xl font-bold flex items-center gap-2 text-nofx-text-main">
-                                <span className="text-2xl">📜</span>
-                                {t('positionHistory.title', language)}
-                            </h2>
-                        </div>
-                        <PositionHistory traderId={selectedTraderId} />
-                    </div>
-                )}
             </div>
         </DeepVoidBackground>
     )
 }
 
-// Stat Card Component - Deep Void Style
+type DashboardStatIconKind = 'cycle' | 'pnl' | 'margin' | 'balance'
+
+function DashboardStatIcon({
+    kind,
+    className,
+    strokeWidth,
+}: {
+    kind: DashboardStatIconKind
+    className?: string
+    strokeWidth?: number
+}) {
+    const props = { className, strokeWidth, 'aria-hidden': true as const }
+    switch (kind) {
+        case 'cycle':
+            return <Target {...props} />
+        case 'pnl':
+            return <TrendingUp {...props} />
+        case 'margin':
+            return <Diamond {...props} />
+        case 'balance':
+            return <Wallet {...props} />
+        default:
+            return null
+    }
+}
+
+/** 仪表盘四宫格：对齐参考图（左上标题、右上淡图标、大号主值+灰色单位、底部辅文） */
 function StatCard({
     title,
     value,
@@ -833,7 +1184,7 @@ function StatCard({
     change,
     positive,
     subtitle,
-    icon,
+    iconKind,
     loading,
 }: {
     title: string
@@ -842,46 +1193,67 @@ function StatCard({
     change?: number
     positive?: boolean
     subtitle?: string
-    icon?: string
+    iconKind: DashboardStatIconKind
     loading?: boolean
 }) {
     return (
-        <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/5 hover:border-nofx-gold/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity text-4xl grayscale group-hover:grayscale-0">
-                {icon}
+        <div
+            className="relative flex min-h-[118px] flex-col rounded-[10px] border border-[#2B3139] bg-[#1c1c1c] p-3.5 md:min-h-[124px] md:p-4"
+            style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.03) inset' }}
+        >
+            <div className="flex items-start justify-between gap-2">
+                <span className="text-[11px] font-medium leading-tight text-[#848E9C] md:text-xs">
+                    {title}
+                </span>
+                <DashboardStatIcon
+                    kind={iconKind}
+                    className="pointer-events-none h-[18px] w-[18px] shrink-0 text-[#EAECEF]/[0.08] md:h-5 md:w-5"
+                    strokeWidth={1.15}
+                />
             </div>
-            <div className="text-xs mb-2 font-mono uppercase tracking-wider text-nofx-text-muted flex items-center gap-2">
-                {title}
-            </div>
+
             {loading ? (
-                <div className="space-y-2">
-                    <div className="h-7 w-24 rounded bg-white/5 animate-pulse" />
-                    <div className="h-3 w-16 rounded bg-white/5 animate-pulse" />
+                <div className="mt-4 flex flex-1 flex-col justify-end gap-2">
+                    <div className="h-8 w-28 animate-pulse rounded bg-white/[0.06]" />
+                    <div className="h-3 w-20 animate-pulse rounded bg-white/[0.06]" />
                 </div>
             ) : (
-                <>
-                    <div className="flex items-baseline gap-1 mb-1">
-                        <div className="text-2xl font-bold font-mono text-nofx-text-main tracking-tight group-hover:text-white transition-colors">
+                <div className="mt-3 flex min-h-0 flex-1 flex-col justify-end">
+                    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                        <span className="text-[21px] font-bold leading-none tracking-tight text-[#EAECEF] tabular-nums md:text-[22px]">
                             {value}
-                        </div>
-                        {unit && <span className="text-xs font-mono text-nofx-text-muted opacity-60">{unit}</span>}
+                        </span>
+                        {unit ? (
+                            <span className="text-[11px] font-medium uppercase tracking-wide text-[#5e6673] md:text-xs">
+                                {unit}
+                            </span>
+                        ) : null}
                     </div>
-                    {change !== undefined && (
-                        <div className="flex items-center gap-1">
-                            <div
-                                className={`text-sm mono font-bold flex items-center gap-1 ${positive ? 'text-nofx-green' : 'text-nofx-red'}`}
-                            >
-                                <span>{positive ? '▲' : '▼'}</span>
-                                <span>{positive ? '+' : ''}{change.toFixed(2)}%</span>
-                            </div>
+
+                    {change !== undefined ? (
+                        <div
+                            className={`mt-2 flex items-center gap-1 text-xs font-semibold tabular-nums md:text-[13px] ${
+                                positive ? 'text-[#0ECB81]' : 'text-[#F6465D]'
+                            }`}
+                        >
+                            <span aria-hidden>{positive ? '▲' : '▼'}</span>
+                            <span>
+                                {positive ? '+' : ''}
+                                {change.toFixed(2)}%
+                            </span>
                         </div>
-                    )}
-                    {subtitle && (
-                        <div className="text-xs mt-2 mono text-nofx-text-muted opacity-80">
+                    ) : null}
+
+                    {subtitle ? (
+                        <div
+                            className={`font-mono text-[11px] tabular-nums text-[#848E9C] md:text-xs ${
+                                change !== undefined ? 'mt-1' : 'mt-2'
+                            }`}
+                        >
                             {subtitle}
                         </div>
-                    )}
-                </>
+                    ) : null}
+                </div>
             )}
         </div>
     )

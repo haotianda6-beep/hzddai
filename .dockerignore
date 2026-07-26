@@ -34,6 +34,7 @@ docs/
 
 # Runtime data
 decision_logs/
+data/
 *.log
 
 # Config files (should be mounted)

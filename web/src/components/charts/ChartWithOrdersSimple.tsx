@@ -66,7 +66,7 @@ export function ChartWithOrdersSimple({
   }, [symbol, interval, traderID])
 
   return (
-    <div className="relative" style={{ background: '#0B0E11', borderRadius: '8px', overflow: 'hidden', minHeight: height }}>
+    <div className="relative" style={{ background: '#0b0b0b', borderRadius: '8px', overflow: 'hidden', minHeight: height }}>
       {/* 标题栏 */}
       <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid #2B3139' }}>
         <div className="flex items-center gap-3">
@@ -91,7 +91,7 @@ export function ChartWithOrdersSimple({
           </div>
         ) : (
           <>
-            <div className="p-4 rounded" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+            <div className="p-4 rounded" style={{ background: '#1c1c1c', border: '1px solid #2B3139' }}>
               <div className="text-sm mb-2" style={{ color: '#848E9C' }}>币安K线数据</div>
               <div className="text-2xl font-bold" style={{ color: '#0ECB81' }}>
                 {klineCount} 根K线
@@ -99,7 +99,7 @@ export function ChartWithOrdersSimple({
             </div>
 
             {traderID && (
-              <div className="p-4 rounded" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+              <div className="p-4 rounded" style={{ background: '#1c1c1c', border: '1px solid #2B3139' }}>
                 <div className="text-sm mb-2" style={{ color: '#848E9C' }}>历史订单数据</div>
                 <div className="text-2xl font-bold" style={{ color: '#F0B90B' }}>
                   {orderCount} 笔订单
@@ -107,7 +107,7 @@ export function ChartWithOrdersSimple({
               </div>
             )}
 
-            <div className="p-4 rounded" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+            <div className="p-4 rounded" style={{ background: '#1c1c1c', border: '1px solid #2B3139' }}>
               <div className="text-sm mb-2" style={{ color: '#848E9C' }}>状态</div>
               <div className="text-lg" style={{ color: '#EAECEF' }}>
                 ✅ 数据获取正常，图表组件开发中

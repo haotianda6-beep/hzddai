@@ -1,0 +1,120 @@
+/* —— 输入框动效：对齐参考里「快而顺」的 Material 感（约 200–280ms + 柔和外扩光晕） —— */
+:root {
+  /* 与常见高端后台一致：标准 / 强调 */
+  --quant-motion-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --quant-motion-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 内圈描边 + 两层柔光（比单一大光斑更接近参考里的 bloom） */
+  --quant-focus-glow: 0 0 0 1.5px rgba(212, 255, 51, 0.55), 0 0 0 1px rgba(243, 255, 202, 0.12),
+    0 0 28px rgba(212, 255, 51, 0.18), 0 0 56px rgba(212, 255, 51, 0.08), 0 10px 32px rgba(0, 0, 0, 0.32);
+}
+
+/* Monaco 策略核心编辑器外框：与原生输入框一致的聚焦光晕 */
+.strategy-quant-lab .strategy-prompt-editor {
+  transform: translateZ(0);
+  transition-property: box-shadow, border-color;
+  transition-duration: 0.26s;
+  transition-timing-function: var(--quant-motion-standard);
+}
+.strategy-quant-lab .strategy-prompt-editor:focus-within {
+  border-color: rgba(212, 255, 51, 0.35);
+  box-shadow: var(--quant-focus-glow);
+  transition-duration: 0.22s;
+  transition-timing-function: var(--quant-motion-emphasized);
+}
+
+.strategy-quant-lab textarea,
+.strategy-quant-lab select,
+.strategy-quant-lab input[type='number']:not(:disabled),
+.strategy-quant-lab input[type='text']:not(:disabled) {
+  transform: translateZ(0);
+  transition-property: box-shadow, background-color, border-color, color, filter;
+  transition-duration: 0.26s;
+  transition-timing-function: var(--quant-motion-standard);
+}
+
+/* 大段逻辑编辑区：光标颜色接近参考里的高亮条（系统光标，无平滑位移；真·平滑光标需 Monaco 等） */
+.strategy-quant-lab textarea {
+  caret-color: #d4ff33;
+}
+
+.strategy-quant-lab textarea::placeholder,
+.strategy-quant-lab input::placeholder {
+  transition: opacity 0.22s var(--quant-motion-standard);
+}
+
+.strategy-quant-lab textarea:focus-visible::placeholder,
+.strategy-quant-lab input:focus-visible::placeholder {
+  opacity: 0.55;
+}
+
+.strategy-quant-lab textarea:focus-visible,
+.strategy-quant-lab select:focus-visible,
+.strategy-quant-lab input[type='number']:focus-visible:not(:disabled),
+.strategy-quant-lab input[type='text']:focus-visible:not(:disabled) {
+  outline: none;
+  transition-duration: 0.22s;
+  transition-timing-function: var(--quant-motion-emphasized);
+  box-shadow: var(--quant-focus-glow);
+}
+
+.strategy-quant-lab textarea:focus:not(:focus-visible),
+.strategy-quant-lab input:focus:not(:focus-visible),
+.strategy-quant-lab select:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strategy-quant-lab textarea,
+  .strategy-quant-lab select,
+  .strategy-quant-lab input[type='number'],
+  .strategy-quant-lab input[type='text'] {
+    transition-duration: 0.01ms !important;
+  }
+  .strategy-quant-lab textarea:focus-visible,
+  .strategy-quant-lab select:focus-visible,
+  .strategy-quant-lab input[type='number']:focus-visible,
+  .strategy-quant-lab input[type='text']:focus-visible {
+    box-shadow: 0 0 0 2px rgba(212, 255, 51, 0.45);
+  }
+}
+
+/* 数字输入框去掉右侧上下箭头（仍可用键盘改数字） */
+.strategy-quant-lab input[type='number'] {
+  -moz-appearance: textfield;
+}
+.strategy-quant-lab input[type='number']::-webkit-outer-spin-button,
+.strategy-quant-lab input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* 与 ai_1 / ai_2 原型一致的滚动条与玻璃态 + 滚动更顺 */
+.quant-lab-scrollbar {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #46484d #0b0b0b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quant-lab-scrollbar {
+    scroll-behavior: auto;
+  }
+}
+.quant-lab-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.quant-lab-scrollbar::-webkit-scrollbar-track {
+  background: #0b0b0b;
+}
+.quant-lab-scrollbar::-webkit-scrollbar-thumb {
+  background: #46484d;
+  border-radius: 3px;
+}
+.quant-lab-glass {
+  background: rgba(23, 23, 23, 0.78);
+  backdrop-filter: blur(20px);
+}
+.quant-lab-glow {
+  box-shadow: 0 0 18px rgba(212, 255, 51, 0.18);
+}

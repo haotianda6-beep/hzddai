@@ -114,7 +114,7 @@ function TradersLoadingSkeleton() {
         <div
           key={i}
           className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded gap-3 md:gap-4 animate-pulse"
-          style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
         >
           <div className="flex items-center gap-3 md:gap-4">
             <div className="w-10 h-10 md:w-12 md:h-12 rounded-full skeleton"></div>
@@ -208,7 +208,7 @@ function TraderRow({
   return (
     <div
       className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded transition-all hover:translate-y-[-1px] gap-3 md:gap-4"
-      style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+      style={{ background: '#0b0b0b', border: '1px solid #2B3139' }}
     >
       <div className="flex items-center gap-3 md:gap-4">
         <div className="flex-shrink-0">
@@ -233,14 +233,12 @@ function TraderRow({
           <div
             className="text-xs md:text-sm truncate"
             style={{
-              color: trader.ai_model.includes('deepseek')
+              color: (trader.ai_model ?? '').includes('deepseek')
                 ? '#60a5fa'
                 : '#c084fc',
             }}
           >
-            {getModelDisplayName(
-              trader.ai_model.split('_').pop() || trader.ai_model
-            )}{' '}
+            {getModelDisplayName(trader.ai_model)}{' '}
             Model • {getExchangeDisplayName(trader.exchange_id, allExchanges)}
           </div>
         </div>

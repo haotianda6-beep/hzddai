@@ -398,7 +398,7 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
           fontFamily: 'monospace',
           letterSpacing: '0.1em',
         }}>
-          NOFX
+          COMKUN
         </div>
 
         <ResponsiveContainer width="100%" height={420}>
@@ -427,7 +427,7 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
               </filter>
             </defs>
 
-            <CartesianGrid strokeDasharray="3 3" stroke="#1E2329" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1c1c1c" vertical={false} />
 
             <XAxis
               dataKey="time"
@@ -482,7 +482,7 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
                 activeDot={{
                   r: 6,
                   fill: traderColor(trader.trader_id),
-                  stroke: '#0B0E11',
+                  stroke: '#0b0b0b',
                   strokeWidth: 2,
                   filter: 'url(#glow)',
                 }}

@@ -73,8 +73,7 @@ export default function TerminalHero() {
             {/* BACKGROUND LAYERS */}
             {/* 1. Grid */}
             <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light pointer-events-none"></div>
-            <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none md:hidden" style={{ transform: 'perspective(500px) rotateX(60deg) translateY(100px) scale(2)' }}></div>
-            <div className="absolute inset-0 bg-grid-pattern opacity-[0.03] pointer-events-none"></div>
+            <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-[linear-gradient(to_right,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-[0.35] pointer-events-none md:hidden" style={{ transform: 'perspective(500px) rotateX(60deg) translateY(100px) scale(2)' }}></div>
 
             {/* 2. World Map / Data Viz Background (Abstract) */}
             <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
@@ -169,7 +168,7 @@ export default function TerminalHero() {
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-nofx-gold opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-nofx-gold"></span>
                         </span>
-                        <span className="text-xs font-mono text-nofx-gold tracking-widest">NOFX OPEN-SOURCE AGENTIC OS</span>
+                        <span className="text-xs font-mono text-nofx-gold tracking-widest">COMKUN-AI · AGENTIC OS</span>
                     </motion.div>
 
                     {/* Main Title - Massive & Impactful */}
@@ -284,9 +283,9 @@ export default function TerminalHero() {
                 </div>
             </div>
 
-            {/* CRT OVERLAY (Global) */}
-            <div className="absolute inset-0 crt-overlay pointer-events-none z-50 opacity-40"></div>
-        </section >
+            {/* CRT：轻量叠加，与内页 DeepVoid 一致 */}
+            <div className="absolute inset-0 crt-overlay pointer-events-none z-[5] opacity-[0.14]"></div>
+        </section>
     )
 }
 

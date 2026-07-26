@@ -1,5 +1,5 @@
 # NOFX Stable Release Deployment
-# Production-ready stable version
+# 后端：官方 stable 镜像 | 前端：本仓库源码构建（与 docker-compose.prod.yml 一致策略）
 
 services:
   nofx:
@@ -27,9 +27,13 @@ services:
       start_period: 60s
 
   nofx-frontend:
-    image: ghcr.io/nofxaios/nofx/nofx-frontend:stable
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend
     container_name: nofx-frontend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${NOFX_FRONTEND_PORT:-3000}:80"
     networks:

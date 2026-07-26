@@ -67,6 +67,12 @@ func (c *Client) GetCoinData(symbol string, include string) (*QuantData, error) 
 
 	body, err := c.doRequest(endpoint)
 	if err != nil {
+		// claw402-data 网关未必提供「单币量化数据」接口（/api/coin/...），常见表现是 404 not found。
+		// 平台强制走 claw402 时，这类 404 视为“暂无数据”，不要让整轮决策失败/刷屏报错。
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "status 404") || strings.Contains(msg, "not found") {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 

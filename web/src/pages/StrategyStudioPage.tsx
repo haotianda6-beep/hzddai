@@ -1,71 +1,80 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   Plus,
-  Copy,
   Trash2,
   Check,
-  ChevronDown,
-  ChevronRight,
-  Settings,
-  BarChart3,
-  Target,
-  Shield,
   Zap,
   Activity,
   Save,
-  Sparkles,
-  Eye,
-  Play,
-  FileText,
-  Loader2,
-  RefreshCw,
-  Clock,
-  Bot,
-  Terminal,
-  Code,
-  Send,
-  Download,
-  Upload,
   Globe,
+  Tag,
+  X,
+  RefreshCw,
 } from 'lucide-react'
 import type {
   Strategy,
   StrategyConfig,
-  AIModel,
   GridStrategyConfig,
+  StrategyMarketAccess,
 } from '../types'
-import { confirmToast, notify } from '../lib/notify'
-import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
-import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
-import { RiskControlEditor } from '../components/strategy/RiskControlEditor'
-import { PromptSectionsEditor } from '../components/strategy/PromptSectionsEditor'
-import { PublishSettingsEditor } from '../components/strategy/PublishSettingsEditor'
 import {
-  GridConfigEditor,
-  defaultGridConfig,
-} from '../components/strategy/GridConfigEditor'
-import { TokenEstimateBar } from '../components/strategy/TokenEstimateBar'
-import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
+  defaultMartingaleProgramConfig,
+  isProgramMartingaleStrategyStudioStrategy,
+} from '../types/strategy'
+import { confirmToast, notify } from '../lib/notify'
+import { defaultGridConfig } from '../components/strategy/GridConfigEditor'
+import { StrategyStudioLuminescentPanels } from '../components/strategy/studio/StrategyStudioLuminescentPanels'
 import { t } from '../i18n/translations'
+import '../pages/landing/luminescent.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
-const HZ_INSTRUMENTS = new Set(['XAUUSD', 'XAGUSD', 'WTIUSD'])
 
-function isHZCoinSource(source: StrategyConfig['coin_source']) {
+/** 与后端 DB 一致（不含「改过名→市场按仅展示」的虚拟档位） */
+function rawMarketAccess(s: Strategy): StrategyMarketAccess {
+  const a = s.market_access
+  if (
+    a === 'off' ||
+    a === 'private' ||
+    a === 'subscription' ||
+    a === 'public' ||
+    a === 'open_source'
+  ) {
+    return a
+  }
+  if (s.is_public && s.config_visible) return 'public'
+  if (s.is_public && !s.config_visible) return 'subscription'
+  return 'off'
+}
+
+/** 界面与后端一致：只有管理员审核后写入的 market_access 才算已上架。 */
+function effectiveMarketAccess(s: Strategy): StrategyMarketAccess {
+  return rawMarketAccess(s)
+}
+
+function isLockedMarketCopy(s: Strategy): boolean {
+  if (s.content_locked) return true
+  if (s.source_strategy_id && s.source_market_access !== 'open_source')
+    return true
+  const n = (s.name || '').toLowerCase()
   return (
-    source.source_type === 'static' &&
-    !!source.static_coins?.length &&
-    source.static_coins.every((symbol) =>
-      HZ_INSTRUMENTS.has(symbol.toUpperCase())
-    )
+    (n.includes('已购') || n.includes('purchased')) &&
+    !n.includes('开源') &&
+    !n.includes('open source')
   )
 }
 
 export function StrategyStudioPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
+  const [searchParams] = useSearchParams()
+  const strategyIdFromUrl = (
+    searchParams.get('id') ||
+    searchParams.get('strategy') ||
+    ''
+  ).trim()
 
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(
@@ -76,79 +85,18 @@ export function StrategyStudioPage() {
   )
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isPublishingMarket, setIsPublishingMarket] = useState(false)
   const [estimatedTokens, setEstimatedTokens] = useState(0)
+  /** 用于 Token 进度条上限（取估算接口里各模型上下文窗口的最小值，粗代表「预算」） */
+  const [tokenBudget, setTokenBudget] = useState(131072)
   const [error, setError] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [publishMarketOpen, setPublishMarketOpen] = useState(false)
+  const [salePriceDraft, setSalePriceDraft] = useState('')
+  /** 弹窗中选中的市场上架权限 */
+  const [listingDraft, setListingDraft] = useState<StrategyMarketAccess>('off')
 
-  // AI Models for test run
-  const [aiModels, setAiModels] = useState<AIModel[]>([])
-  const [selectedModelId, setSelectedModelId] = useState<string>('')
-
-  // Accordion states for left panel
-  const [expandedSections, setExpandedSections] = useState({
-    gridConfig: true,
-    coinSource: true,
-    indicators: false,
-    riskControl: false,
-    promptSections: false,
-    customPrompt: false,
-    publishSettings: false,
-  })
-
-  // Right panel states
-  const [activeRightTab, setActiveRightTab] = useState<'prompt' | 'test'>(
-    'prompt'
-  )
-  const [promptPreview, setPromptPreview] = useState<{
-    system_prompt: string
-    user_prompt?: string
-    prompt_variant: string
-    config_summary: Record<string, unknown>
-  } | null>(null)
-  const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
-  const [selectedVariant, setSelectedVariant] = useState('balanced')
-
-  // AI Test Run states
-  const [aiTestResult, setAiTestResult] = useState<{
-    system_prompt?: string
-    user_prompt?: string
-    ai_response?: string
-    reasoning?: string
-    decisions?: unknown[]
-    error?: string
-    duration_ms?: number
-  } | null>(null)
-  const [isRunningAiTest, setIsRunningAiTest] = useState(false)
   const gridConfigCacheRef = useRef<Record<string, GridStrategyConfig>>({})
-
-  const toggleSection = (section: keyof typeof expandedSections) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }))
-  }
-
-  // Fetch AI Models
-  const fetchAiModels = useCallback(async () => {
-    if (!token) return
-    try {
-      const response = await fetch(`${API_BASE}/api/models`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        // Backend returns an array, not { models: [] }
-        const allModels = Array.isArray(data) ? data : data.models || []
-        const enabledModels = allModels.filter((m: AIModel) => m.enabled)
-        setAiModels(enabledModels)
-        if (enabledModels.length > 0 && !selectedModelId) {
-          setSelectedModelId(enabledModels[0].id)
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch AI models:', err)
-    }
-  }, [token, selectedModelId])
 
   // Fetch strategies
   const fetchStrategies = useCallback(async () => {
@@ -159,28 +107,44 @@ export function StrategyStudioPage() {
       })
       if (!response.ok) throw new Error('Failed to fetch strategies')
       const data = await response.json()
-      setStrategies(data.strategies || [])
+      const list: Strategy[] = data.strategies || []
+      setStrategies(list)
 
-      // Select active or first strategy
-      const active = data.strategies?.find((s: Strategy) => s.is_active)
-      if (active) {
-        setSelectedStrategy(active)
-        setEditingConfig(active.config)
-      } else if (data.strategies?.length > 0) {
-        setSelectedStrategy(data.strategies[0])
-        setEditingConfig(data.strategies[0].config)
+      let selected: Strategy | null = null
+      if (strategyIdFromUrl) {
+        selected = list.find((x) => x.id === strategyIdFromUrl) ?? null
+        if (!selected) {
+          notify.warning(
+            language === 'zh'
+              ? '该策略不在当前账号下，已打开你的默认策略。从市场进入他人策略时，可复制公开配置到自己的策略中。'
+              : language === 'id'
+                ? 'Strategi ini tidak ada di akun Anda; strategi default dibuka.'
+                : 'That strategy is not in your account; opened your default strategy. For others’ listings, copy the public config into your own strategy.'
+          )
+        }
+      }
+      if (!selected) {
+        selected =
+          list.find((s: Strategy) => s.is_active) ||
+          (list.length > 0 ? list[0] : null)
+      }
+      if (selected) {
+        setSelectedStrategy(selected)
+        setEditingConfig(selected.config)
+      } else {
+        setSelectedStrategy(null)
+        setEditingConfig(null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setIsLoading(false)
     }
-  }, [token])
+  }, [token, strategyIdFromUrl, language])
 
   useEffect(() => {
     fetchStrategies()
-    fetchAiModels()
-  }, [fetchStrategies, fetchAiModels])
+  }, [fetchStrategies])
 
   useEffect(() => {
     if (!selectedStrategy?.id || !editingConfig?.grid_config) return
@@ -189,6 +153,40 @@ export function StrategyStudioPage() {
       ...editingConfig.grid_config,
     }
   }, [selectedStrategy?.id, editingConfig?.grid_config])
+
+  /** Token 估算（原 TokenEstimateBar 逻辑，新 UI 不再内嵌该组件） */
+  useEffect(() => {
+    if (!editingConfig) return
+    const t = window.setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/strategies/estimate-tokens`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: editingConfig }),
+          }
+        )
+        if (response.ok) {
+          const data = await response.json()
+          setEstimatedTokens(data.total ?? 0)
+          const limits = (
+            data.model_limits as { context_limit?: number }[] | undefined
+          )
+            ?.map((m) => m.context_limit)
+            .filter((n): n is number => typeof n === 'number' && n > 0)
+          if (limits && limits.length > 0) {
+            setTokenBudget(Math.min(...limits))
+          } else {
+            setTokenBudget(131072)
+          }
+        }
+      } catch {
+        /* 非关键 */
+      }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [editingConfig])
 
   // Track previous language to detect actual changes
   const prevLanguageRef = useRef(language)
@@ -211,13 +209,13 @@ export function StrategyStudioPage() {
         if (!response.ok) return
         const defaultConfig = await response.json()
 
-        // Update only the prompt sections and language field
+        // 随界面语言切换默认「一整段策略」模板
         setEditingConfig((prev) => {
           if (!prev) return prev
           return {
             ...prev,
             language: language as 'zh' | 'en',
-            prompt_sections: defaultConfig.prompt_sections,
+            strategy_prompt: defaultConfig.strategy_prompt,
           }
         })
         setHasChanges(true)
@@ -264,8 +262,11 @@ export function StrategyStudioPage() {
           description: '',
           is_active: false,
           is_default: false,
+          market_access: 'off' as StrategyMarketAccess,
+          show_after_rename: false,
           is_public: false,
           config_visible: true,
+          content_locked: false,
           config: defaultConfig,
           created_at: now,
           updated_at: now,
@@ -336,30 +337,6 @@ export function StrategyStudioPage() {
     }
   }
 
-  // Duplicate strategy
-  const handleDuplicateStrategy = async (id: string) => {
-    if (!token) return
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/strategies/${id}/duplicate`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: tr('strategyCopy'),
-          }),
-        }
-      )
-      if (!response.ok) throw new Error('Failed to duplicate strategy')
-      await fetchStrategies()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    }
-  }
-
   // Activate strategy
   const handleActivateStrategy = async (id: string) => {
     if (!token) return
@@ -378,68 +355,119 @@ export function StrategyStudioPage() {
     }
   }
 
-  // Export strategy as JSON file
-  const handleExportStrategy = (strategy: Strategy) => {
-    const exportData = {
-      name: strategy.name,
-      description: strategy.description,
-      config: strategy.config,
-      exported_at: new Date().toISOString(),
-      version: '1.0',
+  /** 已上架策略：把当前内容推送到策略市场并递增 market_revision，便于订阅方检测新版本 */
+  const handlePublishMarketUpdate = async () => {
+    if (!token || !selectedStrategy || !editingConfig) return
+    if (effectiveMarketAccess(selectedStrategy) === 'off') {
+      notify.error(tr('marketUpdateNeedsPublic'))
+      return
     }
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `strategy_${strategy.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    notify.success(tr('strategyExported'))
+    setIsPublishingMarket(true)
+    try {
+      const configWithLanguage = {
+        ...editingConfig,
+        language: language as 'zh' | 'en',
+      }
+      const response = await fetch(
+        `${API_BASE}/api/strategies/${selectedStrategy.id}/market-update`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: selectedStrategy.name,
+            description: selectedStrategy.description,
+            config: configWithLanguage,
+            market_access: effectiveMarketAccess(selectedStrategy),
+          }),
+        }
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        notify.error(
+          typeof data.error === 'string' ? data.error : tr('marketUpdateFailed')
+        )
+        return
+      }
+      setHasChanges(false)
+      const rev =
+        typeof data.market_revision === 'number'
+          ? data.market_revision
+          : undefined
+      const updatedAt =
+        typeof data.updated_at === 'string' ? data.updated_at : undefined
+      setSelectedStrategy((s) => {
+        if (!s || s.id !== selectedStrategy.id) return s
+        return {
+          ...s,
+          ...(rev != null ? { market_revision: rev } : {}),
+          ...(updatedAt ? { updated_at: updatedAt } : {}),
+        }
+      })
+      setStrategies((list) =>
+        list.map((s) =>
+          s.id === selectedStrategy.id
+            ? {
+                ...s,
+                ...(rev != null ? { market_revision: rev } : {}),
+                ...(updatedAt ? { updated_at: updatedAt } : {}),
+              }
+            : s
+        )
+      )
+      notify.success(
+        rev != null
+          ? tr('marketUpdateSuccess').replace('{{rev}}', String(rev))
+          : tr('marketUpdateSuccess').replace('{{rev}}', '?')
+      )
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : tr('marketUpdateFailed')
+      )
+    } finally {
+      setIsPublishingMarket(false)
+    }
   }
 
-  // Import strategy from JSON file
-  const handleImportStrategy = async (
-    event: React.ChangeEvent<HTMLInputElement>
+  /** 保存策略到服务器（构建器保存按钮与「发布到市场」弹窗共用） */
+  const putStrategyToServer = async (
+    strategyId: string,
+    payload: {
+      name: string
+      description: string
+      config: StrategyConfig
+      market_access: StrategyMarketAccess
+    }
   ) => {
-    const file = event.target.files?.[0]
-    if (!file || !token) return
-
-    try {
-      const text = await file.text()
-      const importData = JSON.parse(text)
-
-      // Validate imported data
-      if (!importData.config || !importData.name) {
-        throw new Error(tr('invalidStrategyFile'))
+    if (!token) throw new Error('Unauthorized')
+    const configWithLanguage = {
+      ...payload.config,
+      language: language as 'zh' | 'en',
+    }
+    const response = await fetch(`${API_BASE}/api/strategies/${strategyId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: payload.name,
+        description: payload.description,
+        config: configWithLanguage,
+        market_access: payload.market_access,
+      }),
+    })
+    if (!response.ok) {
+      let msg = 'Failed to save strategy'
+      try {
+        const j = (await response.json()) as { error?: string }
+        if (j?.error) msg = j.error
+      } catch {
+        /* ignore */
       }
-
-      // Create new strategy with imported config
-      const response = await fetch(`${API_BASE}/api/strategies`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: `${importData.name} (${tr('imported')})`,
-          description: importData.description || '',
-          config: importData.config,
-        }),
-      })
-      if (!response.ok) throw new Error('Failed to import strategy')
-
-      notify.success(tr('strategyImported'))
-      await fetchStrategies()
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      notify.error(errorMsg)
-    } finally {
-      // Reset file input
-      event.target.value = ''
+      throw new Error(msg)
     }
   }
 
@@ -452,29 +480,12 @@ export function StrategyStudioPage() {
     }
     setIsSaving(true)
     try {
-      // Always sync the config language with the current interface language
-      const configWithLanguage = {
-        ...editingConfig,
-        language: language as 'zh' | 'en',
-      }
-      const response = await fetch(
-        `${API_BASE}/api/strategies/${selectedStrategy.id}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: selectedStrategy.name,
-            description: selectedStrategy.description,
-            config: configWithLanguage,
-            is_public: selectedStrategy.is_public,
-            config_visible: selectedStrategy.config_visible,
-          }),
-        }
-      )
-      if (!response.ok) throw new Error('Failed to save strategy')
+      await putStrategyToServer(selectedStrategy.id, {
+        name: selectedStrategy.name,
+        description: selectedStrategy.description,
+        config: editingConfig,
+        market_access: rawMarketAccess(selectedStrategy),
+      })
       setHasChanges(false)
       notify.success(tr('strategySaved'))
       await fetchStrategies()
@@ -500,34 +511,16 @@ export function StrategyStudioPage() {
     setHasChanges(true)
   }
 
-  const updateCoinSource = (coinSource: StrategyConfig['coin_source']) => {
-    setEditingConfig((prev) => {
-      if (!prev) return prev
-      const hzMode = isHZCoinSource(coinSource)
-      const leverage = hzMode
-        ? prev.risk_control.altcoin_max_leverage >= 100
-          ? prev.risk_control.altcoin_max_leverage
-          : 500
-        : prev.risk_control.altcoin_max_leverage > 20
-          ? 5
-          : prev.risk_control.altcoin_max_leverage
-      return {
-        ...prev,
-        coin_source: coinSource,
-        risk_control: {
-          ...prev.risk_control,
-          btc_eth_max_leverage: leverage,
-          altcoin_max_leverage: leverage,
-        },
-      }
-    })
-    setHasChanges(true)
-  }
-
   const handleStrategyTypeChange = (
     strategyType: NonNullable<StrategyConfig['strategy_type']>
   ) => {
     if (selectedStrategy?.is_default) return
+    if (
+      strategyType === 'program_martingale' &&
+      !isProgramMartingaleStrategyStudioStrategy(selectedStrategy?.id)
+    ) {
+      return
+    }
 
     const cachedGridConfig = selectedStrategy?.id
       ? gridConfigCacheRef.current[selectedStrategy.id]
@@ -546,94 +539,59 @@ export function StrategyStudioPage() {
         return {
           ...prev,
           strategy_type: 'ai_trading',
-          // Use null so the field is preserved in JSON and backend merge can actually clear it.
           grid_config: null,
+          martingale_program: null,
+        }
+      }
+
+      if (strategyType === 'program_martingale') {
+        return {
+          ...prev,
+          strategy_type: 'program_martingale',
+          grid_config: null,
+          martingale_program: prev.martingale_program ?? {
+            ...defaultMartingaleProgramConfig,
+          },
+          coin_source: {
+            source_type: 'static',
+            static_coins: ['XAUUSDT'],
+            use_ai500: false,
+            use_oi_top: false,
+            use_oi_low: false,
+            use_hyper_all: false,
+            use_hyper_main: false,
+          },
+          risk_control: {
+            ...prev.risk_control,
+            max_positions: 1,
+            btc_eth_max_leverage: 20,
+            altcoin_max_leverage: 20,
+            max_margin_usage: 0.06,
+          },
         }
       }
 
       return {
         ...prev,
         strategy_type: 'grid_trading',
+        martingale_program: null,
         grid_config: cachedGridConfig ??
           prev.grid_config ?? { ...defaultGridConfig },
       }
     })
 
-    setPromptPreview(null)
-    setAiTestResult(null)
     setHasChanges(true)
-  }
-
-  // Fetch prompt preview
-  const fetchPromptPreview = async () => {
-    if (!token || !editingConfig) return
-    setIsLoadingPrompt(true)
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/strategies/preview-prompt`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            config: editingConfig,
-            account_equity: 1000,
-            prompt_variant: selectedVariant,
-          }),
-        }
-      )
-      if (!response.ok) throw new Error('Failed to fetch prompt preview')
-      const data = await response.json()
-      setPromptPreview(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setIsLoadingPrompt(false)
-    }
-  }
-
-  // Run AI test with real AI model
-  const runAiTest = async () => {
-    if (!token || !editingConfig || !selectedModelId) return
-    setIsRunningAiTest(true)
-    setAiTestResult(null)
-    try {
-      const response = await fetch(`${API_BASE}/api/strategies/test-run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          config: editingConfig,
-          prompt_variant: selectedVariant,
-          ai_model_id: selectedModelId,
-          run_real_ai: true,
-        }),
-      })
-      if (!response.ok) throw new Error('Failed to run AI test')
-      const data = await response.json()
-      setAiTestResult(data)
-    } catch (err) {
-      setAiTestResult({
-        error: err instanceof Error ? err.message : 'Unknown error',
-      })
-    } finally {
-      setIsRunningAiTest(false)
-    }
   }
 
   const tr = (key: string) => t(`strategyStudio.${key}`, language)
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[70vh]">
+      <div className="flex min-h-[70vh] items-center justify-center bg-nofx-bg">
         <div className="text-center">
           <div className="relative">
-            <div className="w-16 h-16 rounded-full border-4 border-yellow-500/20 border-t-yellow-500 animate-spin" />
-            <Zap className="w-6 h-6 text-yellow-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <div className="h-16 w-16 animate-spin rounded-full border-4 border-[#d4ff33]/20 border-t-[#d4ff33]" />
+            <Zap className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-[#d4ff33]" />
           </div>
         </div>
       </div>
@@ -643,206 +601,40 @@ export function StrategyStudioPage() {
   // Get current strategy type (default to ai_trading if not set)
   const currentStrategyType = editingConfig?.strategy_type || 'ai_trading'
 
-  const configSections = [
-    // Grid Config - only for grid_trading
-    {
-      key: 'gridConfig' as const,
-      icon: Activity,
-      color: '#0ECB81',
-      title: tr('gridConfig'),
-      forStrategyType: 'grid_trading' as const,
-      content: editingConfig?.grid_config && (
-        <GridConfigEditor
-          config={editingConfig.grid_config}
-          onChange={(gridConfig) => updateConfig('grid_config', gridConfig)}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-    // AI Trading sections
-    {
-      key: 'coinSource' as const,
-      icon: Target,
-      color: '#F0B90B',
-      title: tr('coinSource'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <CoinSourceEditor
-          config={editingConfig.coin_source}
-          onChange={updateCoinSource}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-    {
-      key: 'indicators' as const,
-      icon: BarChart3,
-      color: '#0ECB81',
-      title: tr('indicators'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <IndicatorEditor
-          config={editingConfig.indicators}
-          onChange={(indicators) => updateConfig('indicators', indicators)}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-    {
-      key: 'riskControl' as const,
-      icon: Shield,
-      color: '#F6465D',
-      title: tr('riskControl'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <RiskControlEditor
-          config={editingConfig.risk_control}
-          onChange={(riskControl) => updateConfig('risk_control', riskControl)}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-          hzMode={isHZCoinSource(editingConfig.coin_source)}
-        />
-      ),
-    },
-    {
-      key: 'promptSections' as const,
-      icon: FileText,
-      color: '#a855f7',
-      title: tr('promptSections'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <PromptSectionsEditor
-          config={editingConfig.prompt_sections}
-          onChange={(promptSections) =>
-            updateConfig('prompt_sections', promptSections)
-          }
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-    {
-      key: 'customPrompt' as const,
-      icon: Settings,
-      color: '#60a5fa',
-      title: tr('customPrompt'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <div>
-          <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-            {tr('customPromptDesc')}
-          </p>
-          <textarea
-            value={editingConfig.custom_prompt || ''}
-            onChange={(e) => updateConfig('custom_prompt', e.target.value)}
-            disabled={selectedStrategy?.is_default}
-            placeholder={tr('customPromptPlaceholder')}
-            className="w-full h-32 px-3 py-2 rounded-lg resize-none font-mono text-xs"
-            style={{
-              background: '#0B0E11',
-              border: '1px solid #2B3139',
-              color: '#EAECEF',
-            }}
-          />
-        </div>
-      ),
-    },
-    {
-      key: 'publishSettings' as const,
-      icon: Globe,
-      color: '#0ECB81',
-      title: tr('publishSettings'),
-      forStrategyType: 'both' as const,
-      content: selectedStrategy && (
-        <PublishSettingsEditor
-          isPublic={selectedStrategy.is_public ?? false}
-          configVisible={selectedStrategy.config_visible ?? true}
-          onIsPublicChange={(value) => {
-            setSelectedStrategy({ ...selectedStrategy, is_public: value })
-            setHasChanges(true)
-          }}
-          onConfigVisibleChange={(value) => {
-            setSelectedStrategy({ ...selectedStrategy, config_visible: value })
-            setHasChanges(true)
-          }}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-  ].filter(
-    (section) =>
-      section.forStrategyType === 'both' ||
-      section.forStrategyType === currentStrategyType
-  )
-
   return (
-    <DeepVoidBackground className="h-[calc(100vh-64px)] flex flex-col bg-nofx-bg relative overflow-hidden">
-      {/* Header */}
-      {/* Header */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-nofx-gold/20 bg-nofx-bg/60 backdrop-blur-md z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-nofx-gold to-yellow-500">
-              <Sparkles className="w-5 h-5 text-black" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-nofx-text">
-                {tr('title')}
-              </h1>
-              <p className="text-xs text-nofx-text-muted">{tr('subtitle')}</p>
-            </div>
-          </div>
-          {error && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-nofx-danger/10 text-nofx-danger">
-              {error}
-              <button
-                onClick={() => setError(null)}
-                className="hover:underline"
-              >
-                ×
-              </button>
-            </div>
-          )}
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col bg-surface text-on-surface lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden">
+      {error && (
+        <div className="shrink-0 border-b border-error/30 bg-error/10 px-4 py-2 text-center text-xs text-error">
+          {error}{' '}
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="underline"
+          >
+            关闭
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* Main Content - Three Columns */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Column - Strategy List */}
-        <div className="w-48 flex-shrink-0 border-r border-nofx-gold/20 overflow-y-auto bg-nofx-bg/30 backdrop-blur-sm z-10">
+      <div className="flex min-h-0 flex-1 flex-col overflow-visible lg:flex-row lg:overflow-hidden">
+        <div className="z-10 max-h-44 shrink-0 overflow-y-auto border-b border-[#46484d]/30 bg-nofx-bg-tertiary lg:max-h-none lg:w-52 lg:border-b-0 lg:border-r">
           <div className="p-2">
             <div className="flex items-center justify-between mb-2 px-2">
-              <span className="text-xs font-medium text-nofx-text-muted">
+              <span className="text-xs font-medium text-[#aaabb0]">
                 {tr('strategies')}
               </span>
               <div className="flex items-center gap-1">
-                {/* Import button with hidden file input */}
-                <label
-                  className="p-1 rounded hover:bg-white/10 transition-colors cursor-pointer text-nofx-text-muted hover:text-white"
-                  title={tr('importStrategy')}
-                >
-                  <Upload className="w-4 h-4" />
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportStrategy}
-                    className="hidden"
-                  />
-                </label>
                 <button
+                  type="button"
                   onClick={handleCreateStrategy}
-                  className="p-1 rounded hover:bg-white/10 transition-colors text-nofx-gold"
+                  className="rounded p-1 text-[#d4ff33] transition-colors hover:bg-[#d4ff33]/10"
                   title={tr('newStrategyTooltip')}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-x-visible lg:pb-0">
               {strategies.map((strategy) => (
                 <div
                   key={strategy.id}
@@ -850,78 +642,61 @@ export function StrategyStudioPage() {
                     setSelectedStrategy(strategy)
                     setEditingConfig(strategy.config)
                     setHasChanges(false)
-                    setPromptPreview(null)
-                    setAiTestResult(null)
                   }}
-                  className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${
+                  className={`group min-w-[160px] cursor-pointer rounded-lg px-2 py-2 transition-all lg:min-w-0 ${
                     selectedStrategy?.id === strategy.id
-                      ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'
-                      : 'hover:bg-nofx-bg-lighter/60 ring-1 ring-white/10 hover:ring-nofx-gold/20 bg-transparent'
+                      ? 'bg-[#d4ff33]/10 shadow-[0_0_12px_rgba(212,255,51,0.12)] ring-1 ring-[#d4ff33]/45'
+                      : 'bg-transparent ring-1 ring-[#46484d]/40 hover:bg-white/5 hover:ring-[#d4ff33]/25'
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <span
-                      className={`line-clamp-2 text-nofx-text ${language === 'zh' ? 'text-sm' : 'text-xs'}`}
+                      className={`line-clamp-2 text-[#f6f6fc] ${language === 'zh' ? 'text-sm' : 'text-xs'}`}
                     >
                       {strategy.name}
                     </span>
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleExportStrategy(strategy)
-                        }}
-                        className="p-1 rounded hover:bg-white/10 text-nofx-text-muted hover:text-white"
-                        title={tr('export')}
-                      >
-                        <Download className="w-3 h-3" />
-                      </button>
-                      {!strategy.is_default && (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDuplicateStrategy(strategy.id)
-                            }}
-                            className="p-1 rounded hover:bg-white/10 text-nofx-text-muted hover:text-white"
-                            title={tr('duplicate')}
-                          >
-                            <Copy className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteStrategy(strategy.id)
-                            }}
-                            disabled={strategy.is_active}
-                            className="p-1 rounded hover:bg-nofx-danger/20 text-nofx-danger disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                            title={
-                              strategy.is_active
-                                ? tr('cannotDeleteActiveStrategy')
-                                : tr('deleteTooltip')
-                            }
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {!strategy.is_default && (
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteStrategy(strategy.id)
+                          }}
+                          disabled={strategy.is_active}
+                          className="rounded p-1 text-red-400 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                          title={
+                            strategy.is_active
+                              ? tr('cannotDeleteActiveStrategy')
+                              : tr('deleteTooltip')
+                          }
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {strategy.is_active && (
-                      <span className="px-1.5 py-0.5 text-[10px] rounded bg-nofx-success/15 text-nofx-success">
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400">
                         {tr('active')}
                       </span>
                     )}
                     {strategy.is_default && (
-                      <span className="px-1.5 py-0.5 text-[10px] rounded bg-nofx-gold/15 text-nofx-gold">
+                      <span className="rounded bg-[#d4ff33]/15 px-1.5 py-0.5 text-[10px] text-[#d4ff33]">
                         {tr('default')}
                       </span>
                     )}
-                    {strategy.is_public && (
-                      <span className="px-1.5 py-0.5 text-[10px] rounded flex items-center gap-0.5 bg-blue-400/15 text-blue-400">
-                        <Globe className="w-2.5 h-2.5" />
-                        {tr('public')}
+                    {effectiveMarketAccess(strategy) !== 'off' && (
+                      <span className="flex items-center gap-0.5 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">
+                        <Globe className="h-2.5 w-2.5" />
+                        {effectiveMarketAccess(strategy) === 'subscription' &&
+                          tr('marketAccessSubscription')}
+                        {effectiveMarketAccess(strategy) === 'public' &&
+                          tr('marketAccessPublic')}
+                        {effectiveMarketAccess(strategy) === 'open_source' &&
+                          tr('marketAccessOpenSource')}
+                        {effectiveMarketAccess(strategy) === 'private' &&
+                          tr('marketAccessPrivate')}
                       </span>
                     )}
                   </div>
@@ -931,12 +706,12 @@ export function StrategyStudioPage() {
           </div>
         </div>
 
-        {/* Middle Column - Config Editor */}
-        <div className="flex-1 min-w-0 overflow-y-auto border-r border-nofx-gold/20">
+        {/* Middle Column - Config Editor（内部标签切换网格 / AI，本列负责纵向撑满与滚动） */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-visible bg-surface lg:overflow-hidden">
           {selectedStrategy && editingConfig ? (
-            <div className="p-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
               {/* Strategy Name & Actions */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex shrink-0 flex-col gap-3 border-b border-outline-variant/20 pb-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <input
                     type="text"
@@ -948,8 +723,11 @@ export function StrategyStudioPage() {
                       })
                       setHasChanges(true)
                     }}
-                    disabled={selectedStrategy.is_default}
-                    className="text-lg font-bold bg-transparent border-none outline-none w-full text-nofx-text placeholder-nofx-text-muted"
+                    disabled={
+                      selectedStrategy.is_default ||
+                      isLockedMarketCopy(selectedStrategy)
+                    }
+                    className="w-full border-none bg-transparent text-lg font-bold text-[#f6f6fc] outline-none placeholder:text-[#aaabb0]/60"
                   />
                   <input
                     type="text"
@@ -961,442 +739,292 @@ export function StrategyStudioPage() {
                       })
                       setHasChanges(true)
                     }}
-                    disabled={selectedStrategy.is_default}
+                    disabled={
+                      selectedStrategy.is_default ||
+                      isLockedMarketCopy(selectedStrategy)
+                    }
                     placeholder={tr('addDescription')}
-                    className="text-xs bg-transparent border-none outline-none w-full text-nofx-text-muted placeholder-nofx-text-muted/50 mt-1"
+                    className="mt-1 w-full border-none bg-transparent text-xs text-[#aaabb0] outline-none placeholder:text-[#aaabb0]/50"
                   />
                   {hasChanges && (
-                    <span className="text-xs text-nofx-gold">
+                    <span className="text-xs text-[#d4ff33]">
                       ● {tr('unsaved')}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0">
                   {!selectedStrategy.is_active && (
                     <button
                       onClick={() =>
                         handleActivateStrategy(selectedStrategy.id)
                       }
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors bg-nofx-success/10 border border-nofx-success/30 text-nofx-success hover:bg-nofx-success/20"
+                      className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 transition-colors hover:bg-emerald-500/20 sm:flex-none"
                     >
                       <Check className="w-3 h-3" />
                       {tr('activate')}
                     </button>
                   )}
-                  {!selectedStrategy.is_default && (
-                    <button
-                      onClick={handleSaveStrategy}
-                      disabled={isSaving || !hasChanges}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50
-                        ${hasChanges ? 'bg-nofx-gold text-black hover:bg-yellow-500' : 'bg-nofx-bg-lighter text-nofx-text-muted cursor-not-allowed'}`}
-                    >
-                      <Save className="w-3 h-3" />
-                      {isSaving ? tr('saving') : tr('save')}
-                    </button>
-                  )}
+                  {!selectedStrategy.is_default &&
+                    !isLockedMarketCopy(selectedStrategy) && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = editingConfig.market_sale_price_usdt
+                            setSalePriceDraft(
+                              cur != null && cur > 0 ? String(cur) : ''
+                            )
+                            setListingDraft(
+                              effectiveMarketAccess(selectedStrategy) ===
+                                'off' ||
+                                effectiveMarketAccess(selectedStrategy) ===
+                                  'private'
+                                ? 'subscription'
+                                : effectiveMarketAccess(selectedStrategy)
+                            )
+                            setPublishMarketOpen(true)
+                          }}
+                          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 sm:flex-none"
+                        >
+                          <Tag className="h-3 w-3" />
+                          {tr('marketListingSection')}
+                        </button>
+                        {effectiveMarketAccess(selectedStrategy) !== 'off' && (
+                          <button
+                            type="button"
+                            onClick={() => void handlePublishMarketUpdate()}
+                            disabled={isPublishingMarket || isSaving}
+                            title={tr('marketUpdateHint')}
+                            className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-[#d4ff33]/45 bg-[#d4ff33]/10 px-3 py-1.5 text-xs font-medium text-[#d4ff33] transition-colors hover:bg-[#d4ff33]/18 disabled:opacity-50 sm:flex-none"
+                          >
+                            <RefreshCw
+                              className={`h-3 w-3 ${isPublishingMarket ? 'animate-spin' : ''}`}
+                            />
+                            {isPublishingMarket
+                              ? tr('marketUpdating')
+                              : tr('marketUpdate')}
+                          </button>
+                        )}
+                        <button
+                          onClick={handleSaveStrategy}
+                          disabled={
+                            isSaving || !hasChanges || isPublishingMarket
+                          }
+                          className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 sm:flex-none ${
+                            hasChanges
+                              ? 'bg-[#d4ff33] text-black hover:bg-[#d4ff33]'
+                              : 'cursor-not-allowed bg-nofx-bg-secondary text-[#aaabb0]'
+                          }`}
+                        >
+                          <Save className="w-3 h-3" />
+                          {isSaving ? tr('saving') : tr('save')}
+                        </button>
+                      </>
+                    )}
                 </div>
               </div>
 
-              {/* Token Estimate Bar */}
-              {currentStrategyType === 'ai_trading' && (
-                <div className="mb-4">
-                  <TokenEstimateBar
-                    config={editingConfig}
-                    language={language}
-                    onTokenCountChange={setEstimatedTokens}
-                  />
-                </div>
-              )}
-
-              {/* Strategy Type Selector */}
-              {editingConfig && (
-                <div className="mb-4 p-4 rounded-lg bg-nofx-bg-lighter border border-nofx-gold/20">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                    <span className="text-sm font-medium text-nofx-text">
-                      {tr('strategyType')}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+              {publishMarketOpen && selectedStrategy && editingConfig && (
+                <div
+                  className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/60 p-3 backdrop-blur-sm sm:items-center sm:p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="publish-market-title"
+                >
+                  <div className="relative w-full max-w-lg rounded-2xl border border-outline-variant/30 bg-surface-container-high p-5 shadow-2xl">
                     <button
-                      onClick={() => handleStrategyTypeChange('ai_trading')}
-                      disabled={selectedStrategy?.is_default}
-                      className={`p-3 rounded-lg border transition-all ${
-                        !editingConfig.strategy_type ||
-                        editingConfig.strategy_type === 'ai_trading'
-                          ? 'border-nofx-gold bg-nofx-gold/10'
-                          : 'border-nofx-border hover:border-nofx-gold/50'
-                      }`}
+                      type="button"
+                      className="absolute right-3 top-3 rounded p-1 text-on-surface-variant hover:bg-surface-container-lowest hover:text-on-surface"
+                      onClick={() => setPublishMarketOpen(false)}
+                      aria-label="关闭"
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <Bot className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                        <span className="text-sm font-medium text-nofx-text">
-                          {tr('aiTrading')}
-                        </span>
-                      </div>
-                      <p className="text-xs text-nofx-text-muted text-left">
-                        {tr('aiTradingDesc')}
-                      </p>
+                      <X className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={() => handleStrategyTypeChange('grid_trading')}
-                      disabled={selectedStrategy?.is_default}
-                      className={`p-3 rounded-lg border transition-all ${
-                        editingConfig.strategy_type === 'grid_trading'
-                          ? 'border-nofx-gold bg-nofx-gold/10'
-                          : 'border-nofx-border hover:border-nofx-gold/50'
-                      }`}
+                    <h3
+                      id="publish-market-title"
+                      className="pr-8 text-lg font-bold text-on-surface"
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <Activity
-                          className="w-4 h-4"
-                          style={{ color: '#0ECB81' }}
-                        />
-                        <span className="text-sm font-medium text-nofx-text">
-                          {tr('gridTrading')}
-                        </span>
-                      </div>
-                      <p className="text-xs text-nofx-text-muted text-left">
-                        {tr('gridTradingDesc')}
-                      </p>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Config Sections */}
-              <div className="space-y-2">
-                {configSections.map(
-                  ({ key, icon: Icon, color, title, content }) => (
-                    <div
-                      key={key}
-                      className="rounded-lg overflow-hidden bg-nofx-bg-lighter border border-nofx-gold/20"
-                    >
-                      <button
-                        onClick={() => toggleSection(key)}
-                        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/5 transition-colors"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon className="w-4 h-4" style={{ color }} />
-                          <span className="text-sm font-medium text-nofx-text">
-                            {title}
+                      {tr('marketListingSection')}
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                      {tr('marketListingHint')}
+                    </p>
+                    <div className="mt-4 max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+                      {(
+                        [
+                          ['subscription', 'marketAccessSubscription'],
+                          ['public', 'marketAccessPublic'],
+                          ['open_source', 'marketAccessOpenSource'],
+                        ] as const
+                      ).map(([value, labelKey]) => (
+                        <label
+                          key={value}
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                            listingDraft === value
+                              ? 'border-primary bg-primary/10 text-on-surface'
+                              : 'border-outline-variant/25 bg-surface-container-lowest/80 text-on-surface-variant hover:border-outline-variant/50'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="market-listing"
+                            className="mt-0.5 accent-primary"
+                            checked={listingDraft === value}
+                            onChange={() => setListingDraft(value)}
+                          />
+                          <span className="text-on-surface">
+                            {tr(labelKey)}
                           </span>
-                        </div>
-                        {expandedSections[key] ? (
-                          <ChevronDown className="w-4 h-4 text-nofx-text-muted" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-nofx-text-muted" />
-                        )}
-                      </button>
-                      {expandedSections[key] && (
-                        <div className="px-3 pb-3">{content}</div>
-                      )}
+                        </label>
+                      ))}
                     </div>
-                  )
+                    <div className="mt-4 rounded-lg border border-outline-variant/20 bg-surface-container-lowest/60 p-3">
+                      <div className="text-xs font-semibold text-on-surface">
+                        {tr('marketSaleSection')}
+                      </div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">
+                        {tr('marketSaleHint')}
+                      </p>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={salePriceDraft}
+                        onChange={(e) => setSalePriceDraft(e.target.value)}
+                        placeholder="USDT"
+                        className="mt-2 w-full rounded-lg border border-outline-variant/25 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface focus:outline-none"
+                      />
+                    </div>
+                    <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-outline-variant/30 px-4 py-2 text-sm text-on-surface-variant hover:bg-surface-container-lowest"
+                        onClick={() => setPublishMarketOpen(false)}
+                      >
+                        {tr('cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black hover:bg-[#d4ff33] disabled:opacity-50"
+                        onClick={() => {
+                          void (async () => {
+                            const raw = salePriceDraft.trim()
+                            const p = raw === '' ? NaN : parseFloat(raw)
+                            if (listingDraft === 'subscription') {
+                              if (!Number.isFinite(p) || p <= 0) {
+                                notify.error(
+                                  language === 'zh'
+                                    ? '选择「需订阅」时请填写大于 0 的售卖价格'
+                                    : 'Subscription requires sale price > 0'
+                                )
+                                return
+                              }
+                            }
+                            if (!token || !selectedStrategy || !editingConfig)
+                              return
+
+                            const nextConfig: StrategyConfig = {
+                              ...editingConfig,
+                            }
+                            if (listingDraft === 'subscription') {
+                              nextConfig.market_sale_price_usdt = p
+                            } else if (Number.isFinite(p) && p >= 0) {
+                              nextConfig.market_sale_price_usdt = p
+                            } else {
+                              delete nextConfig.market_sale_price_usdt
+                            }
+
+                            setIsSaving(true)
+                            try {
+                              await putStrategyToServer(selectedStrategy.id, {
+                                name: selectedStrategy.name,
+                                description: selectedStrategy.description,
+                                config: nextConfig,
+                                market_access: listingDraft,
+                              })
+                              setEditingConfig(nextConfig)
+                              setSelectedStrategy((s) => {
+                                if (!s) return s
+                                return {
+                                  ...s,
+                                  market_access: listingDraft,
+                                  is_public: listingDraft !== 'off',
+                                  config_visible:
+                                    listingDraft === 'open_source',
+                                }
+                              })
+                              setHasChanges(false)
+                              setPublishMarketOpen(false)
+                              notify.success(tr('strategySaved'))
+                              await fetchStrategies()
+                            } catch (err) {
+                              notify.error(
+                                err instanceof Error ? err.message : '保存失败'
+                              )
+                            } finally {
+                              setIsSaving(false)
+                            }
+                          })()
+                        }}
+                      >
+                        {isSaving ? tr('saving') : tr('listingDialogConfirm')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 必须是 flex 列，子面板里的 flex-1 + overflow-y-auto 才能拿到固定高度并出现纵向滚动 */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-visible lg:overflow-hidden">
+                {isLockedMarketCopy(selectedStrategy) ? (
+                  <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-[#d4ff33]/20 bg-[#d4ff33]/5 p-8 text-center">
+                    <div className="max-w-lg">
+                      <Globe className="mx-auto mb-4 h-10 w-10 text-[#d4ff33]" />
+                      <h2 className="text-xl font-bold text-white">
+                        该作者未公开策略内容
+                      </h2>
+                      <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                        该策略只可使用，不能查看或修改内容。你仍然可以在创建交易员时选择它运行。
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <StrategyStudioLuminescentPanels
+                    editingConfig={editingConfig}
+                    selectedStrategy={selectedStrategy}
+                    currentStrategyType={currentStrategyType}
+                    updateConfig={updateConfig}
+                    editorsDisabled={!!selectedStrategy.is_default}
+                    gridEditorDisabled={currentStrategyType !== 'grid_trading'}
+                    aiEditorDisabled={
+                      currentStrategyType !== 'ai_trading' &&
+                      currentStrategyType !== 'program_martingale'
+                    }
+                    martingaleEditorDisabled={
+                      !isProgramMartingaleStrategyStudioStrategy(
+                        selectedStrategy.id
+                      ) || currentStrategyType !== 'program_martingale'
+                    }
+                    estimatedTokens={estimatedTokens}
+                    tokenBudget={tokenBudget}
+                    onStrategyTypeChange={handleStrategyTypeChange}
+                    strategyTypeSwitchDisabled={!!selectedStrategy.is_default}
+                  />
                 )}
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex h-full items-center justify-center">
               <div className="text-center">
-                <Activity className="w-12 h-12 mx-auto mb-2 opacity-30 text-nofx-text-muted" />
-                <p className="text-sm text-nofx-text-muted">
-                  {tr('selectOrCreate')}
-                </p>
+                <Activity className="mx-auto mb-2 h-12 w-12 opacity-30 text-[#aaabb0]" />
+                <p className="text-sm text-[#aaabb0]">{tr('selectOrCreate')}</p>
               </div>
             </div>
           )}
         </div>
-
-        {/* Right Column - Prompt Preview & AI Test */}
-        <div className="w-[420px] flex-shrink-0 flex flex-col overflow-hidden">
-          {/* Tabs */}
-          <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
-            <button
-              onClick={() => setActiveRightTab('prompt')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeRightTab === 'prompt'
-                  ? 'border-b-2 border-purple-500 text-purple-500'
-                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-              }`}
-            >
-              <Eye className="w-4 h-4" />
-              {tr('promptPreview')}
-            </button>
-            <button
-              onClick={() => setActiveRightTab('test')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeRightTab === 'test'
-                  ? 'border-b-2 border-green-500 text-green-500'
-                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-              }`}
-            >
-              <Play className="w-4 h-4" />
-              {tr('aiTestRun')}
-            </button>
-          </div>
-
-          {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto">
-            {activeRightTab === 'prompt' ? (
-              /* Prompt Preview Tab */
-              <div className="p-3 space-y-3">
-                {/* Controls */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <select
-                    value={selectedVariant}
-                    onChange={(e) => setSelectedVariant(e.target.value)}
-                    className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold"
-                  >
-                    <option value="balanced">{tr('balanced')}</option>
-                    <option value="aggressive">{tr('aggressive')}</option>
-                    <option value="conservative">{tr('conservative')}</option>
-                  </select>
-                  <button
-                    onClick={fetchPromptPreview}
-                    disabled={isLoadingPrompt || !editingConfig}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 hover:bg-purple-700 text-white"
-                  >
-                    {isLoadingPrompt ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3 h-3" />
-                    )}
-                    {promptPreview ? tr('refreshPrompt') : tr('loadPrompt')}
-                  </button>
-                </div>
-
-                {promptPreview ? (
-                  <>
-                    {/* Config Summary */}
-                    <div className="p-2 rounded-lg bg-nofx-bg border border-nofx-gold/20">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Code className="w-3 h-3 text-purple-500" />
-                        <span className="text-xs font-medium text-purple-500">
-                          Config
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        {Object.entries(promptPreview.config_summary || {}).map(
-                          ([key, value]) => (
-                            <div key={key}>
-                              <div className="text-nofx-text-muted">
-                                {key.replace(/_/g, ' ')}
-                              </div>
-                              <div className="text-nofx-text">
-                                {String(value)}
-                              </div>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </div>
-
-                    {/* System Prompt */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <FileText className="w-3 h-3 text-purple-500" />
-                          <span className="text-xs font-medium text-nofx-text">
-                            {tr('systemPrompt')}
-                          </span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-nofx-bg-lighter text-nofx-text-muted">
-                          {promptPreview.system_prompt.length.toLocaleString()}{' '}
-                          chars
-                        </span>
-                      </div>
-                      <pre
-                        className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                        style={{ maxHeight: '400px' }}
-                      >
-                        {promptPreview.system_prompt}
-                      </pre>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
-                    <Eye className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm">{tr('generatePromptPreview')}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* AI Test Tab */
-              <div className="p-3 space-y-3">
-                {/* Controls */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-green-500" />
-                    <span className="text-xs font-medium text-nofx-text">
-                      {tr('selectModel')}
-                    </span>
-                  </div>
-                  {aiModels.length > 0 ? (
-                    <select
-                      value={selectedModelId}
-                      onChange={(e) => setSelectedModelId(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    >
-                      {aiModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} ({model.provider})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="px-3 py-2 rounded-lg text-sm bg-nofx-danger/10 text-nofx-danger">
-                      {tr('noModel')}
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedVariant}
-                      onChange={(e) => setSelectedVariant(e.target.value)}
-                      className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    >
-                      <option value="balanced">{tr('balanced')}</option>
-                      <option value="aggressive">{tr('aggressive')}</option>
-                      <option value="conservative">{tr('conservative')}</option>
-                    </select>
-                    <button
-                      onClick={runAiTest}
-                      disabled={
-                        isRunningAiTest || !editingConfig || !selectedModelId
-                      }
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white shadow-lg shadow-green-500/20 bg-gradient-to-br from-green-500 to-green-600"
-                    >
-                      {isRunningAiTest ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {tr('running')}
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          {tr('runTest')}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-nofx-text-muted">
-                    {tr('testNote')}
-                  </p>
-                </div>
-
-                {/* Test Results */}
-                {aiTestResult ? (
-                  <div className="space-y-3">
-                    {aiTestResult.error ? (
-                      <div className="p-3 rounded-lg bg-nofx-danger/10 border border-nofx-danger/30">
-                        <p className="text-sm text-nofx-danger">
-                          {aiTestResult.error}
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        {aiTestResult.duration_ms && (
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 text-nofx-text-muted" />
-                            <span className="text-xs text-nofx-text-muted">
-                              {tr('duration')}:{' '}
-                              {(aiTestResult.duration_ms / 1000).toFixed(2)}s
-                            </span>
-                          </div>
-                        )}
-
-                        {/* User Prompt Input */}
-                        {aiTestResult.user_prompt && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Terminal className="w-3 h-3 text-blue-400" />
-                              <span className="text-xs font-medium text-nofx-text">
-                                {tr('userPrompt')} (Input)
-                              </span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                              style={{ maxHeight: '200px' }}
-                            >
-                              {aiTestResult.user_prompt}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* AI Reasoning */}
-                        {aiTestResult.reasoning && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Sparkles className="w-3 h-3 text-nofx-gold" />
-                              <span className="text-xs font-medium text-nofx-text">
-                                {tr('reasoning')}
-                              </span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/30 text-nofx-text"
-                              style={{ maxHeight: '200px' }}
-                            >
-                              {aiTestResult.reasoning}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* AI Decisions */}
-                        {aiTestResult.decisions &&
-                          aiTestResult.decisions.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-1.5 mb-1.5">
-                                <Activity className="w-3 h-3 text-green-500" />
-                                <span className="text-xs font-medium text-nofx-text">
-                                  {tr('decisions')}
-                                </span>
-                              </div>
-                              <pre
-                                className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-green-500/30 text-nofx-text"
-                                style={{ maxHeight: '200px' }}
-                              >
-                                {JSON.stringify(
-                                  aiTestResult.decisions,
-                                  null,
-                                  2
-                                )}
-                              </pre>
-                            </div>
-                          )}
-
-                        {/* Raw AI Response */}
-                        {aiTestResult.ai_response && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <FileText className="w-3 h-3 text-nofx-text-muted" />
-                              <span className="text-xs font-medium text-nofx-text">
-                                {tr('aiOutput')} (Raw)
-                              </span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                              style={{ maxHeight: '300px' }}
-                            >
-                              {aiTestResult.ai_response}
-                            </pre>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
-                    <Play className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm">{tr('runAiTestHint')}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
-    </DeepVoidBackground>
+    </div>
   )
 }
 

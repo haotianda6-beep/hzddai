@@ -1,5 +1,6 @@
 # NOFX Production Deployment
-# 用户部署专用 - 使用官方预构建镜像
+# 后端：官方预构建镜像 | 前端：本仓库源码构建（应用汉化、精简设置页等自定义）
+# 若未克隆完整仓库（无 web/、docker/），请勿使用本文件，请用仅含镜像的原始 prod 配置。
 #
 # 一键部署命令:
 # curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
@@ -35,9 +36,13 @@ services:
       start_period: 60s
 
   nofx-frontend:
-    image: ghcr.io/nofxaios/nofx/nofx-frontend:latest
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend
     container_name: nofx-frontend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${NOFX_FRONTEND_PORT:-3000}:80"
     networks:

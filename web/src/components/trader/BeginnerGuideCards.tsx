@@ -40,8 +40,8 @@ export function BeginnerGuideCards({
       icon: Brain,
       title: isZh ? '1. 极速模型' : '1. Fast AI',
       desc: isZh
-        ? '默认就是 Claw402 + DeepSeek。第一次不用挑模型，先跑起来。'
-        : 'Start with Claw402 + DeepSeek. No model picking needed for the first run.',
+        ? '默认就是 COMKUN 代理 + DeepSeek。第一次不用挑模型，先跑起来。'
+        : 'Start with COMKUN Proxy + DeepSeek. No model picking needed for the first run.',
       meta: walletAddress
         ? isZh
           ? `钱包 ${truncateAddress(walletAddress)}`
@@ -131,7 +131,8 @@ export function BeginnerGuideCards({
           ? '立即创建'
           : 'Create now',
       onAction: onCreateTrader,
-      disabled: !canCreateTrader,
+      // 始终可点：进入四步向导；缺配置时向导内会引导去设置页
+      disabled: false,
     },
   ]
 

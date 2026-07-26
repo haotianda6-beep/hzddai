@@ -114,6 +114,89 @@ func (s *PositionStore) GetFullStats(traderID string) (*TraderStats, error) {
 	return stats, nil
 }
 
+// AggregatedTradingRollup merges closed positions across multiple traders (strategy market rollup).
+type AggregatedTradingRollup struct {
+	Stats       TraderStats `json:"stats"`
+	AvgHoldMs   float64     `json:"avg_hold_ms"`
+	GrossProfit float64     `json:"gross_profit"`
+	GrossLoss   float64     `json:"gross_loss"`
+	LongTrades  int         `json:"long_trades"`
+	ShortTrades int         `json:"short_trades"`
+}
+
+// GetAggregatedTradingStatsForTraders aggregates trading metrics for all listed trader IDs.
+func (s *PositionStore) GetAggregatedTradingStatsForTraders(traderIDs []string) (*AggregatedTradingRollup, error) {
+	out := &AggregatedTradingRollup{}
+	if len(traderIDs) == 0 {
+		return out, nil
+	}
+	var positions []TraderPosition
+	err := s.db.Where("trader_id IN ? AND status = ?", traderIDs, "CLOSED").
+		Order("exit_time ASC").
+		Find(&positions).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query aggregated positions: %w", err)
+	}
+	if len(positions) == 0 {
+		return out, nil
+	}
+	ts := &out.Stats
+	var pnls []float64
+	var totalWin, totalLoss float64
+	var holdMsSum float64
+	var holdN int
+	for i := range positions {
+		pos := &positions[i]
+		ts.TotalTrades++
+		ts.TotalPnL += pos.RealizedPnL
+		ts.TotalFee += pos.Fee
+		pnls = append(pnls, pos.RealizedPnL)
+		if pos.RealizedPnL > 0 {
+			ts.WinTrades++
+			totalWin += pos.RealizedPnL
+			out.GrossProfit += pos.RealizedPnL
+		} else if pos.RealizedPnL < 0 {
+			ts.LossTrades++
+			v := -pos.RealizedPnL
+			totalLoss += v
+			out.GrossLoss += v
+		}
+		side := strings.ToUpper(strings.TrimSpace(pos.Side))
+		switch side {
+		case "LONG":
+			out.LongTrades++
+		case "SHORT":
+			out.ShortTrades++
+		}
+		if pos.ExitTime > 0 && pos.EntryTime > 0 {
+			holdMsSum += float64(pos.ExitTime - pos.EntryTime)
+			holdN++
+		}
+	}
+	if holdN > 0 {
+		out.AvgHoldMs = holdMsSum / float64(holdN)
+	}
+	if ts.TotalTrades > 0 {
+		ts.WinRate = float64(ts.WinTrades) / float64(ts.TotalTrades) * 100
+	}
+	if totalLoss > 0 {
+		ts.ProfitFactor = totalWin / totalLoss
+	}
+	if ts.WinTrades > 0 {
+		ts.AvgWin = totalWin / float64(ts.WinTrades)
+	}
+	if ts.LossTrades > 0 {
+		ts.AvgLoss = totalLoss / float64(ts.LossTrades)
+	}
+	if len(pnls) > 1 {
+		ts.SharpeRatio = calculateSharpeRatioFromPnls(pnls)
+	}
+	if len(pnls) > 0 {
+		ts.MaxDrawdownPct = calculateMaxDrawdownFromPnls(pnls)
+	}
+	return out, nil
+}
+
 // RecentTrade recent trade record
 type RecentTrade struct {
 	Symbol       string  `json:"symbol"`

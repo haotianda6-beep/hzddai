@@ -8,7 +8,7 @@ import (
 
 const (
 	DefaultKimiBaseURL = "https://api.moonshot.ai/v1" // Global endpoint (use api.moonshot.cn for China)
-	DefaultKimiModel   = "moonshot-v1-auto"
+	DefaultKimiModel   = "kimi-k2.6"
 )
 
 func init() {
@@ -34,7 +34,7 @@ func NewKimiClientWithOptions(opts ...mcp.ClientOption) mcp.AIClient {
 		mcp.WithProvider(mcp.ProviderKimi),
 		mcp.WithModel(DefaultKimiModel),
 		mcp.WithBaseURL(DefaultKimiBaseURL),
-		mcp.WithTemperature(1.0), // Kimi K2.5 only allows temperature=1
+		mcp.WithTemperature(1.0),
 	}
 
 	allOpts := append(kimiOpts, opts...)

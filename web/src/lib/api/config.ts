@@ -10,7 +10,35 @@ import type {
 } from '../../types'
 import { API_BASE, httpClient, CryptoService } from './helpers'
 
+export type CurrentUserProfile = {
+  id: string
+  email: string
+  display_name: string
+  avatar_url: string
+}
+
 export const configApi = {
+  async getCurrentUser(): Promise<CurrentUserProfile> {
+    const result = await httpClient.get<CurrentUserProfile>(
+      `${API_BASE}/user/me`
+    )
+    if (!result.success || !result.data) {
+      throw new Error(result.message || 'Failed to fetch profile')
+    }
+    return result.data
+  },
+
+  async updateDisplayName(displayName: string): Promise<CurrentUserProfile> {
+    const result = await httpClient.put<CurrentUserProfile>(
+      `${API_BASE}/user/profile`,
+      { display_name: displayName }
+    )
+    if (!result.success || !result.data) {
+      throw new Error(result.message || 'Failed to update profile')
+    }
+    return result.data
+  },
+
   async getModelConfigs(): Promise<AIModel[]> {
     const result = await httpClient.get<AIModel[]>(`${API_BASE}/models`)
     if (!result.success) throw new Error('Failed to fetch model configs')
@@ -96,12 +124,12 @@ export const configApi = {
     request: UpdateExchangeConfigRequest
   ): Promise<void> {
     const result = await httpClient.put(`${API_BASE}/exchanges`, request)
-    if (!result.success) throw new Error('Failed to update exchange configs')
+    if (!result.success) throw new Error(result.message || 'Failed to update exchange configs')
   },
 
   async createExchange(request: CreateExchangeRequest): Promise<{ id: string }> {
     const result = await httpClient.post<{ id: string }>(`${API_BASE}/exchanges`, request)
-    if (!result.success) throw new Error('Failed to create exchange account')
+    if (!result.success) throw new Error(result.message || 'Failed to create exchange account')
     return result.data!
   },
 
@@ -112,7 +140,7 @@ export const configApi = {
     if (!config.transport_encryption) {
       // Transport encryption disabled, send plaintext
       const result = await httpClient.post<{ id: string }>(`${API_BASE}/exchanges`, request)
-      if (!result.success) throw new Error('Failed to create exchange account')
+      if (!result.success) throw new Error(result.message || 'Failed to create exchange account')
       return result.data!
     }
 
@@ -138,13 +166,43 @@ export const configApi = {
       `${API_BASE}/exchanges`,
       encryptedPayload
     )
-    if (!result.success) throw new Error('Failed to create exchange account')
+    if (!result.success) throw new Error(result.message || 'Failed to create exchange account')
     return result.data!
   },
 
   async deleteExchange(exchangeId: string): Promise<void> {
     const result = await httpClient.delete(`${API_BASE}/exchanges/${exchangeId}`)
-    if (!result.success) throw new Error('Failed to delete exchange account')
+    if (!result.success) {
+      throw new Error(result.message || '删除交易所账户失败')
+    }
+  },
+
+  async generateED25519KeyPair(): Promise<{
+    private_key_hex: string
+    private_key_b64: string
+    private_key_seed_hex: string
+    private_key_seed_b64: string
+    public_key_hex: string
+    public_key_b64: string
+    private_key_pem: string
+    public_key_pem: string
+    ssh_public_key: string
+  }> {
+    const result = await httpClient.post<{
+      private_key_hex: string
+      private_key_b64: string
+      private_key_seed_hex: string
+      private_key_seed_b64: string
+      public_key_hex: string
+      public_key_b64: string
+      private_key_pem: string
+      public_key_pem: string
+      ssh_public_key: string
+    }>(`${API_BASE}/crypto/generate-ed25519-keypair`)
+    if (!result.success || !result.data) {
+      throw new Error(result.message || 'Failed to generate key pair')
+    }
+    return result.data
   },
 
   async updateExchangeConfigsEncrypted(
@@ -156,7 +214,7 @@ export const configApi = {
     if (!config.transport_encryption) {
       // Transport encryption disabled, send plaintext
       const result = await httpClient.put(`${API_BASE}/exchanges`, request)
-      if (!result.success) throw new Error('Failed to update exchange configs')
+      if (!result.success) throw new Error(result.message || 'Failed to update exchange configs')
       return
     }
 
@@ -182,7 +240,7 @@ export const configApi = {
       `${API_BASE}/exchanges`,
       encryptedPayload
     )
-    if (!result.success) throw new Error('Failed to update exchange configs')
+    if (!result.success) throw new Error(result.message || 'Failed to update exchange configs')
   },
 
   async getServerIP(): Promise<{

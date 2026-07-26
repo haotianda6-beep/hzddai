@@ -20,7 +20,18 @@ func DB() *gorm.DB {
 
 // InitGorm initializes GORM with SQLite
 func InitGorm(dbPath string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	// mattn/go-sqlite3 的连接参数会对连接池里的每个新连接生效。
+	// 仅靠 db.Exec(PRAGMA ...) 只能设置碰巧取到的一个连接。
+	//
+	// WAL：允许并发读写，避免“交易写库 → 看板/策略市场读接口卡死”
+	// synchronous=NORMAL：WAL 常用配置，减少写入持锁时间
+	// busy_timeout：锁冲突时等待一会儿再失败
+	// foreign_keys：开启外键约束
+	dsn := fmt.Sprintf(
+		"file:%s?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=10000&_foreign_keys=1",
+		dbPath,
+	)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 		// Use UTC for all auto-generated timestamps (autoCreateTime, autoUpdateTime)
 		NowFunc: func() time.Time {
@@ -36,14 +47,16 @@ func InitGorm(dbPath string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	// 关键：不要把 SQLite 限死为 1 个连接。
+	// 否则交易循环写库占着连接时，所有读接口都会“排队等连接”，前端就会表现为“网络错误/一直加载”。
+	sqlDB.SetMaxOpenConns(5)
+	sqlDB.SetMaxIdleConns(5)
 
-	// Enable foreign keys for SQLite
+	// 兜底再执行一次（对当前连接生效；全连接一致性由 DSN 参数保证）
 	db.Exec("PRAGMA foreign_keys = ON")
-	db.Exec("PRAGMA journal_mode = DELETE")
-	db.Exec("PRAGMA synchronous = FULL")
-	db.Exec("PRAGMA busy_timeout = 5000")
+	db.Exec("PRAGMA journal_mode = WAL")
+	db.Exec("PRAGMA synchronous = NORMAL")
+	db.Exec("PRAGMA busy_timeout = 10000")
 
 	gormDB = db
 	return db, nil

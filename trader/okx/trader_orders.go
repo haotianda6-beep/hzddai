@@ -645,8 +645,116 @@ func (t *OKXTrader) GetOrderStatus(symbol string, orderID string) (map[string]in
 	}, nil
 }
 
+// okxGetAllPendingSwapOrders 不传 instId 时拉取账户下全部永续未成交挂单（限价 + 条件单），供 AI 上下文「全账户合并」
+func (t *OKXTrader) okxGetAllPendingSwapOrders() ([]types.OpenOrder, error) {
+	var result []types.OpenOrder
+	path := fmt.Sprintf("%s?instType=SWAP", okxPendingOrdersPath)
+	data, err := t.doRequest("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || string(data) == "null" {
+		data = []byte("[]")
+	}
+	var orders []struct {
+		OrdId   string `json:"ordId"`
+		InstId  string `json:"instId"`
+		Side    string `json:"side"`
+		PosSide string `json:"posSide"`
+		OrdType string `json:"ordType"`
+		Px      string `json:"px"`
+		Sz      string `json:"sz"`
+		State   string `json:"state"`
+	}
+	if err := json.Unmarshal(data, &orders); err != nil {
+		return nil, fmt.Errorf("okx pending all: %w", err)
+	}
+	for _, order := range orders {
+		price, _ := strconv.ParseFloat(order.Px, 64)
+		quantity, _ := strconv.ParseFloat(order.Sz, 64)
+		sym := t.convertSymbolBack(order.InstId)
+		side := strings.ToUpper(order.Side)
+		positionSide := strings.ToUpper(order.PosSide)
+		if positionSide == "NET" {
+			positionSide = "BOTH"
+		}
+		result = append(result, types.OpenOrder{
+			OrderID:      order.OrdId,
+			Symbol:       sym,
+			Side:         side,
+			PositionSide: positionSide,
+			Type:         strings.ToUpper(order.OrdType),
+			Price:        price,
+			StopPrice:    0,
+			Quantity:     quantity,
+			Status:       "NEW",
+		})
+	}
+
+	algoPath := fmt.Sprintf("%s?instType=SWAP&ordType=conditional", okxAlgoPendingPath)
+	algoData, err2 := t.doRequest("GET", algoPath, nil)
+	if err2 == nil && len(algoData) > 0 && string(algoData) != "null" {
+		var algoOrders []struct {
+			AlgoId      string `json:"algoId"`
+			InstId      string `json:"instId"`
+			Side        string `json:"side"`
+			PosSide     string `json:"posSide"`
+			OrdType     string `json:"ordType"`
+			TriggerPx   string `json:"triggerPx"`
+			SlTriggerPx string `json:"slTriggerPx"`
+			TpTriggerPx string `json:"tpTriggerPx"`
+			Sz          string `json:"sz"`
+			State       string `json:"state"`
+		}
+		if err := json.Unmarshal(algoData, &algoOrders); err == nil {
+			for _, order := range algoOrders {
+				quantity, _ := strconv.ParseFloat(order.Sz, 64)
+				sym := t.convertSymbolBack(order.InstId)
+				side := strings.ToUpper(order.Side)
+				positionSide := strings.ToUpper(order.PosSide)
+				if positionSide == "NET" {
+					positionSide = "BOTH"
+				}
+				if order.SlTriggerPx != "" {
+					slPrice, _ := strconv.ParseFloat(order.SlTriggerPx, 64)
+					if slPrice > 0 {
+						result = append(result, types.OpenOrder{
+							OrderID: order.AlgoId + "_sl", Symbol: sym, Side: side, PositionSide: positionSide,
+							Type: "STOP_MARKET", Price: 0, StopPrice: slPrice, Quantity: quantity, Status: "NEW",
+						})
+					}
+				}
+				if order.TpTriggerPx != "" {
+					tpPrice, _ := strconv.ParseFloat(order.TpTriggerPx, 64)
+					if tpPrice > 0 {
+						result = append(result, types.OpenOrder{
+							OrderID: order.AlgoId + "_tp", Symbol: sym, Side: side, PositionSide: positionSide,
+							Type: "TAKE_PROFIT_MARKET", Price: 0, StopPrice: tpPrice, Quantity: quantity, Status: "NEW",
+						})
+					}
+				}
+				if order.TriggerPx != "" && order.SlTriggerPx == "" && order.TpTriggerPx == "" {
+					triggerPrice, _ := strconv.ParseFloat(order.TriggerPx, 64)
+					if triggerPrice > 0 {
+						result = append(result, types.OpenOrder{
+							OrderID: order.AlgoId, Symbol: sym, Side: side, PositionSide: positionSide,
+							Type: "STOP_MARKET", Price: 0, StopPrice: triggerPrice, Quantity: quantity, Status: "NEW",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	logger.Infof("✓ OKX GetOpenOrders(all SWAP): found %d open orders", len(result))
+	return result, nil
+}
+
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *OKXTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
+	if strings.TrimSpace(symbol) == "" {
+		return t.okxGetAllPendingSwapOrders()
+	}
 	instId := t.convertSymbol(symbol)
 	var result []types.OpenOrder
 

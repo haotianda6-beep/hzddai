@@ -1,4 +1,4 @@
-// NOFX Official Branding Constants
+// COMKUN / COMKUN-AI 品牌常量（社交链接等仍可能指向上游仓库）
 // These values are integrity-checked and should not be modified by forked projects
 
 // Base64 encoded official links (integrity protected)
@@ -56,8 +56,8 @@ export const OFFICIAL_LINKS = {
 
 // Brand watermark component data
 export const BRAND_INFO = {
-  name: 'NOFX',
-  tagline: 'AI Trading Platform',
+  name: 'COMKUN-AI',
+  tagline: 'AI 量化交易',
   version: '1.0.0',
   // Links embedded in multiple formats for redundancy
   social: {

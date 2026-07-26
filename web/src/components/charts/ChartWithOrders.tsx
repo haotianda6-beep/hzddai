@@ -210,7 +210,7 @@ export function ChartWithOrders({
       width: chartContainerRef.current.clientWidth,
       height: height,
       layout: {
-        background: { color: '#0B0E11' },
+        background: { color: '#0b0b0b' },
         textColor: '#EAECEF',
       },
       grid: {
@@ -431,7 +431,7 @@ export function ChartWithOrders({
   }, [symbol, interval, traderID, language])
 
   return (
-    <div className="relative" style={{ background: '#0B0E11', borderRadius: '8px', overflow: 'hidden' }}>
+    <div className="relative" style={{ background: '#0b0b0b', borderRadius: '8px', overflow: 'hidden' }}>
       {/* Title bar */}
       <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid #2B3139' }}>
         <div className="flex items-center gap-3">

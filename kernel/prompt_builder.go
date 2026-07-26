@@ -83,7 +83,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 [
   {
     "symbol": "BTCUSDT",
-    "action": "HOLD|PARTIAL_CLOSE|FULL_CLOSE|ADD_POSITION|OPEN_NEW|WAIT",
+    "action": "open_long|open_short|close_long|close_short|hold|wait",
     "leverage": 3,
     "position_size_usd": 1000,
     "stop_loss": 42000,
@@ -98,12 +98,12 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 
 - **symbol**: 交易对（必需）
 - **action**: 动作类型（必需）
-  - HOLD: 持有当前仓位
-  - PARTIAL_CLOSE: 部分平仓
-  - FULL_CLOSE: 全部平仓
-  - ADD_POSITION: 在现有仓位上加仓
-  - OPEN_NEW: 开设新仓位
-  - WAIT: 等待，不采取任何行动
+  - open_long: 开多
+  - open_short: 开空
+  - close_long: 平多
+  - close_short: 平空
+  - hold: 持有当前仓位
+  - wait: 等待，不采取任何行动
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
@@ -156,13 +156,13 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
 [
   {
     "symbol": "PIPPINUSDT",
-    "action": "PARTIAL_CLOSE",
+    "action": "close_long",
     "confidence": 85,
     "reasoning": "当前PnL +2.96%，接近历史峰值+2.99%（回撤仅0.03%）。建议部分平仓锁定利润，因为：1) 持仓时间仅11分钟，已获得3%收益；2) 5分钟K线显示价格接近短期阻力位；3) 成交量开始萎缩，上涨动能减弱。建议平仓50%，剩余仓位设置跟踪止盈在峰值回撤20%处。"
   },
   {
     "symbol": "HUSDT",
-    "action": "OPEN_NEW",
+    "action": "open_long",
     "leverage": 3,
     "position_size_usd": 500,
     "stop_loss": 0.1560,
@@ -218,7 +218,7 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 [
   {
     "symbol": "BTCUSDT",
-    "action": "HOLD|PARTIAL_CLOSE|FULL_CLOSE|ADD_POSITION|OPEN_NEW|WAIT",
+    "action": "open_long|open_short|close_long|close_short|hold|wait",
     "leverage": 3,
     "position_size_usd": 1000,
     "stop_loss": 42000,
@@ -233,12 +233,12 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 
 - **symbol**: Trading pair (required)
 - **action**: Action type (required)
-  - HOLD: Hold current position
-  - PARTIAL_CLOSE: Partially close position
-  - FULL_CLOSE: Fully close position
-  - ADD_POSITION: Add to existing position
-  - OPEN_NEW: Open new position
-  - WAIT: Wait, take no action
+  - open_long: Open a long position
+  - open_short: Open a short position
+  - close_long: Close a long position
+  - close_short: Close a short position
+  - hold: Hold current position
+  - wait: Wait, take no action
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)
@@ -291,13 +291,13 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
 [
   {
     "symbol": "PIPPINUSDT",
-    "action": "PARTIAL_CLOSE",
+    "action": "close_long",
     "confidence": 85,
     "reasoning": "Current PnL +2.96%, near historical peak +2.99% (only 0.03% pullback). Suggest partial close to lock profits because: 1) Only 11 minutes holding time with 3% gain; 2) 5M chart shows price approaching short-term resistance; 3) Volume declining, upward momentum weakening. Recommend closing 50%, set trailing stop at 20% pullback from peak for remainder."
   },
   {
     "symbol": "HUSDT",
-    "action": "OPEN_NEW",
+    "action": "open_long",
     "leverage": 3,
     "position_size_usd": 500,
     "stop_loss": 0.1560,
@@ -317,7 +317,7 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
 func FormatDecisionExample(lang Language) string {
 	example := Decision{
 		Symbol:          "BTCUSDT",
-		Action:          "OPEN_NEW",
+		Action:          "open_long",
 		Leverage:        3,
 		PositionSizeUSD: 1000,
 		StopLoss:        42000,
@@ -350,24 +350,24 @@ func ValidateDecisionFormat(decisions []Decision) error {
 
 		// Action type validation
 		validActions := map[string]bool{
-			"HOLD":          true,
-			"PARTIAL_CLOSE": true,
-			"FULL_CLOSE":    true,
-			"ADD_POSITION":  true,
-			"OPEN_NEW":      true,
-			"WAIT":          true,
+			"open_long":   true,
+			"open_short":  true,
+			"close_long":  true,
+			"close_short": true,
+			"hold":        true,
+			"wait":        true,
 		}
 		if !validActions[d.Action] {
 			return fmt.Errorf("decision #%d: invalid action type: %s", i+1, d.Action)
 		}
 
 		// Required parameters for opening new positions
-		if d.Action == "OPEN_NEW" {
+		if d.Action == "open_long" || d.Action == "open_short" {
 			if d.Leverage == 0 {
-				return fmt.Errorf("decision #%d: OPEN_NEW action requires leverage", i+1)
+				return fmt.Errorf("decision #%d: opening action requires leverage", i+1)
 			}
 			if d.PositionSizeUSD == 0 {
-				return fmt.Errorf("decision #%d: OPEN_NEW action requires position_size_usd", i+1)
+				return fmt.Errorf("decision #%d: opening action requires position_size_usd", i+1)
 			}
 		}
 	}

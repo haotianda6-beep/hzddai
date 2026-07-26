@@ -3,7 +3,7 @@ export type Language = 'en' | 'zh' | 'id'
 export const translations = {
   en: {
     // Header
-    appTitle: 'NOFX',
+    appTitle: 'COMKUN-AI',
     subtitle: 'Multi-AI Model Trading Platform',
     aiTraders: 'AI Traders',
     details: 'Details',
@@ -24,7 +24,7 @@ export const translations = {
     faqNav: 'FAQ',
 
     // Footer
-    footerTitle: 'NOFX - AI Trading System',
+    footerTitle: 'COMKUN-AI · AI Trading',
     footerWarning: '⚠️ Trading involves risk. Use at your own discretion.',
 
     // Stats Cards
@@ -316,6 +316,9 @@ export const translations = {
       'Invalid private key format. Expected {length} hexadecimal characters (optional 0x prefix).',
     testnetDescription:
       'Enable to connect to exchange test environment for simulated trading',
+    binanceDemoTrading: 'Binance Futures Demo (Virtual)',
+    binanceDemoTradingDesc:
+      'Uses demo-fapi.binance.com. Create API keys in Binance app under Demo Trading — separate from live keys.',
     securityWarning: 'Security Warning',
     saveConfiguration: 'Save Configuration',
 
@@ -439,7 +442,21 @@ export const translations = {
     binanceSetupGuide: 'Binance Setup Guide',
     closeGuide: 'Close',
     whitelistIP: 'Whitelist IP',
-    whitelistIPDesc: 'Binance requires adding server IP to API whitelist',
+    whitelistIPDesc: 'CEX API keys should whitelist the dedicated proxy exit',
+    whitelistIPDescProxy:
+      'Add the address below to your exchange API key IP whitelist. This is your dedicated outbound proxy exit, not the web app server.',
+    binanceWhitelistPending:
+      'Save this page first. The system will assign a dedicated proxy exit from the pool; then the IP or hostname to whitelist will appear here. If it stays empty after saving, reopen this dialog or contact support.',
+    binanceProxyExpiryNote: 'Pool proxy expiry (reference): ',
+    whitelistDualIntro:
+      'Add only the dedicated proxy exit below to your exchange API whitelist. Do not add the platform server IP for API calls.',
+    whitelistProxyLabel: 'Dedicated proxy exit',
+    whitelistPlatformServerLabel: 'Platform server',
+    binanceProxyAssignOnSaveNote:
+      'The proxy exit is allocated only after you fill account name + API key + secret and click Save. Closing without saving will not reserve a proxy.',
+    wizardBinanceWhitelistHint: 'Dedicated proxy appears after save; cancel does not reserve a slot.',
+    copyWhitelistBothButton: 'Copy proxy exit',
+    whitelistBothCopied: 'Copied both lines',
     serverIPAddresses: 'Server IP Addresses',
     copyIP: 'Copy',
     ipCopied: 'IP Copied',
@@ -543,19 +560,19 @@ export const translations = {
     heroTitle1: 'Read the Market.',
     heroTitle2: 'Write the Trade.',
     heroDescription:
-      'NOFX is the future standard for AI trading — an open, community-driven agentic trading OS. Supporting Binance, Aster DEX and other exchanges, self-hosted, multi-agent competition, let AI automatically make decisions, execute and optimize trades for you.',
+      'COMKUN is the future standard for AI trading — an open, community-driven agentic trading OS. Supporting Binance, Aster DEX and other exchanges, self-hosted, multi-agent competition, let AI automatically make decisions, execute and optimize trades for you.',
     poweredBy: 'Powered by Aster DEX and Binance.',
 
     // Landing Page CTA
     readyToDefine: 'Ready to define the future of AI trading?',
     startWithCrypto:
-      'Starting with crypto markets, expanding to TradFi. NOFX is the infrastructure of AgentFi.',
+      'Starting with crypto markets, expanding to TradFi. COMKUN is the infrastructure of AgentFi.',
     getStartedNow: 'Get Started Now',
     viewSourceCode: 'View Source Code',
 
     // Features Section
     coreFeatures: 'Core Features',
-    whyChooseNofx: 'Why Choose NOFX?',
+    whyChooseNofx: 'Why Choose COMKUN-AI?',
     openCommunityDriven:
       'Open source, transparent, community-driven AI trading OS',
     openSourceSelfHosted: '100% Open Source & Self-Hosted',
@@ -581,10 +598,10 @@ export const translations = {
     secureFeatures4: 'Trading log auditing',
 
     // About Section
-    aboutNofx: 'About NOFX',
-    whatIsNofx: 'What is NOFX?',
+    aboutNofx: 'About COMKUN-AI',
+    whatIsNofx: 'What is COMKUN-AI?',
     nofxNotAnotherBot:
-      "NOFX is not another trading bot, but the 'Linux' of AI trading —",
+      "COMKUN is not another trading bot, but the 'Linux' of AI trading —",
     nofxDescription1:
       'a transparent, trustworthy open source OS that provides a unified',
     nofxDescription2:
@@ -602,7 +619,7 @@ export const translations = {
     startupMessages3: 'Web console http://127.0.0.1:3000',
 
     // How It Works Section
-    howToStart: 'How to Get Started with NOFX',
+    howToStart: 'How to Get Started with COMKUN',
     fourSimpleSteps:
       'Four simple steps to start your AI automated trading journey',
     step1Title: 'Clone GitHub Repository',
@@ -619,7 +636,7 @@ export const translations = {
       'Monitor trading, submit PRs to improve framework. Join Telegram to share strategies.',
     importantRiskWarning: 'Important Risk Warning',
     riskWarningText:
-      'Dev branch is unstable, do not use funds you cannot afford to lose. NOFX is non-custodial, no official strategies. Trading involves risks, invest carefully.',
+      'Dev branch is unstable, do not use funds you cannot afford to lose. COMKUN is non-custodial, no official strategies. Trading involves risks, invest carefully.',
 
     // Community Section (testimonials are kept as-is since they are quotes)
 
@@ -632,7 +649,7 @@ export const translations = {
     strategicInvestment: '(Strategic Investment)',
 
     // Login Modal
-    accessNofxPlatform: 'Access NOFX Platform',
+    accessNofxPlatform: 'Access COMKUN-AI Platform',
     loginRegisterPrompt:
       'Please login or register to access the full AI trading platform',
     registerNewAccount: 'Register New Account',
@@ -658,7 +675,7 @@ export const translations = {
 
     // FAQ Page
     faqTitle: 'Frequently Asked Questions',
-    faqSubtitle: 'Find answers to common questions about NOFX',
+    faqSubtitle: 'Find answers to common questions about COMKUN',
     faqStillHaveQuestions: 'Still Have Questions?',
     faqContactUs: 'Join our community or check our GitHub for more help',
 
@@ -674,17 +691,17 @@ export const translations = {
     faqCategoryContributing: 'Contributing',
 
     // ===== GETTING STARTED =====
-    faqWhatIsNOFX: 'What is NOFX?',
+    faqWhatIsNOFX: 'What is COMKUN-AI?',
     faqWhatIsNOFXAnswer:
-      'NOFX is an open-source AI-powered trading operating system for cryptocurrency and US stock markets. It uses large language models (LLMs) like DeepSeek, GPT, Claude, Gemini to analyze market data and make autonomous trading decisions. Key features include: multi-AI model support, multi-exchange trading, and visual strategy builder.',
+      'COMKUN is an open-source AI-powered trading operating system for cryptocurrency and US stock markets. It uses large language models (LLMs) like DeepSeek, GPT, Claude, Gemini to analyze market data and make autonomous trading decisions. Key features include: multi-AI model support, multi-exchange trading, and visual strategy builder.',
 
-    faqHowDoesItWork: 'How does NOFX work?',
+    faqHowDoesItWork: 'How does COMKUN work?',
     faqHowDoesItWorkAnswer:
-      'NOFX works in 5 steps: 1) Configure AI models and exchange API credentials; 2) Create a trading strategy (coin selection, indicators, risk controls); 3) Create a "Trader" combining AI model + Exchange + Strategy; 4) Start the trader - it will analyze market data at regular intervals and make buy/sell/hold decisions; 5) Monitor performance on the dashboard. The AI uses Chain of Thought reasoning to explain each decision.',
+      'COMKUN works in 5 steps: 1) Configure AI models and exchange API credentials; 2) Create a trading strategy (coin selection, indicators, risk controls); 3) Create a "Trader" combining AI model + Exchange + Strategy; 4) Start the trader - it will analyze market data at regular intervals and make buy/sell/hold decisions; 5) Monitor performance on the dashboard. The AI uses Chain of Thought reasoning to explain each decision.',
 
-    faqIsProfitable: 'Is NOFX profitable?',
+    faqIsProfitable: 'Is COMKUN profitable?',
     faqIsProfitableAnswer:
-      'AI trading is experimental and NOT guaranteed to be profitable. Cryptocurrency futures are highly volatile and risky. NOFX is designed for educational and research purposes. We strongly recommend: starting with small amounts (10-50 USDT), never investing more than you can afford to lose, thoroughly testing before live trading, and understanding that past performance does not guarantee future results.',
+      'AI trading is experimental and NOT guaranteed to be profitable. Cryptocurrency futures are highly volatile and risky. COMKUN is designed for educational and research purposes. We strongly recommend: starting with small amounts (10-50 USDT), never investing more than you can afford to lose, thoroughly testing before live trading, and understanding that past performance does not guarantee future results.',
 
     faqSupportedExchanges: 'Which exchanges are supported?',
     faqSupportedExchangesAnswer:
@@ -692,14 +709,14 @@ export const translations = {
 
     faqSupportedAIModels: 'Which AI models are supported?',
     faqSupportedAIModelsAnswer:
-      'NOFX supports 7+ AI models: DeepSeek (recommended for cost/performance), Alibaba Qwen, OpenAI (GPT-5.2), Anthropic Claude, Google Gemini, xAI Grok, and Kimi (Moonshot). You can also use any OpenAI-compatible API endpoint. Each model has different strengths - DeepSeek is cost-effective, OpenAI models are powerful but expensive, Claude excels at reasoning.',
+      'COMKUN supports 7+ AI models: DeepSeek (recommended for cost/performance), Alibaba Qwen, OpenAI (GPT-5.2), Anthropic Claude, Google Gemini, xAI Grok, and Kimi (Moonshot). You can also use any OpenAI-compatible API endpoint. Each model has different strengths - DeepSeek is cost-effective, OpenAI models are powerful but expensive, Claude excels at reasoning.',
 
     faqSystemRequirements: 'What are the system requirements?',
     faqSystemRequirementsAnswer:
       'Minimum: 2 CPU cores, 2GB RAM, 1GB disk space, stable internet. Recommended: 4GB RAM for running multiple traders. Supported OS: Linux, macOS, or Windows (via Docker or WSL2). Docker is the easiest installation method. For manual installation, you need Go 1.21+, Node.js 18+, and TA-Lib library.',
 
     // ===== INSTALLATION =====
-    faqHowToInstall: 'How do I install NOFX?',
+    faqHowToInstall: 'How do I install COMKUN?',
     faqHowToInstallAnswer:
       'Easiest method (Linux/macOS): Run "curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash" - this installs Docker containers automatically. Then open http://127.0.0.1:3000 in your browser. For manual installation or development, clone the repository and follow the README instructions.',
 
@@ -719,7 +736,7 @@ export const translations = {
     faqServerDeploymentAnswer:
       'Run the install script on your server - it auto-detects the server IP. Access via http://YOUR_SERVER_IP:3000. For HTTPS: 1) Use Cloudflare (free) - add domain, create A record pointing to server IP, set SSL to "Flexible"; 2) Enable TRANSPORT_ENCRYPTION=true in .env for browser-side encryption; 3) Access via https://your-domain.com',
 
-    faqUpdateNOFX: 'How do I update NOFX?',
+    faqUpdateNOFX: 'How do I update COMKUN?',
     faqUpdateNOFXAnswer:
       'For Docker: Run "docker compose pull && docker compose up -d" to pull latest images and restart. For manual installation: "git pull && go build -o nofx" for backend, "cd web && npm install && npm run build" for frontend. Your configurations in data.db are preserved during updates.',
 
@@ -738,7 +755,7 @@ export const translations = {
 
     faqHyperliquidSetup: 'How do I set up Hyperliquid?',
     faqHyperliquidSetupAnswer:
-      'Hyperliquid is a decentralized exchange requiring wallet authentication. Steps: 1) Go to app.hyperliquid.xyz; 2) Connect your wallet; 3) Generate an API wallet (recommended) or use your main wallet; 4) Copy the wallet address and private key; 5) In NOFX, add Hyperliquid exchange with these credentials. No KYC required, fully on-chain.',
+      'Hyperliquid is a decentralized exchange requiring wallet authentication. Steps: 1) Go to app.hyperliquid.xyz; 2) Connect your wallet; 3) Generate an API wallet (recommended) or use your main wallet; 4) Copy the wallet address and private key; 5) In COMKUN, add Hyperliquid exchange with these credentials. No KYC required, fully on-chain.',
 
     faqCreateStrategy: 'How do I create a trading strategy?',
     faqCreateStrategyAnswer:
@@ -769,13 +786,13 @@ export const translations = {
     faqLeverageSettingsAnswer:
       'Leverage is set in Strategy → Risk Controls: BTC/ETH leverage (typically 5-20x) and Altcoin leverage (typically 3-10x). Higher leverage = higher risk and potential returns. Subaccounts may have restrictions (e.g., Binance subaccounts limited to 5x). The AI respects these limits when placing orders.',
 
-    faqStopLossTakeProfit: 'Does NOFX support stop-loss and take-profit?',
+    faqStopLossTakeProfit: 'Does COMKUN support stop-loss and take-profit?',
     faqStopLossTakeProfitAnswer:
       'The AI can suggest stop-loss/take-profit levels in its decisions, but these are guidance-based rather than hard-coded exchange orders. The AI monitors positions each cycle and may decide to close based on P/L. For guaranteed stop-loss, you can set exchange-level orders manually or adjust the strategy prompt to be more conservative.',
 
     faqMultipleTraders: 'Can I run multiple traders?',
     faqMultipleTradersAnswer:
-      'Yes! NOFX supports running 20+ concurrent traders. Each trader can have different: AI model, exchange account, strategy, decision interval. Use this to A/B test strategies, compare AI models, or diversify across exchanges. Monitor all traders on the Competition page.',
+      'Yes! COMKUN supports running 20+ concurrent traders. Each trader can have different: AI model, exchange account, strategy, decision interval. Use this to A/B test strategies, compare AI models, or diversify across exchanges. Monitor all traders on the Competition page.',
 
     faqAICosts: 'How much do AI API calls cost?',
     faqAICostsAnswer:
@@ -784,7 +801,7 @@ export const translations = {
     // ===== TECHNICAL ISSUES =====
     faqPortInUse: 'Port 8080 or 3000 already in use',
     faqPortInUseAnswer:
-      'Check what\'s using the port: "lsof -i :8080" (macOS/Linux) or "netstat -ano | findstr 8080" (Windows). Kill the process or change ports in .env: NOFX_BACKEND_PORT=8081, NOFX_FRONTEND_PORT=3001. Restart with "docker compose down && docker compose up -d".',
+      'Check what\'s using the port: "lsof -i :8080" (macOS/Linux) or "netstat -ano | findstr 8080" (Windows). Kill the process or change ports in .env: COMKUN_BACKEND_PORT=8081, COMKUN_FRONTEND_PORT=3001. Restart with "docker compose down && docker compose up -d".',
 
     faqFrontendNotLoading: 'Frontend shows "Loading..." forever',
     faqFrontendNotLoadingAnswer:
@@ -804,11 +821,11 @@ export const translations = {
 
     faqBinancePositionMode: 'Binance error code -4061 (Position Mode)',
     faqBinancePositionModeAnswer:
-      'Error: "Order\'s position side does not match user\'s setting". You\'re in One-way Mode but NOFX requires Hedge Mode. Fix: 1) Close ALL positions first; 2) Binance Futures → Settings (gear icon) → Preferences → Position Mode → Switch to "Hedge Mode" (双向持仓); 3) Restart your trader.',
+      'Error: "Order\'s position side does not match user\'s setting". You\'re in One-way Mode but COMKUN requires Hedge Mode. Fix: 1) Close ALL positions first; 2) Binance Futures → Settings (gear icon) → Preferences → Position Mode → Switch to "Hedge Mode" (双向持仓); 3) Restart your trader.',
 
     faqBalanceShowsZero: 'Account balance shows 0',
     faqBalanceShowsZeroAnswer:
-      'Funds are likely in Spot wallet, not Futures wallet. Solution: 1) In Binance, go to Wallet → Futures → Transfer; 2) Transfer USDT from Spot to Futures; 3) Refresh NOFX dashboard. Also check: funds not locked in savings/staking products.',
+      'Funds are likely in Spot wallet, not Futures wallet. Solution: 1) In Binance, go to Wallet → Futures → Transfer; 2) Transfer USDT from Spot to Futures; 3) Refresh COMKUN dashboard. Also check: funds not locked in savings/staking products.',
 
     faqDockerPullFailed: 'Docker image pull failed or slow',
     faqDockerPullFailedAnswer:
@@ -819,17 +836,17 @@ export const translations = {
     faqAPIKeyStorageAnswer:
       'API keys are encrypted using AES-256-GCM before storage in the local SQLite database. The encryption key (DATA_ENCRYPTION_KEY) is stored in your .env file. Keys are decrypted only in memory when needed for API calls. Never share your data.db or .env files.',
 
-    faqEncryptionDetails: 'What encryption does NOFX use?',
+    faqEncryptionDetails: 'What encryption does COMKUN use?',
     faqEncryptionDetailsAnswer:
-      'NOFX uses multiple encryption layers: 1) AES-256-GCM for database storage (API keys, secrets); 2) RSA-2048 for optional transport encryption (browser to server); 3) JWT for authentication tokens. Keys are generated during installation. Enable TRANSPORT_ENCRYPTION=true for HTTPS environments.',
+      'COMKUN uses multiple encryption layers: 1) AES-256-GCM for database storage (API keys, secrets); 2) RSA-2048 for optional transport encryption (browser to server); 3) JWT for authentication tokens. Keys are generated during installation. Enable TRANSPORT_ENCRYPTION=true for HTTPS environments.',
 
     faqSecurityBestPractices: 'What are security best practices?',
     faqSecurityBestPracticesAnswer:
-      'Recommended: 1) Use exchange API keys with IP whitelist and minimal permissions (Futures Trading only); 2) Use dedicated subaccount for NOFX; 3) Enable TRANSPORT_ENCRYPTION for remote deployments; 4) Never share .env or data.db files; 5) Use HTTPS with valid certificates; 6) Regularly rotate API keys; 7) Monitor account activity.',
+      'Recommended: 1) Use exchange API keys with IP whitelist and minimal permissions (Futures Trading only); 2) Use dedicated subaccount for COMKUN; 3) Enable TRANSPORT_ENCRYPTION for remote deployments; 4) Never share .env or data.db files; 5) Use HTTPS with valid certificates; 6) Regularly rotate API keys; 7) Monitor account activity.',
 
-    faqCanNOFXStealFunds: 'Can NOFX steal my funds?',
+    faqCanNOFXStealFunds: 'Can COMKUN steal my funds?',
     faqCanNOFXStealFundsAnswer:
-      'NOFX is open-source (AGPL-3.0 license) - you can audit all code on GitHub. API keys are stored locally on YOUR machine, never sent to external servers. NOFX only has the permissions you grant via API keys. For maximum safety: use API keys with trading-only permissions (no withdrawal), enable IP whitelist, use a dedicated subaccount.',
+      'COMKUN is open-source (AGPL-3.0 license) - you can audit all code on GitHub. API keys are stored locally on YOUR machine, never sent to external servers. COMKUN only has the permissions you grant via API keys. For maximum safety: use API keys with trading-only permissions (no withdrawal), enable IP whitelist, use a dedicated subaccount.',
 
     // ===== FEATURES =====
     faqStrategyStudio: 'What is Strategy Studio?',
@@ -851,20 +868,20 @@ export const translations = {
 
     faqCustomAIAPI: 'Can I use a custom AI API?',
     faqCustomAIAPIAnswer:
-      'Yes! NOFX supports any OpenAI-compatible API. In Config → AI Models → Custom API: 1) Enter your API endpoint URL (e.g., https://your-api.com/v1); 2) Enter API key; 3) Specify model name. This works with self-hosted models, alternative providers, or Claude via third-party proxies.',
+      'Yes! COMKUN supports any OpenAI-compatible API. In Config → AI Models → Custom API: 1) Enter your API endpoint URL (e.g., https://your-api.com/v1); 2) Enter API key; 3) Specify model name. This works with self-hosted models, alternative providers, or Claude via third-party proxies.',
 
     faqAIHallucinations: 'What about AI hallucinations?',
     faqAIHallucinationsAnswer:
-      'AI models can sometimes produce incorrect or fabricated information ("hallucinations"). NOFX mitigates this by: 1) Providing structured prompts with real market data; 2) Enforcing JSON output format for decisions; 3) Validating orders before execution. However, AI trading is experimental - always monitor decisions and don\'t rely solely on AI judgment.',
+      'AI models can sometimes produce incorrect or fabricated information ("hallucinations"). COMKUN mitigates this by: 1) Providing structured prompts with real market data; 2) Enforcing JSON output format for decisions; 3) Validating orders before execution. However, AI trading is experimental - always monitor decisions and don\'t rely solely on AI judgment.',
 
     faqCompareAIModels: 'How do I compare different AI models?',
     faqCompareAIModelsAnswer:
       'Create multiple traders with different AI models but same strategy/exchange. Run them simultaneously and compare on Competition page. Metrics to watch: ROI, win rate, Sharpe ratio, max drawdown.',
 
     // ===== CONTRIBUTING =====
-    faqHowToContribute: 'How can I contribute to NOFX?',
+    faqHowToContribute: 'How can I contribute to COMKUN?',
     faqHowToContributeAnswer:
-      'NOFX is open-source and welcomes contributions! Ways to contribute: 1) Code - fix bugs, add features (check GitHub Issues); 2) Documentation - improve guides, translate; 3) Bug Reports - report issues with details; 4) Feature Ideas - suggest improvements. Start with issues labeled "good first issue". All contributors may receive airdrop rewards.',
+      'COMKUN is open-source and welcomes contributions! Ways to contribute: 1) Code - fix bugs, add features (check GitHub Issues); 2) Documentation - improve guides, translate; 3) Bug Reports - report issues with details; 4) Feature Ideas - suggest improvements. Start with issues labeled "good first issue". All contributors may receive airdrop rewards.',
 
     faqPRGuidelines: 'What are the PR guidelines?',
     faqPRGuidelinesAnswer:
@@ -899,7 +916,7 @@ export const translations = {
         'Avoid embedding the app in insecure HTTP iframes or reverse proxies that strip HTTPS.',
       unsupportedTitle: 'Browser does not expose Web Crypto',
       unsupportedDesc:
-        'Open NOFX over HTTPS (or http://localhost during development) and avoid insecure iframes/reverse proxies so the browser can enable Web Crypto.',
+        'Open COMKUN over HTTPS (or http://localhost during development) and avoid insecure iframes/reverse proxies so the browser can enable Web Crypto.',
       summary: 'Current origin: {origin} • Protocol: {protocol}',
       disabledTitle: 'Transport encryption disabled',
       disabledDesc:
@@ -1019,6 +1036,87 @@ export const translations = {
       shareYours: 'UPLOAD_STRATEGY',
       makePublic: 'PUBLISH',
       loading: 'INITIALIZING...',
+      marketRevision: 'REVISION',
+      marketUpdated: 'MARKET SYNC',
+      brandTitle: 'COMKUN-AI',
+      navMarketplace: 'Marketplace',
+      navTerminal: 'Terminal',
+      navPortfolio: 'Portfolio',
+      navAnalytics: 'Analytics',
+      topSearchPlaceholder: 'Search strategies...',
+      deployAgent: 'Deploy',
+      filterTrend: 'Trend',
+      filterRecent: 'Latest',
+      filterHighYield: 'Top',
+      sidebarBrand: 'QUANT_OS',
+      sidebarVersion: 'v4.2.0-STABLE',
+      navDashboard: 'Dashboard',
+      navStrategies: 'Strategies',
+      navSignals: 'Signals',
+      navBacktest: 'Backtesting',
+      navRisk: 'Risk Guard',
+      navLogs: 'Logs',
+      newStrategy: 'New Strategy',
+      support: 'Support',
+      documentation: 'Documentation',
+      descriptionLum:
+        'Discover strategies on the market. Non–open-source listings hide full config until you add them to your list; open-source shows everything here.',
+      tableTitle: 'All public strategies',
+      colIndex: '#',
+      colNameAuthor: 'Name / Author',
+      colPermission: 'Access',
+      colAum: 'AUM',
+      colReturn7d: '90D',
+      colDrawdown: 'Max DD',
+      colSubs: 'Subs',
+      colAgents: 'Agents',
+      colAgentsTitle: 'Active agents',
+      colAgentsSub: 'Count',
+      colRevision: 'Rev',
+      colPublished: 'Updated',
+      colTrend: 'Spark',
+      colAction: 'Action',
+      subscribeAction: 'Copy config',
+      return7dLabel: '90d',
+      subsLabel: 'subs',
+      aumDemo: '—',
+      badgeScalper: 'Scalper',
+      badgeSwing: 'Swing',
+      badgeArb: 'Arbitrage',
+      badgeStable: 'Stable',
+      badgeAggressive: 'Aggressive',
+      badgeDefault: 'Strategy',
+      permPublic: 'Public',
+      permPaid: 'Config hidden',
+      permRestricted: 'Restricted',
+      paginationShow: '{{from}}–{{to}} of {{total}}',
+      footerStatus: 'System: optimal',
+      footerRisk: 'Risk guard',
+      footerBtc: 'Live quotes: exchange',
+      filterSoon: 'Filters (soon)',
+      exportSoon: 'Export (soon)',
+      noConfigToCopy: 'No full config to copy for this listing',
+      copyFailed: 'Copy failed',
+      permFilterAll: 'All',
+      permFilterSubscription: 'Subscription',
+      permFilterPublic: 'Public use',
+      permFilterOpenSource: 'Open source (prompts)',
+      permFilterPrivate: 'Listed only',
+      permFilterLabel: 'Permission',
+      badgeAccessSubscription: 'Subscribe',
+      badgeAccessPublic: 'Public',
+      badgeAccessOpenSource: 'Open source',
+      badgeAccessPrivate: 'Not open',
+      toastNotPublic: 'This strategy is not open for copying.',
+      toastSubscribe: 'Subscribe to this strategy before use (payment flow coming soon).',
+      actionCopyConfig: 'Copy config',
+      actionCopyPrompts: 'Copy prompts',
+      actionViewOnly: 'View only',
+      actionAddToStrategies: 'Add to my strategies',
+      toastAddedToStrategies: 'Added to your strategy list. Opening…',
+      toastOpenExistingFork: 'You already have a copy from this listing. Opening it…',
+      toastPurchasedDupFailed:
+        'Purchase succeeded but creating your copy failed. Try “Add to my strategies” again on the market page.',
     },
 
     // Strategy Studio Page
@@ -1094,6 +1192,26 @@ export const translations = {
       tokenExceedWarning: 'Token estimate exceeds 128K. AI requests may fail for some models.',
       tokenEstimating: 'Estimating...',
       tokenTooltip: 'Based on 200K context',
+      marketUpdate: 'Push to market',
+      marketUpdating: 'Publishing...',
+      marketUpdateHint:
+        'Save current content to the public listing and bump revision so followers can detect updates',
+      marketUpdateSuccess: 'Market listing updated · revision {{rev}}',
+      marketUpdateFailed: 'Failed to push market update',
+      marketUpdateNeedsPublic: 'List this strategy on the market first (publish settings), then save.',
+      listingDialogConfirm: 'Apply',
+      marketListingSection: 'Strategy market',
+      marketListingHint:
+        'Default is not listed. Subscription & public listings hide full JSON on the market; buyers add a copy to see it. Only open-source exposes full config on the market.',
+      marketAccessOff: 'Not listed (default)',
+      marketAccessPrivate: 'Listed — name & intro only (legacy)',
+      marketAccessSubscription:
+        'Listed — subscription (market hides full config; paid users get a full copy in Strategy Studio)',
+      marketAccessPublic:
+        'Listed — public (market hides full config; signed-in users can add a copy to their list)',
+      marketAccessOpenSource: 'Listed — open source (full config visible on the market)',
+      marketSaleSection: 'Sale (USDT)',
+      marketSaleHint: 'Required when “Subscription” is selected. Optional for other listing types.',
     },
 
     // Metric Tooltip
@@ -1221,16 +1339,16 @@ export const translations = {
       configureApi: 'Configure API',
       configureWallet: 'Configure Wallet',
       chooseProvider: 'Choose Your AI Provider',
-      claw402EntryDesc: 'Recommended default path. Use Base USDC pay-per-call instead of managing API keys.',
+      claw402EntryDesc: 'Recommended default path. Use COMKUN Proxy actual-price billing instead of managing API keys.',
       otherApiEntry: 'Other API Providers',
       otherApiEntryDesc: 'Use your own API key for OpenAI, Claude, Gemini, DeepSeek, and more.',
       payPerCall: 'Pay-per-call USDC · All AI Models · No API Key',
       recommended: 'Best',
-      allModelsClaw: 'Pay-per-call with USDC — supports all major AI models',
+      allModelsClaw: 'COMKUN Proxy actual-price billing — supports all major AI models',
       selectAiModel: 'Choose AI Model',
-      allModelsUnified: 'All models unified via Claw402. Switch anytime after setup.',
+      allModelsUnified: 'All models unified via COMKUN Proxy. Switch anytime after setup.',
       setupWallet: 'Setup Wallet',
-      walletInfo: 'Claw402 uses USDC on Base chain. You need an EVM wallet.',
+      walletInfo: 'COMKUN Proxy is managed by the platform. Users only need platform balance.',
       exportKey: 'Export private key from MetaMask, Rabby, etc.',
       dedicatedWallet: 'Recommended: create a dedicated wallet with a small USDC balance',
       walletPrivateKey: 'Wallet Private Key (Base Chain EVM)',
@@ -1249,14 +1367,19 @@ export const translations = {
       validating: 'Validating...',
       walletAddress: 'Wallet Address',
       usdcBalance: 'Base USDC Balance',
-      claw402Connected: 'claw402 Connected',
-      claw402Unreachable: 'claw402 Unreachable',
+      claw402Connected: 'COMKUN Proxy Connected',
+      claw402Unreachable: 'COMKUN Proxy Unreachable',
       depositUsdc: 'Deposit USDC to this address on Base chain',
       invalidKeyPrefix: 'Please add 0x at the beginning',
       invalidKeyLength: 'Should be 66 characters, currently',
       invalidKeyChars: 'Contains invalid characters',
       testConnection: 'Test Connection',
       testingConnection: 'Testing...',
+      apiKeyLabel: 'API Key (required)',
+      invalidKeyGeneric: 'Invalid key',
+      validationRequestFailed: 'Validation request failed',
+      copyAddress: 'Copy address',
+      copied: 'Copied',
     },
 
     // ExchangeConfigModal
@@ -1365,7 +1488,7 @@ export const translations = {
   },
   zh: {
     // Header
-    appTitle: 'NOFX',
+    appTitle: 'COMKUN-AI',
     subtitle: '多AI模型交易平台',
     aiTraders: 'AI交易员',
     details: '详情',
@@ -1380,13 +1503,13 @@ export const translations = {
 
     // Navigation
     realtimeNav: '排行榜',
-    configNav: '配置',
+    configNav: 'AI 交易员',
     dashboardNav: '看板',
     strategyNav: '策略',
     faqNav: '常见问题',
 
     // Footer
-    footerTitle: 'NOFX - AI交易系统',
+    footerTitle: 'COMKUN-AI · AI 量化',
     footerWarning: '⚠️ 交易有风险，请谨慎使用。',
 
     // Stats Cards
@@ -1489,7 +1612,7 @@ export const translations = {
     dashboardEmptyTitle: '开始使用吧！',
     dashboardEmptyDescription:
       '创建您的第一个 AI 交易员，自动化您的交易策略。连接交易所、选择 AI 模型，几分钟内即可开始交易！',
-    goToTradersPage: '创建您的第一个交易员',
+    goToTradersPage: '前往 AI 交易员部署',
     configureModelsFirst: '请先配置AI模型',
     configureExchangesFirst: '请先配置交易所',
     configureModelsAndExchangesFirst: '请先配置AI模型和交易所',
@@ -1665,6 +1788,9 @@ export const translations = {
     twoStageInvalidFormat:
       '私钥格式不正确，应为 {length} 位十六进制字符（可选 0x 前缀）。',
     testnetDescription: '启用后将连接到交易所测试环境,用于模拟交易',
+    binanceDemoTrading: '币安合约虚拟盘',
+    binanceDemoTradingDesc:
+      '连接 demo-fapi.binance.com。请在币安 App「模拟交易」中单独创建 API Key，与实盘 Key 不可混用。',
     securityWarning: '安全提示',
     saveConfiguration: '保存配置',
 
@@ -1771,7 +1897,21 @@ export const translations = {
     binanceSetupGuide: '币安配置教程',
     closeGuide: '关闭',
     whitelistIP: '白名单IP',
-    whitelistIPDesc: '币安交易所需要填写白名单IP',
+    whitelistIPDesc: 'CEX 交易所 API 需要填写专属代理出口白名单',
+    whitelistIPDescProxy:
+      '在交易所 API 管理中，将下方地址加入 API 密钥的 IP 白名单。这是系统为您分配的专属代理出口，不是网站服务器 IP。',
+    binanceWhitelistPending:
+      '请先点击保存。保存后系统会自动从代理池分配专属出口，随后此处会显示需在白名单填写的 IP 或域名。若保存后仍无显示，请关闭再打开本窗口，或联系管理员。',
+    binanceProxyExpiryNote: '代理池到期参考：',
+    whitelistDualIntro:
+      '只需要把下面的专属代理出口加入交易所 API 白名单；不要把平台服务器 IP 加给 API 调用。',
+    whitelistProxyLabel: '专属代理出口（保存账户后分配）',
+    whitelistPlatformServerLabel: '平台服务器',
+    binanceProxyAssignOnSaveNote:
+      '专属代理仅在您填写账户备注名、API Key、Secret 并点击保存后才会从池中分配；直接关闭窗口不保存不会占用代理。',
+    wizardBinanceWhitelistHint: '保存账户后显示专属代理出口；关闭不保存不占代理。',
+    copyWhitelistBothButton: '复制代理出口',
+    whitelistBothCopied: '已复制两行地址',
     serverIPAddresses: '服务器IP地址',
     copyIP: '复制',
     ipCopied: 'IP已复制',
@@ -1871,19 +2011,19 @@ export const translations = {
     heroTitle1: 'Read the Market.',
     heroTitle2: 'Write the Trade.',
     heroDescription:
-      'NOFX 是 AI 交易的未来标准——一个开放、社区驱动的代理式交易操作系统。支持 Binance、Aster DEX 等交易所，自托管、多代理竞争，让 AI 为你自动决策、执行和优化交易。',
+      'COMKUN 是 AI 交易的未来标准——一个开放、社区驱动的代理式交易操作系统。支持 Binance、Aster DEX 等交易所，自托管、多代理竞争，让 AI 为你自动决策、执行和优化交易。',
     poweredBy: '由 Aster DEX 和 Binance 提供支持。',
 
     // Landing Page CTA
     readyToDefine: '准备好定义 AI 交易的未来吗？',
     startWithCrypto:
-      '从加密市场起步，扩展到 TradFi。NOFX 是 AgentFi 的基础架构。',
+      '从加密市场起步，扩展到 TradFi。COMKUN 是 AgentFi 的基础架构。',
     getStartedNow: '立即开始',
     viewSourceCode: '查看源码',
 
     // Features Section
     coreFeatures: '核心功能',
-    whyChooseNofx: '为什么选择 NOFX？',
+    whyChooseNofx: '为什么选择 COMKUN-AI？',
     openCommunityDriven: '开源、透明、社区驱动的 AI 交易操作系统',
     openSourceSelfHosted: '100% 开源与自托管',
     openSourceDesc: '你的框架，你的规则。非黑箱，支持自定义提示词和多模型。',
@@ -1905,9 +2045,9 @@ export const translations = {
     secureFeatures4: '交易日志审计',
 
     // About Section
-    aboutNofx: '关于 NOFX',
-    whatIsNofx: '什么是 NOFX？',
-    nofxNotAnotherBot: "NOFX 不是另一个交易机器人，而是 AI 交易的 'Linux' ——",
+    aboutNofx: '关于 COMKUN-AI',
+    whatIsNofx: '什么是 COMKUN-AI？',
+    nofxNotAnotherBot: "COMKUN 不是另一个交易机器人，而是 AI 交易的 'Linux' ——",
     nofxDescription1: "一个透明、可信任的开源 OS，提供统一的 '决策-风险-执行'",
     nofxDescription2: '层，支持所有资产类别。',
     nofxDescription3:
@@ -1922,7 +2062,7 @@ export const translations = {
     startupMessages3: 'Web 控制台 http://127.0.0.1:3000',
 
     // How It Works Section
-    howToStart: '如何开始使用 NOFX',
+    howToStart: '如何开始使用 COMKUN',
     fourSimpleSteps: '四个简单步骤，开启 AI 自动交易之旅',
     step1Title: '拉取 GitHub 仓库',
     step1Desc:
@@ -1937,7 +2077,7 @@ export const translations = {
     step4Desc: '监控交易，提交 PR 改进框架。加入 Telegram 分享策略。',
     importantRiskWarning: '重要风险提示',
     riskWarningText:
-      'dev 分支不稳定，勿用无法承受损失的资金。NOFX 非托管，无官方策略。交易有风险，投资需谨慎。',
+      'dev 分支不稳定，勿用无法承受损失的资金。COMKUN 非托管，无官方策略。交易有风险，投资需谨慎。',
 
     // Community Section (testimonials are kept as-is since they are quotes)
 
@@ -1950,7 +2090,7 @@ export const translations = {
     strategicInvestment: '(战略投资)',
 
     // Login Modal
-    accessNofxPlatform: '访问 NOFX 平台',
+    accessNofxPlatform: '访问 COMKUN-AI 平台',
     loginRegisterPrompt: '请选择登录或注册以访问完整的 AI 交易平台',
     registerNewAccount: '注册新账号',
 
@@ -1973,7 +2113,7 @@ export const translations = {
 
     // FAQ Page
     faqTitle: '常见问题',
-    faqSubtitle: '查找关于 NOFX 的常见问题解答',
+    faqSubtitle: '查找关于 COMKUN 的常见问题解答',
     faqStillHaveQuestions: '还有其他问题？',
     faqContactUs: '加入我们的社区或查看 GitHub 获取更多帮助',
 
@@ -1989,17 +2129,17 @@ export const translations = {
     faqCategoryContributing: '参与贡献',
 
     // ===== 入门指南 =====
-    faqWhatIsNOFX: 'NOFX 是什么？',
+    faqWhatIsNOFX: 'COMKUN-AI 是什么？',
     faqWhatIsNOFXAnswer:
-      'NOFX 是一个开源的 AI 驱动交易操作系统，支持加密货币和美股市场。它使用大语言模型（LLM）如 DeepSeek、GPT、Claude、Gemini 来分析市场数据，进行自主交易决策。核心功能包括：多 AI 模型支持、多交易所交易、可视化策略构建器、回测系统。',
+      'COMKUN 是一个开源的 AI 驱动交易操作系统，支持加密货币和美股市场。它使用大语言模型（LLM）如 DeepSeek、GPT、Claude、Gemini 来分析市场数据，进行自主交易决策。核心功能包括：多 AI 模型支持、多交易所交易、可视化策略构建器、回测系统。',
 
-    faqHowDoesItWork: 'NOFX 是如何工作的？',
+    faqHowDoesItWork: 'COMKUN 是如何工作的？',
     faqHowDoesItWorkAnswer:
-      'NOFX 分 5 步工作：1）配置 AI 模型和交易所 API 凭证；2）创建交易策略（币种选择、指标、风控）；3）创建"交易员"，组合 AI 模型 + 交易所 + 策略；4）启动交易员 - 它会定期分析市场数据并做出买入/卖出/持有决策；5）在仪表板上监控表现。AI 使用思维链（Chain of Thought）推理来解释每个决策。',
+      'COMKUN 分 5 步工作：1）配置 AI 模型和交易所 API 凭证；2）创建交易策略（币种选择、指标、风控）；3）创建"交易员"，组合 AI 模型 + 交易所 + 策略；4）启动交易员 - 它会定期分析市场数据并做出买入/卖出/持有决策；5）在仪表板上监控表现。AI 使用思维链（Chain of Thought）推理来解释每个决策。',
 
-    faqIsProfitable: 'NOFX 能盈利吗？',
+    faqIsProfitable: 'COMKUN 能盈利吗？',
     faqIsProfitableAnswer:
-      'AI 交易是实验性的，不保证盈利。加密货币期货波动性大、风险高。NOFX 仅用于教育和研究目的。我们强烈建议：从小额开始（10-50 USDT），不要投入超过承受能力的资金，在实盘交易前充分回测，并理解过去的表现不代表未来的结果。',
+      'AI 交易是实验性的，不保证盈利。加密货币期货波动性大、风险高。COMKUN 仅用于教育和研究目的。我们强烈建议：从小额开始（10-50 USDT），不要投入超过承受能力的资金，在实盘交易前充分回测，并理解过去的表现不代表未来的结果。',
 
     faqSupportedExchanges: '支持哪些交易所？',
     faqSupportedExchangesAnswer:
@@ -2007,14 +2147,14 @@ export const translations = {
 
     faqSupportedAIModels: '支持哪些 AI 模型？',
     faqSupportedAIModelsAnswer:
-      'NOFX 支持 7+ 种 AI 模型：DeepSeek（推荐性价比）、阿里云通义千问、OpenAI（GPT-5.2）、Anthropic Claude、Google Gemini、xAI Grok、Kimi（月之暗面）。您也可以使用任何 OpenAI 兼容的 API 端点。每个模型各有优势 - DeepSeek 性价比高，OpenAI 能力强但贵，Claude 擅长推理。',
+      'COMKUN 支持 7+ 种 AI 模型：DeepSeek（推荐性价比）、阿里云通义千问、OpenAI（GPT-5.2）、Anthropic Claude、Google Gemini、xAI Grok、Kimi（月之暗面）。您也可以使用任何 OpenAI 兼容的 API 端点。每个模型各有优势 - DeepSeek 性价比高，OpenAI 能力强但贵，Claude 擅长推理。',
 
     faqSystemRequirements: '系统要求是什么？',
     faqSystemRequirementsAnswer:
       '最低配置：2 核 CPU，2GB 内存，1GB 硬盘，稳定网络。推荐：4GB 内存用于运行多个交易员。支持系统：Linux、macOS 或 Windows（通过 Docker 或 WSL2）。Docker 是最简单的安装方式。手动安装需要 Go 1.21+、Node.js 18+ 和 TA-Lib 库。',
 
     // ===== 安装部署 =====
-    faqHowToInstall: '如何安装 NOFX？',
+    faqHowToInstall: '如何安装 COMKUN？',
     faqHowToInstallAnswer:
       '最简单的方法（Linux/macOS）：运行 "curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash" - 这会自动安装 Docker 容器。然后在浏览器中打开 http://127.0.0.1:3000。手动安装或开发请克隆仓库并按照 README 说明操作。',
 
@@ -2034,7 +2174,7 @@ export const translations = {
     faqServerDeploymentAnswer:
       '在服务器上运行安装脚本 - 它会自动检测服务器 IP。通过 http://服务器IP:3000 访问。配置 HTTPS：1）使用 Cloudflare（免费）- 添加域名，创建 A 记录指向服务器 IP，SSL 设为"灵活"；2）在 .env 中启用 TRANSPORT_ENCRYPTION=true 进行浏览器端加密；3）通过 https://你的域名.com 访问。',
 
-    faqUpdateNOFX: '如何更新 NOFX？',
+    faqUpdateNOFX: '如何更新 COMKUN？',
     faqUpdateNOFXAnswer:
       'Docker 方式：运行 "docker compose pull && docker compose up -d" 拉取最新镜像并重启。手动安装：后端 "git pull && go build -o nofx"，前端 "cd web && npm install && npm run build"。data.db 中的配置在更新时会保留。',
 
@@ -2053,7 +2193,7 @@ export const translations = {
 
     faqHyperliquidSetup: '如何设置 Hyperliquid？',
     faqHyperliquidSetupAnswer:
-      'Hyperliquid 是去中心化交易所，需要钱包认证。步骤：1）访问 app.hyperliquid.xyz；2）连接钱包；3）生成 API 钱包（推荐）或使用主钱包；4）复制钱包地址和私钥；5）在 NOFX 中添加 Hyperliquid 交易所并填入凭证。无需 KYC，完全链上。',
+      'Hyperliquid 是去中心化交易所，需要钱包认证。步骤：1）访问 app.hyperliquid.xyz；2）连接钱包；3）生成 API 钱包（推荐）或使用主钱包；4）复制钱包地址和私钥；5）在 COMKUN 中添加 Hyperliquid 交易所并填入凭证。无需 KYC，完全链上。',
 
     faqCreateStrategy: '如何创建交易策略？',
     faqCreateStrategyAnswer:
@@ -2084,13 +2224,13 @@ export const translations = {
     faqLeverageSettingsAnswer:
       '杠杆在策略 → 风控中设置：BTC/ETH 杠杆（通常 5-20 倍）和山寨币杠杆（通常 3-10 倍）。更高杠杆 = 更高风险和潜在收益。子账户可能有限制（如币安子账户限制 5 倍）。AI 下单时会遵守这些限制。',
 
-    faqStopLossTakeProfit: 'NOFX 支持止损止盈吗？',
+    faqStopLossTakeProfit: 'COMKUN 支持止损止盈吗？',
     faqStopLossTakeProfitAnswer:
       'AI 可以在决策中建议止损/止盈价位，但这是基于指导而非交易所硬编码订单。AI 每个周期监控持仓，可能根据盈亏决定平仓。如需保证止损，可以手动在交易所设置订单，或调整策略提示词使其更保守。',
 
     faqMultipleTraders: '可以运行多个交易员吗？',
     faqMultipleTradersAnswer:
-      '可以！NOFX 支持运行 20+ 个并发交易员。每个交易员可以有不同的：AI 模型、交易所账户、策略、决策间隔。用于 A/B 测试策略、比较 AI 模型或跨交易所分散风险。在竞赛页面监控所有交易员。',
+      '可以！COMKUN 支持运行 20+ 个并发交易员。每个交易员可以有不同的：AI 模型、交易所账户、策略、决策间隔。用于 A/B 测试策略、比较 AI 模型或跨交易所分散风险。在竞赛页面监控所有交易员。',
 
     faqAICosts: 'AI API 调用费用是多少？',
     faqAICostsAnswer:
@@ -2099,7 +2239,7 @@ export const translations = {
     // ===== 技术问题 =====
     faqPortInUse: '端口 8080 或 3000 被占用',
     faqPortInUseAnswer:
-      '查看占用端口的进程：macOS/Linux 用 "lsof -i :8080"，Windows 用 "netstat -ano | findstr 8080"。终止进程或在 .env 中修改端口：NOFX_BACKEND_PORT=8081、NOFX_FRONTEND_PORT=3001。然后 "docker compose down && docker compose up -d" 重启。',
+      '查看占用端口的进程：macOS/Linux 用 "lsof -i :8080"，Windows 用 "netstat -ano | findstr 8080"。终止进程或在 .env 中修改端口：COMKUN_BACKEND_PORT=8081、COMKUN_FRONTEND_PORT=3001。然后 "docker compose down && docker compose up -d" 重启。',
 
     faqFrontendNotLoading: '前端一直显示"加载中..."',
     faqFrontendNotLoadingAnswer:
@@ -2119,11 +2259,11 @@ export const translations = {
 
     faqBinancePositionMode: '币安错误代码 -4061（持仓模式）',
     faqBinancePositionModeAnswer:
-      '错误："Order\'s position side does not match user\'s setting"。您处于单向持仓模式，但 NOFX 需要双向持仓模式。修复：1）先平掉所有持仓；2）币安合约 → 设置（齿轮图标）→ 偏好设置 → 持仓模式 → 切换为"双向持仓"；3）重启交易员。',
+      '错误："Order\'s position side does not match user\'s setting"。您处于单向持仓模式，但 COMKUN 需要双向持仓模式。修复：1）先平掉所有持仓；2）币安合约 → 设置（齿轮图标）→ 偏好设置 → 持仓模式 → 切换为"双向持仓"；3）重启交易员。',
 
     faqBalanceShowsZero: '账户余额显示 0',
     faqBalanceShowsZeroAnswer:
-      '资金可能在现货钱包而非合约钱包。解决方案：1）在币安进入钱包 → 合约 → 划转；2）将 USDT 从现货划转到合约；3）刷新 NOFX 仪表板。也检查：资金未被理财/质押产品锁定。',
+      '资金可能在现货钱包而非合约钱包。解决方案：1）在币安进入钱包 → 合约 → 划转；2）将 USDT 从现货划转到合约；3）刷新 COMKUN 仪表板。也检查：资金未被理财/质押产品锁定。',
 
     faqDockerPullFailed: 'Docker 镜像拉取失败或缓慢',
     faqDockerPullFailedAnswer:
@@ -2134,17 +2274,17 @@ export const translations = {
     faqAPIKeyStorageAnswer:
       'API 密钥使用 AES-256-GCM 加密后存储在本地 SQLite 数据库中。加密密钥（DATA_ENCRYPTION_KEY）存储在您的 .env 文件中。密钥仅在 API 调用需要时在内存中解密。切勿分享您的 data.db 或 .env 文件。',
 
-    faqEncryptionDetails: 'NOFX 使用什么加密？',
+    faqEncryptionDetails: 'COMKUN 使用什么加密？',
     faqEncryptionDetailsAnswer:
-      'NOFX 使用多层加密：1）AES-256-GCM 用于数据库存储（API 密钥、密钥）；2）RSA-2048 用于可选的传输加密（浏览器到服务器）；3）JWT 用于认证令牌。密钥在安装时生成。HTTPS 环境启用 TRANSPORT_ENCRYPTION=true。',
+      'COMKUN 使用多层加密：1）AES-256-GCM 用于数据库存储（API 密钥、密钥）；2）RSA-2048 用于可选的传输加密（浏览器到服务器）；3）JWT 用于认证令牌。密钥在安装时生成。HTTPS 环境启用 TRANSPORT_ENCRYPTION=true。',
 
     faqSecurityBestPractices: '安全最佳实践是什么？',
     faqSecurityBestPracticesAnswer:
-      '建议：1）使用带 IP 白名单和最小权限（仅合约交易）的交易所 API 密钥；2）为 NOFX 使用专用子账户；3）远程部署启用 TRANSPORT_ENCRYPTION；4）切勿分享 .env 或 data.db 文件；5）使用有效证书的 HTTPS；6）定期轮换 API 密钥；7）监控账户活动。',
+      '建议：1）使用带 IP 白名单和最小权限（仅合约交易）的交易所 API 密钥；2）为 COMKUN 使用专用子账户；3）远程部署启用 TRANSPORT_ENCRYPTION；4）切勿分享 .env 或 data.db 文件；5）使用有效证书的 HTTPS；6）定期轮换 API 密钥；7）监控账户活动。',
 
-    faqCanNOFXStealFunds: 'NOFX 会盗取我的资金吗？',
+    faqCanNOFXStealFunds: 'COMKUN 会盗取我的资金吗？',
     faqCanNOFXStealFundsAnswer:
-      'NOFX 是开源的（AGPL-3.0 许可）- 您可以在 GitHub 审计所有代码。API 密钥存储在您的机器本地，从不发送到外部服务器。NOFX 只有您通过 API 密钥授予的权限。为最大安全：使用仅交易权限（无提现）的 API 密钥，启用 IP 白名单，使用专用子账户。',
+      'COMKUN 是开源的（AGPL-3.0 许可）- 您可以在 GitHub 审计所有代码。API 密钥存储在您的机器本地，从不发送到外部服务器。COMKUN 只有您通过 API 密钥授予的权限。为最大安全：使用仅交易权限（无提现）的 API 密钥，启用 IP 白名单，使用专用子账户。',
 
     // ===== 功能介绍 =====
     faqStrategyStudio: '什么是策略工作室？',
@@ -2166,20 +2306,20 @@ export const translations = {
 
     faqCustomAIAPI: '可以使用自定义 AI API 吗？',
     faqCustomAIAPIAnswer:
-      '可以！NOFX 支持任何 OpenAI 兼容的 API。在配置 → AI 模型 → 自定义 API 中：1）输入 API 端点 URL（如 https://your-api.com/v1）；2）输入 API 密钥；3）指定模型名称。适用于自托管模型、替代提供商或通过第三方代理的 Claude。',
+      '可以！COMKUN 支持任何 OpenAI 兼容的 API。在配置 → AI 模型 → 自定义 API 中：1）输入 API 端点 URL（如 https://your-api.com/v1）；2）输入 API 密钥；3）指定模型名称。适用于自托管模型、替代提供商或通过第三方代理的 Claude。',
 
     faqAIHallucinations: 'AI 幻觉问题怎么办？',
     faqAIHallucinationsAnswer:
-      'AI 模型有时会产生不正确或虚构的信息（"幻觉"）。NOFX 通过以下方式缓解：1）提供带真实市场数据的结构化提示词；2）强制 JSON 输出格式；3）执行前验证订单。但 AI 交易是实验性的 - 始终监控决策，不要完全依赖 AI 判断。',
+      'AI 模型有时会产生不正确或虚构的信息（"幻觉"）。COMKUN 通过以下方式缓解：1）提供带真实市场数据的结构化提示词；2）强制 JSON 输出格式；3）执行前验证订单。但 AI 交易是实验性的 - 始终监控决策，不要完全依赖 AI 判断。',
 
     faqCompareAIModels: '如何比较不同 AI 模型？',
     faqCompareAIModelsAnswer:
       '创建多个交易员，使用不同 AI 模型但相同策略/交易所。同时运行并在竞赛页面比较。关注指标：ROI、胜率、夏普比率、最大回撤。',
 
     // ===== 参与贡献 =====
-    faqHowToContribute: '如何为 NOFX 做贡献？',
+    faqHowToContribute: '如何为 COMKUN 做贡献？',
     faqHowToContributeAnswer:
-      'NOFX 是开源项目，欢迎贡献！贡献方式：1）代码 - 修复 bug、添加功能（查看 GitHub Issues）；2）文档 - 改进指南、翻译；3）Bug 报告 - 详细报告问题；4）功能建议 - 提出改进意见。从标记为"good first issue"的问题开始。所有贡献者可能获得空投奖励。',
+      'COMKUN 是开源项目，欢迎贡献！贡献方式：1）代码 - 修复 bug、添加功能（查看 GitHub Issues）；2）文档 - 改进指南、翻译；3）Bug 报告 - 详细报告问题；4）功能建议 - 提出改进意见。从标记为"good first issue"的问题开始。所有贡献者可能获得空投奖励。',
 
     faqPRGuidelines: 'PR 指南是什么？',
     faqPRGuidelinesAnswer:
@@ -2211,7 +2351,7 @@ export const translations = {
         '避免把应用嵌入在不安全的 HTTP iframe 或会降级协议的反向代理中。',
       unsupportedTitle: '浏览器未提供 Web Crypto',
       unsupportedDesc:
-        '请通过 HTTPS 或本机 localhost 访问 NOFX，并避免嵌入不安全 iframe/反向代理，以符合浏览器的 Web Crypto 规则。',
+        '请通过 HTTPS 或本机 localhost 访问 COMKUN，并避免嵌入不安全 iframe/反向代理，以符合浏览器的 Web Crypto 规则。',
       summary: '当前来源：{origin} · 协议：{protocol}',
       disabledTitle: '传输加密已禁用',
       disabledDesc:
@@ -2327,6 +2467,87 @@ export const translations = {
       shareYours: 'UPLOAD_STRATEGY',
       makePublic: 'PUBLISH',
       loading: 'INITIALIZING...',
+      marketRevision: '版本号',
+      marketUpdated: '市场同步',
+      brandTitle: 'COMKUN-AI',
+      navMarketplace: '策略市场',
+      navTerminal: '策略构建',
+      navPortfolio: '看板',
+      navAnalytics: '数据中心',
+      topSearchPlaceholder: '搜索策略...',
+      deployAgent: '部署智能体',
+      filterTrend: '趋势',
+      filterRecent: '最新',
+      filterHighYield: '热门',
+      sidebarBrand: 'QUANT_OS',
+      sidebarVersion: 'v4.2.0-STABLE',
+      navDashboard: '仪表盘',
+      navStrategies: '策略',
+      navSignals: '信号',
+      navBacktest: '回测',
+      navRisk: '风控',
+      navLogs: '日志',
+      newStrategy: '新建策略',
+      support: '支持',
+      documentation: '文档',
+      descriptionLum:
+        '浏览策略市场：非开源上架策略不在此页展示完整配置，请登录后点「加入我的策略」生成副本，在策略构建器中查看与编辑；开源策略在此页即可查看完整内容。',
+      tableTitle: '所有公开策略',
+      colIndex: '序号',
+      colNameAuthor: '策略 / 创作者',
+      colPermission: '权限',
+      colAum: '总管理资产',
+      colReturn7d: '90日',
+      colDrawdown: '最大回撤',
+      colSubs: '订阅数',
+      colAgents: '运行中',
+      colAgentsTitle: '运行中的智能体',
+      colAgentsSub: '数量',
+      colRevision: '版本',
+      colPublished: '更新时间',
+      colTrend: '走势',
+      colAction: '操作',
+      subscribeAction: '复制配置',
+      return7dLabel: '90日',
+      subsLabel: '订阅',
+      aumDemo: '—',
+      badgeScalper: '高频',
+      badgeSwing: '波段',
+      badgeArb: '套利',
+      badgeStable: '稳健',
+      badgeAggressive: '进取',
+      badgeDefault: '策略',
+      permPublic: '公开',
+      permPaid: '配置隐藏',
+      permRestricted: '受限',
+      paginationShow: '第 {{from}}–{{to}} 条，共 {{total}} 条',
+      footerStatus: '系统状态: 正常',
+      footerRisk: '风控在线',
+      footerBtc: '行情以交易所为准',
+      filterSoon: '筛选（敬请期待）',
+      exportSoon: '导出（敬请期待）',
+      noConfigToCopy: '当前权限下没有可复制完整配置',
+      copyFailed: '复制失败',
+      permFilterAll: '全部',
+      permFilterSubscription: '需订阅',
+      permFilterPublic: '公开',
+      permFilterOpenSource: '开源',
+      permFilterPrivate: '不公开',
+      permFilterLabel: '权限分类',
+      badgeAccessSubscription: '需订阅',
+      badgeAccessPublic: '公开',
+      badgeAccessOpenSource: '开源',
+      badgeAccessPrivate: '不公开',
+      toastNotPublic: '该策略未公开，无法复制。',
+      toastSubscribe: '该策略需订阅后使用（支付流程后续接入）。',
+      actionCopyConfig: '复制配置',
+      actionCopyPrompts: '复制提示词',
+      actionViewOnly: '仅展示',
+      /** 已购买订阅/仅展示类策略：生成到自己账号下的策略列表 */
+      actionAddToStrategies: '加入我的策略',
+      toastAddedToStrategies: '已生成到你的策略列表，正在打开…',
+      toastOpenExistingFork: '该策略已在你的列表里，正在打开已有副本…',
+      toastPurchasedDupFailed: '购买成功，但生成策略副本失败，请稍后在策略市场再点一次「加入我的策略」或联系客服。',
     },
 
     // Strategy Studio Page
@@ -2402,6 +2623,24 @@ export const translations = {
       tokenExceedWarning: 'Token 估算超过 128K，部分模型请求可能失败',
       tokenEstimating: '预估中...',
       tokenTooltip: '基于 200K 上下文计算',
+      marketUpdate: '更新到市场',
+      marketUpdating: '发布中…',
+      marketUpdateHint:
+        '将当前编辑内容写入已上架的策略市场条目，并递增版本号，购买者可对比 revision 决定是否同步',
+      marketUpdateSuccess: '已同步到策略市场 · 版本 {{rev}}',
+      marketUpdateFailed: '同步到策略市场失败',
+      marketUpdateNeedsPublic: '请先在「发布到市场售卖」里上架并保存，再使用本按钮。',
+      listingDialogConfirm: '确定',
+      marketListingSection: '策略市场上架',
+      marketListingHint:
+        '默认不上架。「需订阅 / 公开」在策略市场不展示完整 JSON，他人只能加入自己的策略列表后在构建器中查看；仅「开源」在市场中展示完整配置。',
+      marketAccessOff: '不公开（默认，不上架）',
+      marketAccessPrivate: '上架 — 仅展示（旧版，界面已不再提供）',
+      marketAccessSubscription: '上架 — 需订阅（市场不展示完整配置，购买后副本在构建器中可见）',
+      marketAccessPublic: '上架 — 公开（市场不展示完整配置，登录用户可加入我的策略后查看）',
+      marketAccessOpenSource: '上架 — 开源（市场在列表中展示完整配置）',
+      marketSaleSection: '发布售卖（USDT）',
+      marketSaleHint: '选择「需订阅」时必须填写有效价格；其他上架方式可选填。',
     },
 
     // Metric Tooltip
@@ -2526,16 +2765,16 @@ export const translations = {
       configureApi: '配置 API',
       configureWallet: '配置钱包',
       chooseProvider: '选择 AI 模型提供商',
-      claw402EntryDesc: '默认推荐走这条路。直接用 Base USDC 按次付费，不需要自己管理 API Key。',
+      claw402EntryDesc: '默认推荐走这条路。通过 COMKUN 代理按实际报价结算，不需要自己管理 API Key。',
       otherApiEntry: '其他 API 模型',
       otherApiEntryDesc: '如果你已经有自己的 OpenAI、Claude、Gemini、DeepSeek 等 API Key，再从这里进入。',
       payPerCall: 'USDC 按次付费 · 支持全部 AI 模型 · 无需 API Key',
       recommended: '推荐',
-      allModelsClaw: '用 USDC 按次付费，支持所有主流 AI 模型',
+      allModelsClaw: '通过 COMKUN 代理按实际报价结算，支持所有主流 AI 模型',
       selectAiModel: '① 选择 AI 模型',
-      allModelsUnified: '所有模型通过 Claw402 统一调用，创建后可随时切换',
+      allModelsUnified: '所有模型通过 COMKUN 代理统一调用，创建后可随时切换',
       setupWallet: '② 设置钱包',
-      walletInfo: '💡 Claw402 使用 Base 链上的 USDC 付费，你需要一个 EVM 钱包',
+      walletInfo: 'COMKUN 代理由平台统一管理付费，用户只需使用平台余额。',
       exportKey: '可以用 MetaMask、Rabby 等钱包导出私钥',
       dedicatedWallet: '建议新建一个专用钱包，充入少量 USDC 即可',
       walletPrivateKey: '钱包私钥（Base 链 EVM）',
@@ -2554,14 +2793,19 @@ export const translations = {
       validating: '验证中...',
       walletAddress: '钱包地址',
       usdcBalance: 'Base USDC 余额',
-      claw402Connected: 'claw402 已连接',
-      claw402Unreachable: 'claw402 不可达',
+      claw402Connected: 'COMKUN 代理已连接',
+      claw402Unreachable: 'COMKUN 代理不可达',
       depositUsdc: '请往此地址充值 Base 链 USDC',
       invalidKeyPrefix: '请在开头加 0x',
       invalidKeyLength: '应为 66 个字符，当前',
       invalidKeyChars: '包含非法字符',
       testConnection: '测试连接',
       testingConnection: '测试中...',
+      apiKeyLabel: 'API 密钥（必填）',
+      invalidKeyGeneric: '密钥无效',
+      validationRequestFailed: '校验请求失败',
+      copyAddress: '复制地址',
+      copied: '已复制',
     },
 
     exchangeConfig: {
@@ -2667,7 +2911,7 @@ export const translations = {
   },
   id: {
     // Header
-    appTitle: 'NOFX',
+    appTitle: 'COMKUN-AI',
     subtitle: 'Platform Trading Multi-AI',
     aiTraders: 'Trader AI',
     details: 'Detail',
@@ -2688,7 +2932,7 @@ export const translations = {
     faqNav: 'FAQ',
 
     // Footer
-    footerTitle: 'NOFX - Sistem Trading AI',
+    footerTitle: 'COMKUN-AI · Sistem Trading AI',
     footerWarning: '⚠️ Trading memiliki risiko. Gunakan dengan bijak.',
 
     // Stats Cards
@@ -3037,6 +3281,20 @@ export const translations = {
     closeGuide: 'Tutup',
     whitelistIP: 'Whitelist IP',
     whitelistIPDesc: 'Binance memerlukan penambahan IP server ke whitelist API',
+    whitelistIPDescProxy:
+      'Tambahkan alamat di bawah ke whitelist IP kunci API Binance. Ini alamat keluar (proxy) khusus Anda — bukan IP server aplikasi web.',
+    binanceWhitelistPending:
+      'Simpan halaman ini terlebih dahulu. Sistem akan menetapkan keluar proxy dari pool; lalu IP atau hostname untuk whitelist akan muncul di sini.',
+    binanceProxyExpiryNote: 'Kedaluwarsa proxy pool (referensi): ',
+    whitelistDualIntro:
+      'Tambahkan SEMUA alamat di bawah ke whitelist IP kunci API Binance: keluar proxy khusus (REST) ditambah IP server platform.',
+    whitelistProxyLabel: 'Keluar proxy khusus',
+    whitelistPlatformServerLabel: 'Server platform',
+    binanceProxyAssignOnSaveNote:
+      'Keluar proxy baru dialokasikan setelah Anda mengisi nama akun + API key + secret dan menyimpan. Menutup tanpa menyimpan tidak memakai slot proxy.',
+    wizardBinanceWhitelistHint: 'Keluar proxy muncul setelah simpan; batal tidak memakai slot.',
+    copyWhitelistBothButton: 'Salin proxy + server',
+    whitelistBothCopied: 'Kedua baris disalin',
     serverIPAddresses: 'Alamat IP Server',
     copyIP: 'Salin',
     ipCopied: 'IP Disalin',
@@ -3132,14 +3390,14 @@ export const translations = {
     githubStarsInDays: '2.5K+ GitHub Stars dalam 3 hari',
     heroTitle1: 'Read the Market.',
     heroTitle2: 'Write the Trade.',
-    heroDescription: 'NOFX adalah standar masa depan untuk trading AI — OS trading agensi yang terbuka dan didorong komunitas. Mendukung Binance, Aster DEX dan bursa lainnya, self-hosted, kompetisi multi-agen, biarkan AI secara otomatis membuat keputusan, mengeksekusi dan mengoptimalkan trading untuk Anda.',
+    heroDescription: 'COMKUN adalah standar masa depan untuk trading AI — OS trading agensi yang terbuka dan didorong komunitas. Mendukung Binance, Aster DEX dan bursa lainnya, self-hosted, kompetisi multi-agen, biarkan AI secara otomatis membuat keputusan, mengeksekusi dan mengoptimalkan trading untuk Anda.',
     poweredBy: 'Didukung oleh Aster DEX dan Binance.',
     readyToDefine: 'Siap mendefinisikan masa depan trading AI?',
-    startWithCrypto: 'Dimulai dari pasar kripto, berkembang ke TradFi. NOFX adalah infrastruktur AgentFi.',
+    startWithCrypto: 'Dimulai dari pasar kripto, berkembang ke TradFi. COMKUN adalah infrastruktur AgentFi.',
     getStartedNow: 'Mulai Sekarang',
     viewSourceCode: 'Lihat Kode Sumber',
     coreFeatures: 'Fitur Inti',
-    whyChooseNofx: 'Mengapa Memilih NOFX?',
+    whyChooseNofx: 'Mengapa Memilih COMKUN-AI?',
     openCommunityDriven: 'Open source, transparan, OS trading AI yang didorong komunitas',
     openSourceSelfHosted: '100% Open Source & Self-Hosted',
     openSourceDesc: 'Framework Anda, aturan Anda. Non-black box, mendukung prompt kustom dan multi-model.',
@@ -3159,9 +3417,9 @@ export const translations = {
     secureFeatures2: 'Kontrol izin API granular',
     secureFeatures3: 'Pemantauan risiko realtime',
     secureFeatures4: 'Audit log trading',
-    aboutNofx: 'Tentang NOFX',
-    whatIsNofx: 'Apa itu NOFX?',
-    nofxNotAnotherBot: "NOFX bukan bot trading biasa, melainkan 'Linux' dari trading AI —",
+    aboutNofx: 'Tentang COMKUN-AI',
+    whatIsNofx: 'Apa itu COMKUN-AI?',
+    nofxNotAnotherBot: "COMKUN bukan bot trading biasa, melainkan 'Linux' dari trading AI —",
     nofxDescription1: "OS open source yang transparan dan terpercaya yang menyediakan lapisan",
     nofxDescription2: "'keputusan-risiko-eksekusi' terpadu, mendukung semua kelas aset.",
     nofxDescription3: 'Dimulai dari pasar kripto (24/7, volatilitas tinggi sebagai tempat uji sempurna), ekspansi masa depan ke saham, futures, forex. Inti: arsitektur terbuka, AI',
@@ -3172,7 +3430,7 @@ export const translations = {
     startupMessages1: 'Memulai sistem trading otomatis...',
     startupMessages2: 'Server API dimulai di port 8080',
     startupMessages3: 'Konsol Web http://127.0.0.1:3000',
-    howToStart: 'Cara Memulai NOFX',
+    howToStart: 'Cara Memulai COMKUN',
     fourSimpleSteps: 'Empat langkah sederhana untuk memulai perjalanan trading AI otomatis Anda',
     step1Title: 'Clone Repository GitHub',
     step1Desc: 'git clone https://github.com/NoFxAiOS/nofx dan beralih ke branch dev untuk menguji fitur baru.',
@@ -3183,14 +3441,14 @@ export const translations = {
     step4Title: 'Optimalkan & Kontribusi',
     step4Desc: 'Pantau trading, kirim PR untuk meningkatkan framework. Bergabung ke Telegram untuk berbagi strategi.',
     importantRiskWarning: 'Peringatan Risiko Penting',
-    riskWarningText: 'Branch dev tidak stabil, jangan gunakan dana yang tidak sanggup Anda rugi. NOFX non-custodial, tanpa strategi resmi. Trading memiliki risiko, investasi dengan hati-hati.',
+    riskWarningText: 'Branch dev tidak stabil, jangan gunakan dana yang tidak sanggup Anda rugi. COMKUN non-custodial, tanpa strategi resmi. Trading memiliki risiko, investasi dengan hati-hati.',
     futureStandardAI: 'Standar masa depan trading AI',
     links: 'Tautan',
     resources: 'Sumber Daya',
     documentation: 'Dokumentasi',
     supporters: 'Pendukung',
     strategicInvestment: '(Investasi Strategis)',
-    accessNofxPlatform: 'Akses Platform NOFX',
+    accessNofxPlatform: 'Akses Platform COMKUN',
     loginRegisterPrompt: 'Silakan masuk atau daftar untuk mengakses platform trading AI lengkap',
     registerNewAccount: 'Daftar Akun Baru',
     candidateCoins: 'Koin Kandidat',
@@ -3209,7 +3467,7 @@ export const translations = {
 
     // FAQ Page
     faqTitle: 'Pertanyaan yang Sering Diajukan',
-    faqSubtitle: 'Temukan jawaban untuk pertanyaan umum tentang NOFX',
+    faqSubtitle: 'Temukan jawaban untuk pertanyaan umum tentang COMKUN',
     faqStillHaveQuestions: 'Masih Punya Pertanyaan?',
     faqContactUs: 'Bergabunglah dengan komunitas kami atau kunjungi GitHub untuk bantuan lebih lanjut',
     faqCategoryGettingStarted: 'Memulai',
@@ -3221,19 +3479,19 @@ export const translations = {
     faqCategoryFeatures: 'Fitur',
     faqCategoryAIModels: 'Model AI',
     faqCategoryContributing: 'Kontribusi',
-    faqWhatIsNOFX: 'Apa itu NOFX?',
-    faqWhatIsNOFXAnswer: 'NOFX adalah sistem operasi trading bertenaga AI open-source untuk pasar kripto dan saham AS. Ia menggunakan model bahasa besar (LLM) seperti DeepSeek, GPT, Claude, Gemini untuk menganalisis data pasar dan membuat keputusan trading secara otonom. Fitur utama: dukungan multi-model AI, trading multi-bursa, dan pembangun strategi visual.',
-    faqHowDoesItWork: 'Bagaimana cara kerja NOFX?',
-    faqHowDoesItWorkAnswer: 'NOFX bekerja dalam 5 langkah: 1) Konfigurasi model AI dan kredensial API bursa; 2) Buat strategi trading (pemilihan koin, indikator, kontrol risiko); 3) Buat "Trader" menggabungkan Model AI + Bursa + Strategi; 4) Mulai trader - dia akan menganalisis data pasar secara berkala dan membuat keputusan beli/jual/tahan; 5) Pantau performa di dasbor.',
-    faqIsProfitable: 'Apakah NOFX menguntungkan?',
-    faqIsProfitableAnswer: 'Trading AI bersifat eksperimental dan TIDAK dijamin menguntungkan. Futures kripto sangat volatil dan berisiko. NOFX dirancang untuk tujuan edukasi dan riset. Kami sangat menyarankan: mulai dengan jumlah kecil (10-50 USDT), jangan investasi melebihi yang sanggup Anda rugi, uji sebelum trading nyata.',
+    faqWhatIsNOFX: 'Apa itu COMKUN-AI?',
+    faqWhatIsNOFXAnswer: 'COMKUN adalah sistem operasi trading bertenaga AI open-source untuk pasar kripto dan saham AS. Ia menggunakan model bahasa besar (LLM) seperti DeepSeek, GPT, Claude, Gemini untuk menganalisis data pasar dan membuat keputusan trading secara otonom. Fitur utama: dukungan multi-model AI, trading multi-bursa, dan pembangun strategi visual.',
+    faqHowDoesItWork: 'Bagaimana cara kerja COMKUN?',
+    faqHowDoesItWorkAnswer: 'COMKUN bekerja dalam 5 langkah: 1) Konfigurasi model AI dan kredensial API bursa; 2) Buat strategi trading (pemilihan koin, indikator, kontrol risiko); 3) Buat "Trader" menggabungkan Model AI + Bursa + Strategi; 4) Mulai trader - dia akan menganalisis data pasar secara berkala dan membuat keputusan beli/jual/tahan; 5) Pantau performa di dasbor.',
+    faqIsProfitable: 'Apakah COMKUN menguntungkan?',
+    faqIsProfitableAnswer: 'Trading AI bersifat eksperimental dan TIDAK dijamin menguntungkan. Futures kripto sangat volatil dan berisiko. COMKUN dirancang untuk tujuan edukasi dan riset. Kami sangat menyarankan: mulai dengan jumlah kecil (10-50 USDT), jangan investasi melebihi yang sanggup Anda rugi, uji sebelum trading nyata.',
     faqSupportedExchanges: 'Bursa mana yang didukung?',
     faqSupportedExchangesAnswer: 'CEX (Tersentralisasi): Binance Futures, Bybit, OKX, Bitget. DEX (Terdesentralisasi): Hyperliquid, Aster DEX, Lighter. Setiap bursa memiliki fitur berbeda - Binance memiliki likuiditas terbesar, Hyperliquid sepenuhnya on-chain tanpa KYC.',
     faqSupportedAIModels: 'Model AI mana yang didukung?',
-    faqSupportedAIModelsAnswer: 'NOFX mendukung 7+ model AI: DeepSeek (direkomendasikan untuk biaya/performa), Qwen, OpenAI (GPT), Claude, Gemini, Grok, dan Kimi. Anda juga dapat menggunakan endpoint API yang kompatibel dengan OpenAI.',
+    faqSupportedAIModelsAnswer: 'COMKUN mendukung 7+ model AI: DeepSeek (direkomendasikan untuk biaya/performa), Qwen, OpenAI (GPT), Claude, Gemini, Grok, dan Kimi. Anda juga dapat menggunakan endpoint API yang kompatibel dengan OpenAI.',
     faqSystemRequirements: 'Apa persyaratan sistem?',
     faqSystemRequirementsAnswer: 'Minimum: 2 core CPU, 2GB RAM, 1GB disk, internet stabil. Direkomendasikan: 4GB RAM untuk menjalankan beberapa trader. OS yang didukung: Linux, macOS, atau Windows (via Docker atau WSL2).',
-    faqHowToInstall: 'Bagaimana cara menginstal NOFX?',
+    faqHowToInstall: 'Bagaimana cara menginstal COMKUN?',
     faqHowToInstallAnswer: 'Metode termudah (Linux/macOS): Jalankan "curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash" - ini menginstal kontainer Docker secara otomatis. Lalu buka http://127.0.0.1:3000 di browser Anda.',
     faqWindowsInstallation: 'Bagaimana cara menginstal di Windows?',
     faqWindowsInstallationAnswer: 'Tiga opsi: 1) Docker Desktop (Direkomendasikan); 2) WSL2 - Instal Windows Subsystem for Linux; 3) Docker di WSL2. Akses via http://127.0.0.1:3000',
@@ -3243,7 +3501,7 @@ export const translations = {
     faqManualInstallationAnswer: 'Prasyarat: Go 1.21+, Node.js 18+, TA-Lib. Langkah: 1) Clone repo; 2) "go mod download"; 3) "cd web && npm install"; 4) "go build -o nofx"; 5) "./nofx"; 6) "cd web && npm run dev".',
     faqServerDeployment: 'Bagaimana cara deploy ke server remote?',
     faqServerDeploymentAnswer: 'Jalankan skrip instal di server Anda. Akses via http://IP_SERVER:3000. Untuk HTTPS: Gunakan Cloudflare (gratis) dan aktifkan TRANSPORT_ENCRYPTION=true di .env.',
-    faqUpdateNOFX: 'Bagaimana cara memperbarui NOFX?',
+    faqUpdateNOFX: 'Bagaimana cara memperbarui COMKUN?',
     faqUpdateNOFXAnswer: 'Docker: "docker compose pull && docker compose up -d". Manual: "git pull && go build -o nofx" untuk backend, "cd web && npm install && npm run build" untuk frontend.',
     faqConfigureAIModels: 'Bagaimana cara mengonfigurasi model AI?',
     faqConfigureAIModelsAnswer: 'Buka halaman Konfigurasi → bagian Model AI. Untuk setiap model: 1) Dapatkan API key dari penyedia; 2) Masukkan API key; 3) Opsional kustomisasi base URL dan nama model; 4) Simpan.',
@@ -3252,7 +3510,7 @@ export const translations = {
     faqBinanceAPISetup: 'Bagaimana cara mengatur API Binance dengan benar?',
     faqBinanceAPISetupAnswer: 'Langkah penting: 1) Buat API key di Binance → Manajemen API; 2) Aktifkan HANYA izin "Enable Futures"; 3) PENTING: Beralih ke Hedge Mode di pengaturan Futures; 4) Pastikan dana di dompet Futures.',
     faqHyperliquidSetup: 'Bagaimana cara mengatur Hyperliquid?',
-    faqHyperliquidSetupAnswer: 'Hyperliquid adalah bursa terdesentralisasi. Langkah: 1) Kunjungi app.hyperliquid.xyz; 2) Hubungkan wallet; 3) Buat API wallet; 4) Salin alamat dan private key; 5) Tambahkan di NOFX. Tanpa KYC.',
+    faqHyperliquidSetupAnswer: 'Hyperliquid adalah bursa terdesentralisasi. Langkah: 1) Kunjungi app.hyperliquid.xyz; 2) Hubungkan wallet; 3) Buat API wallet; 4) Salin alamat dan private key; 5) Tambahkan di COMKUN. Tanpa KYC.',
     faqCreateStrategy: 'Bagaimana cara membuat strategi trading?',
     faqCreateStrategyAnswer: 'Buka Strategy Studio: 1) Sumber Koin; 2) Indikator teknikal; 3) Kontrol Risiko; 4) Prompt Kustom (opsional). Simpan dan tetapkan ke trader.',
     faqCreateTrader: 'Bagaimana cara membuat dan memulai trader?',
@@ -3267,14 +3525,14 @@ export const translations = {
     faqOnlyShortPositionsAnswer: 'Biasanya karena Mode Posisi Binance. Solusi: Beralih ke Hedge Mode di Binance Futures → Preferensi → Mode Posisi.',
     faqLeverageSettings: 'Bagaimana cara kerja pengaturan leverage?',
     faqLeverageSettingsAnswer: 'Leverage diatur di Strategi → Kontrol Risiko: leverage BTC/ETH (biasanya 5-20x) dan leverage Altcoin (biasanya 3-10x).',
-    faqStopLossTakeProfit: 'Apakah NOFX mendukung stop-loss dan take-profit?',
+    faqStopLossTakeProfit: 'Apakah COMKUN mendukung stop-loss dan take-profit?',
     faqStopLossTakeProfitAnswer: 'AI dapat menyarankan level stop-loss/take-profit dalam keputusannya, tetapi ini bersifat panduan bukan order bursa yang dikodekan keras.',
     faqMultipleTraders: 'Bisakah saya menjalankan beberapa trader?',
-    faqMultipleTradersAnswer: 'Ya! NOFX mendukung 20+ trader bersamaan. Gunakan untuk A/B test strategi, bandingkan model AI, atau diversifikasi lintas bursa.',
+    faqMultipleTradersAnswer: 'Ya! COMKUN mendukung 20+ trader bersamaan. Gunakan untuk A/B test strategi, bandingkan model AI, atau diversifikasi lintas bursa.',
     faqAICosts: 'Berapa biaya panggilan API AI?',
     faqAICostsAnswer: 'Perkiraan biaya harian per trader (interval 5 menit): DeepSeek: $0.10-0.50; Qwen: $0.20-0.80; OpenAI: $2-5; Claude: $1-3.',
     faqPortInUse: 'Port 8080 atau 3000 sudah digunakan',
-    faqPortInUseAnswer: 'Periksa proses yang menggunakan port. Ubah port di .env: NOFX_BACKEND_PORT=8081, NOFX_FRONTEND_PORT=3001.',
+    faqPortInUseAnswer: 'Periksa proses yang menggunakan port. Ubah port di .env: COMKUN_BACKEND_PORT=8081, COMKUN_FRONTEND_PORT=3001.',
     faqFrontendNotLoading: 'Frontend menampilkan "Memuat..." terus-menerus',
     faqFrontendNotLoadingAnswer: 'Backend mungkin tidak berjalan. Periksa: "curl http://127.0.0.1:8080/api/health" harus mengembalikan {"status":"ok"}.',
     faqDatabaseLocked: 'Error database terkunci',
@@ -3284,19 +3542,19 @@ export const translations = {
     faqAIAPITimeout: 'API AI timeout atau koneksi ditolak',
     faqAIAPITimeoutAnswer: 'Periksa: 1) API key valid; 2) Jaringan bisa mengakses endpoint; 3) Penyedia tidak down; 4) VPN/firewall tidak memblokir.',
     faqBinancePositionMode: 'Kode error Binance -4061 (Mode Posisi)',
-    faqBinancePositionModeAnswer: 'Anda dalam mode One-way tetapi NOFX memerlukan Hedge Mode. Tutup semua posisi, beralih ke Hedge Mode, restart trader.',
+    faqBinancePositionModeAnswer: 'Anda dalam mode One-way tetapi COMKUN memerlukan Hedge Mode. Tutup semua posisi, beralih ke Hedge Mode, restart trader.',
     faqBalanceShowsZero: 'Saldo akun menunjukkan 0',
     faqBalanceShowsZeroAnswer: 'Dana mungkin di dompet Spot, bukan dompet Futures. Transfer USDT dari Spot ke Futures.',
     faqDockerPullFailed: 'Penarikan image Docker gagal atau lambat',
     faqDockerPullFailedAnswer: 'Konfigurasi mirror Docker di daemon.json atau gunakan GitHub Container Registry.',
     faqAPIKeyStorage: 'Bagaimana API key disimpan?',
     faqAPIKeyStorageAnswer: 'API key dienkripsi menggunakan AES-256-GCM sebelum disimpan di database SQLite lokal. Jangan pernah bagikan file data.db atau .env Anda.',
-    faqEncryptionDetails: 'Enkripsi apa yang digunakan NOFX?',
-    faqEncryptionDetailsAnswer: 'NOFX menggunakan: 1) AES-256-GCM untuk penyimpanan database; 2) RSA-2048 untuk enkripsi transport opsional; 3) JWT untuk token autentikasi.',
+    faqEncryptionDetails: 'Enkripsi apa yang digunakan COMKUN?',
+    faqEncryptionDetailsAnswer: 'COMKUN menggunakan: 1) AES-256-GCM untuk penyimpanan database; 2) RSA-2048 untuk enkripsi transport opsional; 3) JWT untuk token autentikasi.',
     faqSecurityBestPractices: 'Apa praktik terbaik keamanan?',
     faqSecurityBestPracticesAnswer: 'Disarankan: 1) Gunakan API key dengan whitelist IP dan izin minimal; 2) Gunakan sub-akun khusus; 3) Aktifkan TRANSPORT_ENCRYPTION; 4) Gunakan HTTPS.',
-    faqCanNOFXStealFunds: 'Bisakah NOFX mencuri dana saya?',
-    faqCanNOFXStealFundsAnswer: 'NOFX open-source (lisensi AGPL-3.0) - Anda bisa audit semua kode. API key disimpan lokal di mesin ANDA, tidak pernah dikirim ke server eksternal.',
+    faqCanNOFXStealFunds: 'Bisakah COMKUN mencuri dana saya?',
+    faqCanNOFXStealFundsAnswer: 'COMKUN open-source (lisensi AGPL-3.0) - Anda bisa audit semua kode. API key disimpan lokal di mesin ANDA, tidak pernah dikirim ke server eksternal.',
     faqStrategyStudio: 'Apa itu Strategy Studio?',
     faqStrategyStudioAnswer: 'Strategy Studio adalah pembangun strategi visual untuk konfigurasi: Sumber Koin, Indikator Teknikal, Kontrol Risiko, dan Prompt Kustom. Tanpa coding.',
     faqCompetitionMode: 'Apa itu Mode Kompetisi?',
@@ -3306,13 +3564,13 @@ export const translations = {
     faqWhichAIModelBest: 'Model AI mana yang sebaiknya saya gunakan?',
     faqWhichAIModelBestAnswer: 'Direkomendasikan: DeepSeek untuk rasio biaya/performa terbaik. Alternatif: OpenAI untuk penalaran terbaik; Claude untuk analisis mendalam; Qwen harga kompetitif.',
     faqCustomAIAPI: 'Bisakah saya menggunakan API AI kustom?',
-    faqCustomAIAPIAnswer: 'Ya! NOFX mendukung API yang kompatibel dengan OpenAI. Masukkan URL endpoint, API key, dan nama model.',
+    faqCustomAIAPIAnswer: 'Ya! COMKUN mendukung API yang kompatibel dengan OpenAI. Masukkan URL endpoint, API key, dan nama model.',
     faqAIHallucinations: 'Bagaimana dengan halusinasi AI?',
-    faqAIHallucinationsAnswer: 'NOFX memitigasi dengan: prompt terstruktur, format output JSON, dan validasi order sebelum eksekusi. Namun trading AI tetap eksperimental.',
+    faqAIHallucinationsAnswer: 'COMKUN memitigasi dengan: prompt terstruktur, format output JSON, dan validasi order sebelum eksekusi. Namun trading AI tetap eksperimental.',
     faqCompareAIModels: 'Bagaimana cara membandingkan model AI yang berbeda?',
     faqCompareAIModelsAnswer: 'Buat beberapa trader dengan model AI berbeda tapi strategi/bursa sama. Jalankan bersamaan dan bandingkan di halaman Kompetisi.',
-    faqHowToContribute: 'Bagaimana cara berkontribusi ke NOFX?',
-    faqHowToContributeAnswer: 'NOFX open-source dan menyambut kontribusi! Cara: 1) Kode - perbaiki bug, tambah fitur; 2) Dokumentasi; 3) Laporan Bug; 4) Ide Fitur. Semua kontributor mungkin mendapat reward airdrop.',
+    faqHowToContribute: 'Bagaimana cara berkontribusi ke COMKUN?',
+    faqHowToContributeAnswer: 'COMKUN open-source dan menyambut kontribusi! Cara: 1) Kode - perbaiki bug, tambah fitur; 2) Dokumentasi; 3) Laporan Bug; 4) Ide Fitur. Semua kontributor mungkin mendapat reward airdrop.',
     faqPRGuidelines: 'Apa panduan PR?',
     faqPRGuidelinesAnswer: 'Proses PR: 1) Fork repo; 2) Buat branch fitur dari dev; 3) Buat perubahan, jalankan lint; 4) Commit dengan format Conventional Commits; 5) Push dan buat PR ke NoFxAiOS/nofx:dev.',
     faqBountyProgram: 'Apakah ada program bounty?',
@@ -3334,7 +3592,7 @@ export const translations = {
       tipLocalhost: 'Selama pengembangan, buka aplikasi via http://localhost atau 127.0.0.1.',
       tipIframe: 'Hindari menyematkan aplikasi dalam iframe HTTP yang tidak aman.',
       unsupportedTitle: 'Browser tidak mengekspos Web Crypto',
-      unsupportedDesc: 'Buka NOFX melalui HTTPS (atau http://localhost saat pengembangan).',
+      unsupportedDesc: 'Buka COMKUN melalui HTTPS (atau http://localhost saat pengembangan).',
       summary: 'Origin saat ini: {origin} · Protokol: {protocol}',
       disabledTitle: 'Enkripsi transport dinonaktifkan',
       disabledDesc: 'Enkripsi transport sisi server dinonaktifkan. API key akan ditransmisikan dalam plaintext. Aktifkan TRANSPORT_ENCRYPTION=true untuk keamanan yang lebih baik.',
@@ -3437,6 +3695,87 @@ export const translations = {
       shareYours: 'UNGGAH_STRATEGI',
       makePublic: 'PUBLIKASI',
       loading: 'MENGINISIALISASI...',
+      marketRevision: 'REVISI',
+      marketUpdated: 'SINKRON PASAR',
+      brandTitle: 'COMKUN-AI',
+      navMarketplace: 'Pasar',
+      navTerminal: 'Terminal',
+      navPortfolio: 'Portofolio',
+      navAnalytics: 'Analitik',
+      topSearchPlaceholder: 'Cari strategi...',
+      deployAgent: 'Deploy',
+      filterTrend: 'Tren',
+      filterRecent: 'Terbaru',
+      filterHighYield: 'Top',
+      sidebarBrand: 'QUANT_OS',
+      sidebarVersion: 'v4.2.0-STABLE',
+      navDashboard: 'Dasbor',
+      navStrategies: 'Strategi',
+      navSignals: 'Sinyal',
+      navBacktest: 'Backtest',
+      navRisk: 'Risiko',
+      navLogs: 'Log',
+      newStrategy: 'Strategi baru',
+      support: 'Dukungan',
+      documentation: 'Dokumentasi',
+      descriptionLum:
+        'Temukan dan gunakan strategi publik. Bandingkan revisi dan waktu pembaruan; salin konfigurasi jika terbuka.',
+      tableTitle: 'Semua strategi publik',
+      colIndex: 'No.',
+      colNameAuthor: 'Nama / Pembuat',
+      colPermission: 'Akses',
+      colAum: 'AUM',
+      colReturn7d: '90h',
+      colDrawdown: 'Max DD',
+      colSubs: 'Subs',
+      colAgents: 'Agen',
+      colAgentsTitle: 'Agen aktif',
+      colAgentsSub: 'Jumlah',
+      colRevision: 'Rev',
+      colPublished: 'Diperbarui',
+      colTrend: 'Garis',
+      colAction: 'Aksi',
+      subscribeAction: 'Salin config',
+      return7dLabel: '90h',
+      subsLabel: 'langganan',
+      aumDemo: '—',
+      badgeScalper: 'Skalper',
+      badgeSwing: 'Swing',
+      badgeArb: 'Arbitrase',
+      badgeStable: 'Stabil',
+      badgeAggressive: 'Agresif',
+      badgeDefault: 'Strategi',
+      permPublic: 'Publik',
+      permPaid: 'Config tersembunyi',
+      permRestricted: 'Terbatas',
+      paginationShow: '{{from}}–{{to}} dari {{total}}',
+      footerStatus: 'Sistem: optimal',
+      footerRisk: 'Risk guard',
+      footerBtc: 'Harga: bursa',
+      filterSoon: 'Filter (segera)',
+      exportSoon: 'Ekspor (segera)',
+      noConfigToCopy: 'Tidak ada config lengkap untuk disalin',
+      copyFailed: 'Gagal menyalin',
+      permFilterAll: 'Semua',
+      permFilterSubscription: 'Berlangganan',
+      permFilterPublic: 'Publik',
+      permFilterOpenSource: 'Sumber terbuka (prompt)',
+      permFilterPrivate: 'Tidak terbuka',
+      permFilterLabel: 'Izin',
+      badgeAccessSubscription: 'Langganan',
+      badgeAccessPublic: 'Publik',
+      badgeAccessOpenSource: 'Open source',
+      badgeAccessPrivate: 'Tertutup',
+      toastNotPublic: 'Strategi ini tidak terbuka untuk disalin.',
+      toastSubscribe: 'Strategi ini memerlukan langganan (pembayaran menyusul).',
+      actionCopyConfig: 'Salin config',
+      actionCopyPrompts: 'Salin prompt',
+      actionViewOnly: 'Hanya lihat',
+      actionAddToStrategies: 'Tambah ke strategi saya',
+      toastAddedToStrategies: 'Sudah ditambahkan ke daftar strategi. Membuka…',
+      toastOpenExistingFork: 'Anda sudah punya salinan dari listing ini. Membuka…',
+      toastPurchasedDupFailed:
+        'Pembelian berhasil, tetapi gagal membuat salinan. Coba lagi tombol di pasar strategi.',
     },
 
     // Strategy Studio Page
@@ -3512,6 +3851,26 @@ export const translations = {
       tokenExceedWarning: 'Estimasi token melebihi 128K. Permintaan AI mungkin gagal untuk beberapa model.',
       tokenEstimating: 'Mengestimasi...',
       tokenTooltip: 'Berdasarkan konteks 200K',
+      marketUpdate: 'Kirim ke pasar',
+      marketUpdating: 'Menerbitkan...',
+      marketUpdateHint:
+        'Simpan konten saat ini ke daftar publik dan naikkan nomor revisi agar pengikut bisa mendeteksi pembaruan',
+      marketUpdateSuccess: 'Daftar pasar diperbarui · revisi {{rev}}',
+      marketUpdateFailed: 'Gagal menerbitkan ke pasar',
+      marketUpdateNeedsPublic: 'Daftarkan strategi ke pasar dulu (pengaturan publikasi), lalu simpan.',
+      listingDialogConfirm: 'Terapkan',
+      marketListingSection: 'Pasar strategi',
+      marketListingHint:
+        'Langganan & publik menyembunyikan JSON penuh di pasar; hanya open source yang menampilkan config lengkap di sini.',
+      marketAccessOff: 'Tidak terdaftar (default)',
+      marketAccessPrivate: 'Terdaftar — legacy',
+      marketAccessSubscription:
+        'Terdaftar — berlangganan (pasar menyembunyikan config; pembeli mendapat salinan penuh di studio)',
+      marketAccessPublic:
+        'Terdaftar — publik (pasar menyembunyikan config; pengguna login dapat menambahkan salinan)',
+      marketAccessOpenSource: 'Terdaftar — open source (config lengkap terlihat di pasar)',
+      marketSaleSection: 'Jual (USDT)',
+      marketSaleHint: 'Wajib jika memilih Langganan. Opsional untuk jenis lain.',
     },
 
     // Metric Tooltip
@@ -3636,16 +3995,16 @@ export const translations = {
       configureApi: 'Konfigurasi API',
       configureWallet: 'Konfigurasi Wallet',
       chooseProvider: 'Pilih Penyedia AI Anda',
-      claw402EntryDesc: 'Jalur default yang direkomendasikan. Gunakan Base USDC bayar per panggilan tanpa mengelola API key.',
+      claw402EntryDesc: 'Jalur default yang direkomendasikan. Gunakan COMKUN Proxy dengan harga aktual tanpa mengelola API key.',
       otherApiEntry: 'Penyedia API Lain',
       otherApiEntryDesc: 'Gunakan API key Anda sendiri untuk OpenAI, Claude, Gemini, DeepSeek, dan lainnya.',
       payPerCall: 'Bayar per panggilan USDC · Semua Model AI · Tanpa API Key',
       recommended: 'Terbaik',
-      allModelsClaw: 'Bayar per panggilan dengan USDC — mendukung semua model AI utama',
+      allModelsClaw: 'COMKUN Proxy dengan harga aktual — mendukung semua model AI utama',
       selectAiModel: 'Pilih Model AI',
-      allModelsUnified: 'Semua model terpadu via Claw402. Ganti kapan saja setelah setup.',
+      allModelsUnified: 'Semua model terpadu via COMKUN Proxy. Ganti kapan saja setelah setup.',
       setupWallet: 'Setup Wallet',
-      walletInfo: 'Claw402 menggunakan USDC di Base chain. Anda memerlukan wallet EVM.',
+      walletInfo: 'COMKUN Proxy dikelola oleh platform. Pengguna hanya membutuhkan saldo platform.',
       exportKey: 'Ekspor private key dari MetaMask, Rabby, dll.',
       dedicatedWallet: 'Disarankan: buat wallet khusus dengan saldo USDC kecil',
       walletPrivateKey: 'Private Key Wallet (Base Chain EVM)',
@@ -3664,14 +4023,19 @@ export const translations = {
       validating: 'Memvalidasi...',
       walletAddress: 'Alamat Wallet',
       usdcBalance: 'Saldo Base USDC',
-      claw402Connected: 'claw402 Terhubung',
-      claw402Unreachable: 'claw402 Tidak Dapat Dijangkau',
+      claw402Connected: 'COMKUN Proxy Terhubung',
+      claw402Unreachable: 'COMKUN Proxy Tidak Dapat Dijangkau',
       depositUsdc: 'Deposit USDC ke alamat ini di Base chain',
       invalidKeyPrefix: 'Tambahkan 0x di awal',
       invalidKeyLength: 'Harus 66 karakter, saat ini',
       invalidKeyChars: 'Mengandung karakter tidak valid',
       testConnection: 'Tes Koneksi',
       testingConnection: 'Menguji...',
+      apiKeyLabel: 'API Key (wajib)',
+      invalidKeyGeneric: 'Kunci tidak valid',
+      validationRequestFailed: 'Permintaan validasi gagal',
+      copyAddress: 'Salin alamat',
+      copied: 'Disalin',
     },
 
     exchangeConfig: {

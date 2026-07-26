@@ -2,16 +2,21 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"nofx/config"
 	"nofx/crypto"
 	"nofx/logger"
+	"nofx/store"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ExchangeConfig struct {
@@ -26,37 +31,47 @@ type ExchangeConfig struct {
 
 // SafeExchangeConfig Safe exchange configuration structure (does not contain sensitive information)
 type SafeExchangeConfig struct {
-	ID                    string `json:"id"`            // UUID
-	ExchangeType          string `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-	AccountName           string `json:"account_name"`  // User-defined account name
-	Name                  string `json:"name"`          // Display name
-	Type                  string `json:"type"`          // "cex" or "dex"
-	Enabled               bool   `json:"enabled"`
-	Testnet               bool   `json:"testnet,omitempty"`
-	APIURL                string `json:"apiUrl,omitempty"`
-	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"` // Hyperliquid wallet address (not sensitive)
-	AsterUser             string `json:"asterUser"`             // Aster username (not sensitive)
-	AsterSigner           string `json:"asterSigner"`           // Aster signer (not sensitive)
-	LighterWalletAddr     string `json:"lighterWalletAddr"`     // LIGHTER wallet address (not sensitive)
+	ID                      string `json:"id"`            // UUID
+	ExchangeType            string `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+	AccountName             string `json:"account_name"`  // User-defined account name
+	Name                    string `json:"name"`          // Display name
+	Type                    string `json:"type"`          // "cex" or "dex"
+	Enabled                 bool   `json:"enabled"`
+	Testnet                 bool   `json:"testnet,omitempty"`
+	APIURL                  string `json:"apiUrl,omitempty"`
+	HyperliquidWalletAddr   string `json:"hyperliquidWalletAddr"`     // Hyperliquid wallet address (not sensitive)
+	AsterUser               string `json:"asterUser"`                 // Aster username (not sensitive)
+	AsterSigner             string `json:"asterSigner"`               // Aster signer (not sensitive)
+	LighterWalletAddr       string `json:"lighterWalletAddr"`         // LIGHTER wallet address (not sensitive)
+	OutboundProxyConfigured bool   `json:"outbound_proxy_configured"` // CEX：是否配置了 REST 出口代理（不返回具体地址）
+	/** 当前出口是否来自管理员代理池分配 */
+	OutboundProxyFromPool bool `json:"outbound_proxy_from_pool"`
+	/** 池条目到期时间（RFC3339），仅 from_pool 时可能有 */
+	OutboundProxyPoolExpiresAt *string `json:"outbound_proxy_pool_expires_at,omitempty"`
+	/** API 白名单应填写的出口地址（与代理池 display_host 一致，可为 IP 或域名） */
+	OutboundProxyWhitelistHost string `json:"outbound_proxy_whitelist_host,omitempty"`
 }
 
 type UpdateExchangeConfigRequest struct {
 	Exchanges map[string]struct {
-		Enabled                 bool   `json:"enabled"`
-		APIKey                  string `json:"api_key"`
-		SecretKey               string `json:"secret_key"`
-		Passphrase              string `json:"passphrase"` // OKX specific
-		Testnet                 bool   `json:"testnet"`
-		APIURL                  string `json:"api_url"`
-		HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
-		HyperliquidUnifiedAcct  bool   `json:"hyperliquid_unified_account"` // Unified Account mode
-		AsterUser               string `json:"aster_user"`
-		AsterSigner             string `json:"aster_signer"`
-		AsterPrivateKey         string `json:"aster_private_key"`
-		LighterWalletAddr       string `json:"lighter_wallet_addr"`
-		LighterPrivateKey       string `json:"lighter_private_key"`
-		LighterAPIKeyPrivateKey string `json:"lighter_api_key_private_key"`
-		LighterAPIKeyIndex      int    `json:"lighter_api_key_index"`
+		Enabled                 bool    `json:"enabled"`
+		APIKey                  string  `json:"api_key"`
+		SecretKey               string  `json:"secret_key"`
+		Passphrase              string  `json:"passphrase"` // OKX specific
+		Testnet                 bool    `json:"testnet"`
+		APIURL                  string  `json:"api_url"`
+		HyperliquidWalletAddr   string  `json:"hyperliquid_wallet_addr"`
+		HyperliquidUnifiedAcct  bool    `json:"hyperliquid_unified_account"` // Unified Account mode
+		AsterUser               string  `json:"aster_user"`
+		AsterSigner             string  `json:"aster_signer"`
+		AsterPrivateKey         string  `json:"aster_private_key"`
+		LighterWalletAddr       string  `json:"lighter_wallet_addr"`
+		LighterPrivateKey       string  `json:"lighter_private_key"`
+		LighterAPIKeyPrivateKey string  `json:"lighter_api_key_private_key"`
+		LighterAPIKeyIndex      int     `json:"lighter_api_key_index"`
+		OutboundProxyURL        *string `json:"outbound_proxy_url,omitempty"`         // CEX REST 出口代理；不设表示不改
+		OutboundProxyClear      bool    `json:"outbound_proxy_clear,omitempty"`       // 为 true 时清除已保存代理
+		OutboundProxyAutoAssign bool    `json:"outbound_proxy_auto_assign,omitempty"` // CEX：从管理员代理池重新分配一条（须不与手动 URL 同用）
 	} `json:"exchanges"`
 }
 
@@ -79,6 +94,39 @@ type CreateExchangeRequest struct {
 	LighterPrivateKey       string `json:"lighter_private_key"`
 	LighterAPIKeyPrivateKey string `json:"lighter_api_key_private_key"`
 	LighterAPIKeyIndex      int    `json:"lighter_api_key_index"`
+	OutboundProxyURL        string `json:"outbound_proxy_url"` // 可选：CEX REST 独立出口（http(s)/socks5）
+	/** CEX：未填 outbound_proxy_url 时是否从管理员代理池自动分配（默认 true） */
+	AutoAssignOutboundProxy *bool `json:"auto_assign_outbound_proxy"`
+}
+
+func exchangeTypeUsesOutboundProxy(exchangeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(exchangeType)) {
+	case "binance", "bybit", "okx", "bitget", "gate":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldAutoAssignCEXProxyCreate(req *CreateExchangeRequest) bool {
+	if !exchangeTypeUsesOutboundProxy(req.ExchangeType) {
+		return false
+	}
+	if strings.TrimSpace(req.OutboundProxyURL) != "" {
+		return false
+	}
+	if req.AutoAssignOutboundProxy != nil && !*req.AutoAssignOutboundProxy {
+		return false
+	}
+	return true
+}
+
+func normalizeHZAPIURL(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("HZ API URL must be a valid HTTPS address")
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
 // handleGetExchangeConfigs Get exchange configurations
@@ -104,18 +152,31 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ID,
-			ExchangeType:          exchange.ExchangeType,
-			AccountName:           exchange.AccountName,
-			Name:                  exchange.Name,
-			Type:                  exchange.Type,
-			Enabled:               exchange.Enabled,
-			Testnet:               exchange.Testnet,
-			APIURL:                exchange.APIURL,
-			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
-			AsterUser:             exchange.AsterUser,
-			AsterSigner:           exchange.AsterSigner,
-			LighterWalletAddr:     exchange.LighterWalletAddr,
+			ID:                      exchange.ID,
+			ExchangeType:            exchange.ExchangeType,
+			AccountName:             exchange.AccountName,
+			Name:                    exchange.Name,
+			Type:                    exchange.Type,
+			Enabled:                 exchange.Enabled,
+			Testnet:                 exchange.Testnet,
+			APIURL:                  exchange.APIURL,
+			HyperliquidWalletAddr:   exchange.HyperliquidWalletAddr,
+			AsterUser:               exchange.AsterUser,
+			AsterSigner:             exchange.AsterSigner,
+			LighterWalletAddr:       exchange.LighterWalletAddr,
+			OutboundProxyConfigured: strings.TrimSpace(string(exchange.OutboundProxyURL)) != "",
+		}
+		if exchangeTypeUsesOutboundProxy(exchange.ExchangeType) {
+			if ok, exp, host, qerr := s.store.ProxyPool().ProxyBindingForExchange(exchange.ID); qerr == nil && ok {
+				safeExchanges[i].OutboundProxyFromPool = true
+				if exp != nil {
+					ts := exp.UTC().Format(time.RFC3339)
+					safeExchanges[i].OutboundProxyPoolExpiresAt = &ts
+				}
+				if strings.TrimSpace(host) != "" {
+					safeExchanges[i].OutboundProxyWhitelistHost = strings.TrimSpace(host)
+				}
+			}
 		}
 	}
 
@@ -191,19 +252,52 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 			tradersToReload[t.ID] = true
 		}
 
-		exchange, err := s.store.Exchange().GetByID(userID, exchangeID)
-		if err != nil {
-			SafeInternalError(c, fmt.Sprintf("Find exchange %s", exchangeID), err)
+		exRow, exErr := s.store.Exchange().GetByID(userID, exchangeID)
+		if exErr != nil {
+			SafeInternalError(c, fmt.Sprintf("Get exchange %s", exchangeID), exErr)
 			return
 		}
-		if exchange.ExchangeType == "hz" {
+		if exRow.ExchangeType == "hz" {
 			exchangeData.APIURL, err = normalizeHZAPIURL(exchangeData.APIURL)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				SafeBadRequest(c, err.Error())
 				return
 			}
 		}
-		err = s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.APIURL, exchangeData.HyperliquidWalletAddr, exchangeData.HyperliquidUnifiedAcct, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
+		if exchangeTypeUsesOutboundProxy(exRow.ExchangeType) {
+			manual := ""
+			if exchangeData.OutboundProxyURL != nil {
+				manual = strings.TrimSpace(*exchangeData.OutboundProxyURL)
+			}
+			if manual != "" {
+				_ = s.store.ProxyPool().ReleaseByExchangeID(exchangeID)
+			} else if exchangeData.OutboundProxyClear {
+				_ = s.store.ProxyPool().ReleaseByExchangeID(exchangeID)
+			}
+			if exchangeData.OutboundProxyAutoAssign && manual == "" {
+				_ = s.store.ProxyPool().ReleaseByExchangeID(exchangeID)
+				terr := s.store.GormDB().Transaction(func(tx *gorm.DB) error {
+					_, url, aerr := s.store.ProxyPool().ClaimProxyForExchange(tx, userID, exchangeID, exRow.ExchangeType)
+					if aerr != nil {
+						return aerr
+					}
+					u := url
+					exchangeData.OutboundProxyURL = &u
+					exchangeData.OutboundProxyClear = false
+					return nil
+				})
+				if terr != nil {
+					if errors.Is(terr, store.ErrProxyPoolExhausted) {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "暂无可用出口代理，请联系管理员补充代理池"})
+						return
+					}
+					SafeInternalError(c, "Allocate proxy from pool", terr)
+					return
+				}
+			}
+		}
+
+		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.APIURL, exchangeData.HyperliquidWalletAddr, exchangeData.HyperliquidUnifiedAcct, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex, exchangeData.OutboundProxyURL, exchangeData.OutboundProxyClear)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update exchange %s", exchangeID), err)
 			return
@@ -225,7 +319,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Don't return error here since exchange config was successfully updated to database
 	}
 
-	logger.Infof("✓ Updated %d exchange config(s) for user %s", len(req.Exchanges), userID)
+	logger.Infof("✓ Updated %d exchange configs for user %s", len(req.Exchanges), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
@@ -283,7 +377,8 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	// Validate exchange type
 	validTypes := map[string]bool{
 		"binance": true, "bybit": true, "okx": true, "bitget": true,
-		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true, "indodax": true, "hz": true,
+		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true, "indodax": true,
+		"hz": true,
 	}
 	if !validTypes[req.ExchangeType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid exchange type: %s", req.ExchangeType)})
@@ -291,23 +386,55 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	}
 	if req.ExchangeType == "hz" {
 		if strings.TrimSpace(req.APIKey) == "" || strings.TrimSpace(req.SecretKey) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "HZ API Key and API Secret are required"})
+			SafeBadRequest(c, "HZ 交易账户需要 API Key 和 Secret Key")
 			return
 		}
 		req.APIURL, err = normalizeHZAPIURL(req.APIURL)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			SafeBadRequest(c, err.Error())
 			return
 		}
 	}
 
-	// Create new exchange account
+	outbound := strings.TrimSpace(req.OutboundProxyURL)
+
+	if shouldAutoAssignCEXProxyCreate(&req) {
+		exID := uuid.New().String()
+		err := s.store.GormDB().Transaction(func(tx *gorm.DB) error {
+			_, proxyPlain, err := s.store.ProxyPool().ClaimProxyForExchange(tx, userID, exID, req.ExchangeType)
+			if err != nil {
+				return err
+			}
+			_, err = s.store.Exchange().CreateInTx(tx, exID, userID, req.ExchangeType, req.AccountName, req.Enabled,
+				req.APIKey, req.SecretKey, req.Passphrase, req.Testnet, req.APIURL,
+				req.HyperliquidWalletAddr, req.HyperliquidUnifiedAcct,
+				req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
+				req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
+				proxyPlain)
+			return err
+		})
+		if err != nil {
+			if errors.Is(err, store.ErrProxyPoolExhausted) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "暂无可用出口代理，请联系管理员在代理池中导入 SOCKS5"})
+				return
+			}
+			logger.Infof("❌ Failed to create exchange with proxy pool: %v", err)
+			SafeInternalError(c, "Failed to create exchange account", err)
+			return
+		}
+		s.exchangeAccountStateCache.Invalidate(userID)
+		logger.Infof("✓ Created exchange account (proxy pool): type=%s, name=%s, id=%s", req.ExchangeType, req.AccountName, exID)
+		c.JSON(http.StatusOK, gin.H{"message": "Exchange account created", "id": exID})
+		return
+	}
+
 	id, err := s.store.Exchange().Create(
 		userID, req.ExchangeType, req.AccountName, req.Enabled,
 		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet, req.APIURL,
 		req.HyperliquidWalletAddr, req.HyperliquidUnifiedAcct,
 		req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
+		outbound,
 	)
 	if err != nil {
 		logger.Infof("❌ Failed to create exchange account: %v", err)
@@ -344,7 +471,10 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 	for _, trader := range traders {
 		if trader.ExchangeID == exchangeID {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":       "Cannot delete exchange account that is in use by traders",
+				"error": fmt.Sprintf(
+					"无法删除：仍有交易员「%s」正在使用该交易所账户，请先到「交易员」中删除或更换该交易员绑定的交易所后再删账户",
+					trader.Name,
+				),
 				"trader_id":   trader.ID,
 				"trader_name": trader.Name,
 			})
@@ -359,6 +489,7 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 		SafeInternalError(c, "Failed to delete exchange account", err)
 		return
 	}
+	_ = s.store.ProxyPool().ReleaseByExchangeID(exchangeID)
 
 	s.exchangeAccountStateCache.Invalidate(userID)
 
@@ -376,23 +507,14 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 		{ExchangeType: "okx", Name: "OKX Futures", Type: "cex"},
 		{ExchangeType: "gate", Name: "Gate.io Futures", Type: "cex"},
 		{ExchangeType: "kucoin", Name: "KuCoin Futures", Type: "cex"},
+		{ExchangeType: "hz", Name: "HZ 交易账户", Type: "cex"},
 		{ExchangeType: "hyperliquid", Name: "Hyperliquid", Type: "dex"},
 		{ExchangeType: "aster", Name: "Aster DEX", Type: "dex"},
 		{ExchangeType: "lighter", Name: "LIGHTER DEX", Type: "dex"},
 		{ExchangeType: "alpaca", Name: "Alpaca (US Stocks)", Type: "stock"},
 		{ExchangeType: "forex", Name: "Forex (TwelveData)", Type: "forex"},
 		{ExchangeType: "metals", Name: "Metals (TwelveData)", Type: "metals"},
-		{ExchangeType: "hz", Name: "HZ 交易账户", Type: "cex"},
 	}
 
 	c.JSON(http.StatusOK, supportedExchanges)
-}
-
-func normalizeHZAPIURL(value string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
-		parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("HZ API URL must be a valid HTTPS address")
-	}
-	return strings.TrimRight(parsed.String(), "/"), nil
 }

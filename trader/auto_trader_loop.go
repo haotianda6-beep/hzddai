@@ -2,31 +2,72 @@ package trader
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/store"
+	"nofx/trader/binance"
 	"nofx/wallet"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // runCycle runs one trading cycle (using AI full decision-making)
 func (at *AutoTrader) runCycle() error {
+	// 0. Check if trader is stopped (before callCount / 周期日志，避免无意义计数)
+	at.isRunningMutex.RLock()
+	running := at.isRunning
+	at.isRunningMutex.RUnlock()
+	if !running {
+		logger.Infof("⏹ Trader is stopped, aborting cycle #%d", at.callCount+1)
+		return nil
+	}
+
+	// Comkun 被控：执行同步走短轮询；展示只跟随真实主控 AI 广播，不按本机扫描间隔复读。
+	if at.config.StrategyConfig != nil && store.IsComkunMarketFollowStrategy(at.config.StrategyConfig) && at.store != nil {
+		sourceID := strings.TrimSpace(store.ResolveComkunFollowSourceStrategyID(at.config.StrategyConfig))
+		if sourceID != "" {
+			now := time.Now()
+			br, qerr := at.store.ComkunFollow().GetLatestBroadcast(sourceID)
+			if errors.Is(qerr, gorm.ErrRecordNotFound) {
+				// 无信号时只继续虚拟分析计费；不构建交易所上下文，也不拿旧快照做开平仓。
+				if at.comkunFollowSourceNeedsScheduledBilling(nil, now) {
+					return at.maybeChargeComkunFollowOffline(sourceID, now)
+				}
+				return nil
+			}
+			if qerr != nil {
+				logger.Warnf("[%s] comkun 跟单：读取主控广播失败（静默跳过本轮）: %v", at.name, qerr)
+				return nil
+			}
+			if at.comkunFollowSourceNeedsScheduledBilling(br, now) {
+				return at.maybeChargeComkunFollowOffline(sourceID, now)
+			}
+			if br != nil && at.comkunFollowBroadcastAlreadyConsumed(br.ID) {
+				// 网页镜像重启后 mirrorWebStartupAlignPending：仍需再跑一轮最新快照（否则只消费水位线、永不市价对齐）
+				if !(at.comkunFollowSourceIsBnScreenMirror() && at.mirrorWebStartupAlignPending) {
+					return nil
+				}
+			}
+			if br != nil && !at.comkunFollowBroadcastIsFresh(br) {
+				if at.comkunFollowAdvanceWatermarkOnStaleBroadcast() {
+					at.markComkunBroadcastConsumed(br.ID)
+				}
+				logger.Infof("[%s] comkun 跟单：忽略历史/过期广播 broadcast_id=%d created_at=%s（等待主控新广播）",
+					at.name, br.ID, br.CreatedAt.UTC().Format(time.RFC3339))
+				return nil
+			}
+		}
+	}
+
 	at.callCount++
 
 	logger.Info("\n" + strings.Repeat("=", 70) + "\n")
 	logger.Infof("⏰ %s - AI decision cycle #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
 	logger.Info(strings.Repeat("=", 70))
-
-	// 0. Check if trader is stopped (early exit to prevent trades after Stop() is called)
-	at.isRunningMutex.RLock()
-	running := at.isRunning
-	at.isRunningMutex.RUnlock()
-	if !running {
-		logger.Infof("⏹ Trader is stopped, aborting cycle #%d", at.callCount)
-		return nil
-	}
 
 	// Check USDC balance periodically for claw402 users (every 10 cycles)
 	if at.callCount%10 == 0 && store.IsClaw402Config(at.config.AIModel) {
@@ -56,7 +97,45 @@ func (at *AutoTrader) runCycle() error {
 		logger.Info("📅 Daily P&L reset")
 	}
 
-	// 4. Collect trading context
+	// 主控跟单模板：只在“确认主控已无真实持仓”时提前发平仓同步广播。
+	// 这不是普通快照广播，不会造成被控重复输出；它只用于主控手动平仓后让被控立即平仓。
+	if at.config.StrategyConfig != nil &&
+		!store.IsComkunMarketFollowStrategy(at.config.StrategyConfig) &&
+		at.config.StrategyConfig.ComkunFollowListingTemplate {
+		at.invalidateCachedExchangePositionsForComkunBroadcast()
+		if snap, snapErr := at.buildComkunMasterSnapshotContext(); snapErr != nil {
+			logger.Warnf("comkun master flat close broadcast: 轻量交易所快照失败: %v", snapErr)
+		} else {
+			at.maybePublishComkunMasterFlatCloseBroadcast(snap)
+		}
+	}
+
+	// 程序化马丁（COMKUN-AI、无 LLM）
+	if at.IsMartingaleProgramStrategy() {
+		ctx, err := at.buildTradingContext()
+		if err == nil {
+			at.saveEquitySnapshot(ctx)
+		}
+		return at.runMartingaleProgramCycle(record)
+	}
+
+	// Comkun 被控跟单：只需要本账户余额/持仓/挂单来同步主控快照，不能走完整行情数据构建。
+	if at.config.StrategyConfig != nil && store.IsComkunMarketFollowStrategy(at.config.StrategyConfig) {
+		// 跟单轮次内若命中 120s 持仓缓存，会误判「已平」或漏算平仓量；每轮强制拉最新持仓/余额。
+		if ft, ok := at.trader.(*binance.FuturesTrader); ok {
+			ft.InvalidatePositionsCache()
+			ft.InvalidateBalanceCache()
+		}
+		ctx, err := at.buildComkunMasterSnapshotContext()
+		if err != nil {
+			logger.Warnf("[%s] comkun 跟单：构建本账户快照失败（静默等待下轮）: %v", at.name, err)
+			return nil
+		}
+		at.saveEquitySnapshot(ctx)
+		return at.runComkunFollowCycle(ctx, record)
+	}
+
+	// 3. Collect trading context
 	ctx, err := at.buildTradingContext()
 	if err != nil {
 		record.Success = false
@@ -64,10 +143,19 @@ func (at *AutoTrader) runCycle() error {
 		at.saveDecision(record)
 		return fmt.Errorf("failed to build trading context: %w", err)
 	}
-
 	// Save equity snapshot independently (decoupled from AI decision, used for drawing profit curve)
 	// NOTE: Must be called BEFORE candidate coins check to ensure equity is always recorded
 	at.saveEquitySnapshot(ctx)
+
+	// COMKUN-AI 占位模型须配合跟单/上架/程序化马丁策略
+	if at.config.AIModel == "comkun_ai" && (at.config.StrategyConfig == nil || !store.StrategyRequiresComkunAIModel(at.config.StrategyConfig)) {
+		record.Success = false
+		record.ErrorMessage =
+			"COMKUN-AI 需配合合规跟单、上架模板或 program_martingale 策略。"
+		record.AccountState = accountSnapshotFromCtx(ctx, at.initialBalance)
+		at.saveDecision(record)
+		return nil
+	}
 
 	// If no candidate coins available, log but do not error
 	if len(ctx.CandidateCoins) == 0 {
@@ -93,6 +181,9 @@ func (at *AutoTrader) runCycle() error {
 	logger.Infof("📊 Account equity: %.2f USDT | Available: %.2f USDT | Positions: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
+	// 调用 AI 前再拉一遍挂单：与 buildTradingContext 时刻之间用户可能在交易所手工补限价，避免思维链/提示词漏扫
+	at.refreshPendingOrdersInContext(ctx)
+
 	// 5. Use strategy engine to call AI for decision
 	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine]")
 	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
@@ -114,6 +205,8 @@ func (at *AutoTrader) runCycle() error {
 			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)
 		}
+		// 限价单：思维链前附「挂单扫描摘要」，主 AI 后再附简短解读；随 CoT 一并广播给被控
+		at.enrichDecisionCoTWithPendingLimits(ctx, record)
 	}
 
 	// Record AI charge (track cost regardless of decision outcome)
@@ -202,12 +295,14 @@ func (at *AutoTrader) runCycle() error {
 	// }
 	logger.Info()
 	logger.Info(strings.Repeat("-", 70))
-	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
-	logger.Info(strings.Repeat("-", 70))
-
-	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
+	// 8. Sort decisions: close 优先于 open；再应用 COMKUN SOL 主控人工广播闸门
 	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
-
+	sortedDecisions = applyComkunListingSolManualBroadcastMode(at.config.StrategyConfig, ctx, sortedDecisions)
+	if b, err := json.MarshalIndent(sortedDecisions, "", "  "); err == nil {
+		record.DecisionJSON = string(b)
+	} else if len(sortedDecisions) == 0 {
+		record.DecisionJSON = "[]"
+	}
 	logger.Info("🔄 Execution order (optimized): Close positions first → Open positions later")
 	for i, d := range sortedDecisions {
 		logger.Infof("  [%d] %s %s", i+1, d.Symbol, d.Action)
@@ -239,43 +334,50 @@ func (at *AutoTrader) runCycle() error {
 		}
 	}
 
-	// Execute decisions and record results
-	for _, d := range sortedDecisions {
-		// Check if trader is stopped before each decision (allow immediate stop during execution)
-		at.isRunningMutex.RLock()
-		running = at.isRunning
-		at.isRunningMutex.RUnlock()
-		if !running {
-			logger.Infof("⏹ Trader stopped during decision execution, aborting remaining decisions")
-			break
-		}
+	skipMasterExecute := store.ListingTemplateMasterSkipsExchangeExecution(at.config.StrategyConfig)
+	if skipMasterExecute {
+		record.ExecutionLog = append(record.ExecutionLog,
+			"主控「跟单开关上架模板」默认仅分析：本轮未通过本系统执行任何实盘下单（请在交易所人工操作）；AI 思维链与决策仍会广播给订阅者。")
+		logger.Infof("📣 [%s] COMKUN listing master: skip on-exchange execution (analysis + broadcast only)", at.name)
+	} else {
+		// Execute decisions and record results
+		for _, d := range sortedDecisions {
+			// Check if trader is stopped before each decision (allow immediate stop during execution)
+			at.isRunningMutex.RLock()
+			running = at.isRunning
+			at.isRunningMutex.RUnlock()
+			if !running {
+				logger.Infof("⏹ Trader stopped during decision execution, aborting remaining decisions")
+				break
+			}
 
-		actionRecord := store.DecisionAction{
-			Action:     d.Action,
-			Symbol:     d.Symbol,
-			Quantity:   0,
-			Leverage:   d.Leverage,
-			Price:      0,
-			StopLoss:   d.StopLoss,
-			TakeProfit: d.TakeProfit,
-			Confidence: d.Confidence,
-			Reasoning:  d.Reasoning,
-			Timestamp:  time.Now().UTC(),
-			Success:    false,
-		}
+			actionRecord := store.DecisionAction{
+				Action:     d.Action,
+				Symbol:     d.Symbol,
+				Quantity:   0,
+				Leverage:   d.Leverage,
+				Price:      0,
+				StopLoss:   d.StopLoss,
+				TakeProfit: d.TakeProfit,
+				Confidence: d.Confidence,
+				Reasoning:  d.Reasoning,
+				Timestamp:  time.Now().UTC(),
+				Success:    false,
+			}
 
-		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
-			logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
-			actionRecord.Error = err.Error()
-			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
-		} else {
-			actionRecord.Success = true
-			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
-			// Brief delay after successful execution
-			time.Sleep(1 * time.Second)
-		}
+			if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
+				logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
+				actionRecord.Error = err.Error()
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
+			} else {
+				actionRecord.Success = true
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
+				// Brief delay after successful execution
+				time.Sleep(1 * time.Second)
+			}
 
-		record.Decisions = append(record.Decisions, actionRecord)
+			record.Decisions = append(record.Decisions, actionRecord)
+		}
 	}
 
 	// 9. Save decision record
@@ -283,7 +385,126 @@ func (at *AutoTrader) runCycle() error {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
 	}
 
+	// 10. 主控跟单广播：须用「本轮执行后」的最新交易所快照（持仓+挂单），否则主控刚下的限价不会进 master_state_json，被控无法镜像跟限价
+	ctxBroadcast := ctx
+	if at.config.StrategyConfig != nil &&
+		!store.IsComkunMarketFollowStrategy(at.config.StrategyConfig) &&
+		at.config.StrategyConfig.ComkunFollowListingTemplate {
+		at.invalidateCachedExchangePositionsForComkunBroadcast()
+		if fresh, err := at.buildTradingContext(); err != nil {
+			logger.Warnf("comkun master broadcast: 重建交易上下文失败: %v（仍用本轮开始时快照发广播）", err)
+		} else if fresh != nil {
+			ctxBroadcast = fresh
+		}
+	}
+	at.maybePublishComkunMasterBroadcast(ctxBroadcast, sortedDecisions, record)
+
 	return nil
+}
+
+func (at *AutoTrader) buildComkunMasterSnapshotContext() (*kernel.Context, error) {
+	// 持仓缓存失效由调用方控制（主控 ticker/WS、被控跟单轮、AI 周期结束等），此处不再重复 Invalidate。
+	balance, err := at.trader.GetBalance()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account balance: %w", err)
+	}
+
+	totalWalletBalance := 0.0
+	totalUnrealizedProfit := 0.0
+	availableBalance := 0.0
+	totalEquity := 0.0
+	if wallet, ok := balance["totalWalletBalance"].(float64); ok {
+		totalWalletBalance = wallet
+	}
+	if unrealized, ok := balance["totalUnrealizedProfit"].(float64); ok {
+		totalUnrealizedProfit = unrealized
+	}
+	if avail, ok := balance["availableBalance"].(float64); ok {
+		availableBalance = avail
+	}
+	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
+		totalEquity = eq
+	} else {
+		totalEquity = totalWalletBalance + totalUnrealizedProfit
+	}
+
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var positionInfos []kernel.PositionInfo
+	totalMarginUsed := 0.0
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		side, _ := pos["side"].(string)
+		entryPrice, _ := pos["entryPrice"].(float64)
+		markPrice, _ := pos["markPrice"].(float64)
+		quantity, _ := pos["positionAmt"].(float64)
+		if quantity < 0 {
+			quantity = -quantity
+		}
+		if strings.TrimSpace(symbol) == "" || quantity == 0 {
+			continue
+		}
+		unrealizedPnl, _ := pos["unRealizedProfit"].(float64)
+		liquidationPrice, _ := pos["liquidationPrice"].(float64)
+		leverage := 10
+		if lev, ok := pos["leverage"].(float64); ok && lev > 0 {
+			leverage = int(lev)
+		}
+		marginUsed := (quantity * markPrice) / float64(leverage)
+		totalMarginUsed += marginUsed
+		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
+
+		positionInfos = append(positionInfos, kernel.PositionInfo{
+			Symbol:           symbol,
+			Side:             side,
+			EntryPrice:       entryPrice,
+			MarkPrice:        markPrice,
+			Quantity:         quantity,
+			Leverage:         leverage,
+			UnrealizedPnL:    unrealizedPnl,
+			UnrealizedPnLPct: pnlPct,
+			LiquidationPrice: liquidationPrice,
+			MarginUsed:       marginUsed,
+			UpdateTime:       time.Now().UnixMilli(),
+		})
+	}
+
+	marginUsedPct := 0.0
+	if totalEquity > 0 {
+		marginUsedPct = (totalMarginUsed / totalEquity) * 100
+	}
+	totalPnL := totalEquity - at.initialBalance
+	totalPnLPct := 0.0
+	if at.initialBalance > 0 {
+		totalPnLPct = (totalPnL / at.initialBalance) * 100
+	}
+
+	var strategyConfig *store.StrategyConfig
+	if at.strategyEngine != nil {
+		strategyConfig = at.strategyEngine.GetConfig()
+	}
+	ctx := &kernel.Context{
+		CurrentTime:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
+		RuntimeMinutes: int(time.Since(at.startTime).Minutes()),
+		CallCount:      at.callCount,
+		Account: kernel.AccountInfo{
+			TotalEquity:      totalEquity,
+			AvailableBalance: availableBalance,
+			UnrealizedPnL:    totalUnrealizedProfit,
+			TotalPnL:         totalPnL,
+			TotalPnLPct:      totalPnLPct,
+			MarginUsed:       totalMarginUsed,
+			MarginUsedPct:    marginUsedPct,
+			PositionCount:    len(positionInfos),
+		},
+		Positions: positionInfos,
+	}
+	ctx.PendingOrders = at.collectPendingOrdersForContext(positionInfos, nil, strategyConfig)
+	logger.Infof("📡 [%s] comkun 主控轻量快照：持仓 %d，挂单 %d", at.name, len(ctx.Positions), len(ctx.PendingOrders))
+	return ctx, nil
 }
 
 // buildTradingContext builds trading context
@@ -467,6 +688,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
 	}
+	ctx.PendingOrders = at.collectPendingOrdersForContext(positionInfos, candidateCoins, strategyConfig)
 
 	// 7. Add recent closed trades (if store is available)
 	if at.store != nil {
@@ -578,6 +800,137 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	}
 
 	return ctx, nil
+}
+
+// refreshPendingOrdersInContext 在 AI 决策前刷新 ctx.PendingOrders，与 collectPendingOrdersForContext 逻辑一致
+func (at *AutoTrader) refreshPendingOrdersInContext(ctx *kernel.Context) {
+	if ctx == nil {
+		return
+	}
+	var strategyConfig *store.StrategyConfig
+	if at.strategyEngine != nil {
+		strategyConfig = at.strategyEngine.GetConfig()
+	}
+	ctx.PendingOrders = at.collectPendingOrdersForContext(ctx.Positions, ctx.CandidateCoins, strategyConfig)
+	logger.Infof("📋 [%s] AI 调用前挂单快照: %d 条", at.name, len(ctx.PendingOrders))
+}
+
+// collectPendingOrdersForContext 拉取候选币 + 持仓 + 静态列表上的交易所挂单，写入 AI 上下文（限价、止盈止损条件单等）
+func (at *AutoTrader) collectPendingOrdersForContext(
+	positionInfos []kernel.PositionInfo,
+	candidateCoins []kernel.CandidateCoin,
+	strategyConfig *store.StrategyConfig,
+) []kernel.PendingOrder {
+	// 币安全账户接口一次返回全部挂单+条件单（GetOpenOrders 内部合并），避免按币种 N×2 次 REST。
+	if strings.EqualFold(strings.TrimSpace(at.exchange), "binance") {
+		return at.collectPendingOrdersForBinanceContext()
+	}
+
+	symSet := make(map[string]struct{})
+	for _, p := range positionInfos {
+		if s := strings.TrimSpace(p.Symbol); s != "" {
+			symSet[s] = struct{}{}
+		}
+	}
+	for _, c := range candidateCoins {
+		if s := strings.TrimSpace(c.Symbol); s != "" {
+			symSet[s] = struct{}{}
+		}
+	}
+	if strategyConfig != nil {
+		for _, s := range strategyConfig.CoinSource.StaticCoins {
+			if t := strings.TrimSpace(s); t != "" {
+				symSet[t] = struct{}{}
+			}
+		}
+	}
+	seen := make(map[string]struct{})
+	var out []kernel.PendingOrder
+	for sym := range symSet {
+		ords, err := at.trader.GetOpenOrders(sym)
+		if err != nil {
+			logger.Infof("⚠️ [%s] GetOpenOrders(%s): %v", at.name, sym, err)
+			continue
+		}
+		for _, o := range ords {
+			key := o.Symbol + "|" + o.OrderID
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, kernel.PendingOrder{
+				OrderID:      o.OrderID,
+				Symbol:       o.Symbol,
+				Side:         o.Side,
+				PositionSide: o.PositionSide,
+				Type:         o.Type,
+				Price:        o.Price,
+				StopPrice:    o.StopPrice,
+				Quantity:     o.Quantity,
+				Status:       o.Status,
+			})
+		}
+	}
+	// 合并「全账户」挂单：解决手工挂在 SOL 等交易对、但该币不在候选币/静态列表时，上面按 symSet 永远查不到的问题
+	//（依赖各交易所 GetOpenOrders 对空 symbol 的实现：币安/OKX 等；失败时请看日志）
+	if allOrds, err := at.trader.GetOpenOrders(""); err != nil {
+		logger.Infof("⚠️ [%s] GetOpenOrders(全账户挂单): %v — 限价可能仍只在候选币/静态列表里按单币种查询", at.name, err)
+	} else {
+		logger.Infof("📋 [%s] GetOpenOrders(全账户) 共 %d 条（将与按币种结果去重合并）", at.name, len(allOrds))
+		before := len(out)
+		for _, o := range allOrds {
+			key := o.Symbol + "|" + o.OrderID
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, kernel.PendingOrder{
+				OrderID:      o.OrderID,
+				Symbol:       o.Symbol,
+				Side:         o.Side,
+				PositionSide: o.PositionSide,
+				Type:         o.Type,
+				Price:        o.Price,
+				StopPrice:    o.StopPrice,
+				Quantity:     o.Quantity,
+				Status:       o.Status,
+			})
+		}
+		if n := len(out) - before; n > 0 {
+			logger.Infof("📋 [%s] Merged %d open order(s) from outside candidate/static symbol set", at.name, n)
+		}
+	}
+	if len(out) > 0 {
+		logger.Infof("📋 [%s] Pending orders for AI context: %d (queried %d symbols + account-wide)", at.name, len(out), len(symSet))
+	}
+	return out
+}
+
+// collectPendingOrdersForBinanceContext 仅两次 REST（openOrders + openAlgoOrders 全账户），权重远低于按币种循环。
+func (at *AutoTrader) collectPendingOrdersForBinanceContext() []kernel.PendingOrder {
+	allOrds, err := at.trader.GetOpenOrders("")
+	if err != nil {
+		logger.Infof("⚠️ [%s] 币安全账户挂单: %v", at.name, err)
+		return nil
+	}
+	out := make([]kernel.PendingOrder, 0, len(allOrds))
+	for _, o := range allOrds {
+		out = append(out, kernel.PendingOrder{
+			OrderID:      o.OrderID,
+			Symbol:       o.Symbol,
+			Side:         o.Side,
+			PositionSide: o.PositionSide,
+			Type:         o.Type,
+			Price:        o.Price,
+			StopPrice:    o.StopPrice,
+			Quantity:     o.Quantity,
+			Status:       o.Status,
+		})
+	}
+	if len(out) > 0 {
+		logger.Infof("📋 [%s] Pending orders (Binance 全账户单次): %d", at.name, len(out))
+	}
+	return out
 }
 
 // sortDecisionsByPriority sorts decisions: close positions first, then open positions, finally hold/wait

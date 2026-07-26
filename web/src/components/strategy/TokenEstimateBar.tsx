@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Loader2, Info } from 'lucide-react'
 import type { StrategyConfig } from '../../types'
 import { t, type Language } from '../../i18n/translations'
+import type { StrategyEditorVisualTheme } from '../../lib/strategy-editor-theme'
+import { stratColors } from '../../lib/strategy-editor-theme'
+import { cn } from '../../lib/cn'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -22,9 +25,16 @@ interface TokenEstimateBarProps {
   config: StrategyConfig | null
   language: Language
   onTokenCountChange?: (total: number) => void
+  visualTheme?: StrategyEditorVisualTheme
 }
 
-export function TokenEstimateBar({ config, language, onTokenCountChange }: TokenEstimateBarProps) {
+export function TokenEstimateBar({
+  config,
+  language,
+  onTokenCountChange,
+  visualTheme = 'binance',
+}: TokenEstimateBarProps) {
+  const c = stratColors(visualTheme)
   const [estimate, setEstimate] = useState<TokenEstimateResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -72,8 +82,11 @@ export function TokenEstimateBar({ config, language, onTokenCountChange }: Token
 
   if (isLoading && !estimate) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-nofx-text-muted">
-        <Loader2 className="w-3 h-3 animate-spin" />
+      <div
+        className={cn('flex items-center gap-1.5 text-xs', visualTheme !== 'lum' && 'text-nofx-text-muted')}
+        style={visualTheme === 'lum' ? { color: c.muted } : undefined}
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
         <span>{tr('tokenEstimating')}</span>
       </div>
     )
@@ -86,13 +99,13 @@ export function TokenEstimateBar({ config, language, onTokenCountChange }: Token
   const barWidth = Math.min(pct, 100)
 
   let barColor = '#0ECB81' // green
-  let textColor = '#848E9C'
+  let textColor = visualTheme === 'lum' ? c.muted : '#848E9C'
   if (pct >= 100) {
     barColor = '#F6465D' // red
     textColor = '#F6465D'
   } else if (pct >= 80) {
-    barColor = '#F0B90B' // yellow
-    textColor = '#F0B90B'
+    barColor = visualTheme === 'lum' ? c.accent : '#F0B90B'
+    textColor = visualTheme === 'lum' ? c.accent : '#F0B90B'
   }
 
   return (
@@ -100,7 +113,7 @@ export function TokenEstimateBar({ config, language, onTokenCountChange }: Token
       <div className="flex items-center gap-2">
         <div
           className="flex-1 h-1.5 rounded-full overflow-hidden"
-          style={{ background: '#1E2329' }}
+          style={{ background: visualTheme === 'lum' ? c.track : '#1c1c1c' }}
         >
           <div
             className="h-full rounded-full transition-all duration-500"
@@ -111,8 +124,25 @@ export function TokenEstimateBar({ config, language, onTokenCountChange }: Token
           {isLoading ? <Loader2 className="w-3 h-3 animate-spin inline" /> : `${pct}%`}
         </span>
         <div className="relative group">
-          <Info className="w-3 h-3 text-nofx-text-muted cursor-help" />
-          <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1.5 rounded-lg text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 bg-nofx-bg-lighter border border-nofx-border text-nofx-text-muted shadow-lg">
+          <Info
+            className="h-3 w-3 cursor-help"
+            style={{ color: visualTheme === 'lum' ? c.muted : undefined }}
+          />
+          <div
+            className={cn(
+              'pointer-events-none absolute bottom-full right-0 z-50 mb-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-[10px] opacity-0 shadow-lg transition-opacity group-hover:opacity-100',
+              visualTheme !== 'lum' && 'border-nofx-border bg-nofx-bg-lighter text-nofx-text-muted',
+            )}
+            style={
+              visualTheme === 'lum'
+                ? {
+                    background: c.sectionBgAlt,
+                    borderColor: c.border,
+                    color: c.muted,
+                  }
+                : undefined
+            }
+          >
             {tr('tokenTooltip')} (~{estimate.total.toLocaleString()} / 200K)
           </div>
         </div>

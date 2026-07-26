@@ -523,62 +523,91 @@ func (t *BybitTrader) GetOrderStatus(symbol string, orderID string) (map[string]
 	}, nil
 }
 
-// GetOpenOrders gets all open/pending orders for a symbol
+// GetOpenOrders gets open/pending orders for a symbol（含普通限价 orderFilter=Order + 条件单 StopOrder）。
+// symbol 为空时不传 symbol，拉 linear 下全部挂单，便于扫描到不在候选币里的手工限价。
 func (t *BybitTrader) GetOpenOrders(symbol string) ([]types.OpenOrder, error) {
 	var result []types.OpenOrder
+	seen := make(map[string]struct{})
 
-	// Get conditional orders (stop-loss, take-profit)
-	params := map[string]interface{}{
-		"category":    "linear",
-		"symbol":      symbol,
-		"orderFilter": "StopOrder",
-	}
-
-	resp, err := t.client.NewUtaBybitServiceWithParams(params).GetOpenOrders(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get open orders: %w", err)
-	}
-
-	if resp.RetCode == 0 {
-		resultData, ok := resp.Result.(map[string]interface{})
-		if ok {
-			list, _ := resultData["list"].([]interface{})
-			for _, item := range list {
-				order, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				orderId, _ := order["orderId"].(string)
-				sym, _ := order["symbol"].(string)
-				side, _ := order["side"].(string)
-				orderType, _ := order["orderType"].(string)
-				stopOrderType, _ := order["stopOrderType"].(string)
-				triggerPrice, _ := order["triggerPrice"].(string)
-				qty, _ := order["qty"].(string)
-
-				price, _ := strconv.ParseFloat(triggerPrice, 64)
-				quantity, _ := strconv.ParseFloat(qty, 64)
-
-				// Determine type based on stopOrderType
-				displayType := orderType
-				if stopOrderType != "" {
-					displayType = stopOrderType
-				}
-
-				result = append(result, types.OpenOrder{
-					OrderID:      orderId,
-					Symbol:       sym,
-					Side:         side,
-					PositionSide: "", // Bybit doesn't use positionSide for UTA
-					Type:         displayType,
-					Price:        0,
-					StopPrice:    price,
-					Quantity:     quantity,
-					Status:       "NEW",
-				})
+	appendList := func(list []interface{}, useLimitPrice bool) {
+		for _, item := range list {
+			order, ok := item.(map[string]interface{})
+			if !ok {
+				continue
 			}
+			orderId, _ := order["orderId"].(string)
+			if orderId == "" {
+				continue
+			}
+			if _, dup := seen[orderId]; dup {
+				continue
+			}
+			seen[orderId] = struct{}{}
+
+			sym, _ := order["symbol"].(string)
+			side, _ := order["side"].(string)
+			orderType, _ := order["orderType"].(string)
+			stopOrderType, _ := order["stopOrderType"].(string)
+			triggerPrice, _ := order["triggerPrice"].(string)
+			priceStr, _ := order["price"].(string)
+			qty, _ := order["qty"].(string)
+
+			triggerPx, _ := strconv.ParseFloat(triggerPrice, 64)
+			limitPx, _ := strconv.ParseFloat(priceStr, 64)
+			quantity, _ := strconv.ParseFloat(qty, 64)
+
+			displayType := orderType
+			if stopOrderType != "" {
+				displayType = stopOrderType
+			}
+			priceOut := triggerPx
+			if useLimitPrice && limitPx > 0 {
+				priceOut = limitPx
+			}
+
+			result = append(result, types.OpenOrder{
+				OrderID:      orderId,
+				Symbol:       sym,
+				Side:         side,
+				PositionSide: "",
+				Type:         displayType,
+				Price:        priceOut,
+				StopPrice:    triggerPx,
+				Quantity:     quantity,
+				Status:       "NEW",
+			})
 		}
+	}
+
+	filters := []struct {
+		filter          string
+		useLimitPrice bool
+	}{
+		{"Order", true},
+		{"StopOrder", false},
+	}
+
+	for _, f := range filters {
+		params := map[string]interface{}{
+			"category":    "linear",
+			"orderFilter": f.filter,
+		}
+		if strings.TrimSpace(symbol) != "" {
+			params["symbol"] = symbol
+		}
+		resp, err := t.client.NewUtaBybitServiceWithParams(params).GetOpenOrders(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get open orders (%s): %w", f.filter, err)
+		}
+		if resp.RetCode != 0 {
+			continue
+		}
+		resultData, ok := resp.Result.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		list, _ := resultData["list"].([]interface{})
+		appendList(list, f.useLimitPrice)
 	}
 
 	return result, nil
