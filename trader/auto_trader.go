@@ -873,6 +873,14 @@ func (at *AutoTrader) Stop() {
 	logger.Info("⏹ Automatic trading system stopped")
 }
 
+// Close permanently stops the automatic trader and releases exchange resources.
+func (at *AutoTrader) Close() {
+	at.Stop()
+	if closer, ok := at.trader.(interface{ Close() }); ok {
+		closer.Close()
+	}
+}
+
 // GetID gets trader ID
 func (at *AutoTrader) GetID() string {
 	return at.id

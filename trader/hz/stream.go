@@ -72,6 +72,15 @@ func (t *Trader) streamSession(ctx context.Context) (connected, permanent bool, 
 		return false, status == http.StatusUnauthorized || status == http.StatusForbidden, err
 	}
 	defer socket.Close()
+	streamDone := make(chan struct{})
+	defer close(streamDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = socket.Close()
+		case <-streamDone:
+		}
+	}()
 	if err := t.Reconcile(); err != nil {
 		return true, false, fmt.Errorf("REST reconciliation failed: %w", err)
 	}

@@ -428,7 +428,7 @@ func (tm *TraderManager) RemoveTrader(traderID string) {
 	tm.mu.Unlock()
 
 	if at != nil {
-		at.Stop()
+		at.Close()
 		logger.Infof("✓ Trader %s stopped and removed from memory", traderID)
 	}
 }
