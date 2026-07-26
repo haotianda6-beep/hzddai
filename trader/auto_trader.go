@@ -863,6 +863,7 @@ func (at *AutoTrader) signalStop() {
 // on a long in-flight AI cycle. The Run goroutine exits after the current work.
 func (at *AutoTrader) StopAsync() {
 	at.signalStop()
+	go at.Close()
 	logger.Info("⏹ Stop requested (async); loop will exit after current step")
 }
 
