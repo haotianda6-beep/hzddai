@@ -133,6 +133,35 @@ func TestHZMasterEventPollingRepairsPushGap(t *testing.T) {
 	}
 }
 
+func TestHZMasterEventPollingAcceptsEmptySequenceZero(t *testing.T) {
+	server, st := newHZMasterEventTestServer(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(hzMasterSnapshotResponse{
+			LastSequence: "0", CapturedAt: now, MasterAccountID: "master-human-account",
+			Account: hzMasterTestAccount(), Positions: []hzMasterPosition{},
+		})
+	}))
+	defer remote.Close()
+	config := hzMasterPollConfig{
+		APIURL: remote.URL + "/api/v1", APIKey: "poll-key", Secret: "poll-secret",
+		MasterAccountID: "master-human-account", Interval: time.Minute,
+	}
+	if err := server.pollHZMasterEventsOnce(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	var events, broadcasts int64
+	if err := st.GormDB().Model(&store.IntegrationMasterEvent{}).Count(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := st.GormDB().Model(&store.ComkunMasterBroadcast{}).Count(&broadcasts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if events != 0 || broadcasts != 0 {
+		t.Fatalf("events=%d broadcasts=%d", events, broadcasts)
+	}
+}
+
 func hzMasterEventBody(t *testing.T, occurredAt time.Time, eventID string, sequence int64) []byte {
 	t.Helper()
 	value := hzMasterEventRequest{

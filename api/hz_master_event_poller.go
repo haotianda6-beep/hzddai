@@ -81,7 +81,7 @@ func (s *Server) pollHZMasterEventsOnce(ctx context.Context, config hzMasterPoll
 		return fmt.Errorf("decode polled HZ master snapshot: %w", err)
 	}
 	sequence, err := strconv.ParseInt(snapshot.LastSequence, 10, 64)
-	if err != nil || sequence <= 0 {
+	if err != nil || sequence < 0 {
 		return fmt.Errorf("invalid HZ master snapshot sequence")
 	}
 	if sequence <= latest {
