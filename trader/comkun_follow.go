@@ -1092,6 +1092,17 @@ func (at *AutoTrader) markComkunConsumptionSuccess(broadcastID uint64) error {
 	return at.store.ComkunFollow().MarkConsumptionSuccessWithCheckpoint(at.id, broadcastID, checkpoint)
 }
 
+func (at *AutoTrader) persistComkunConsumptionSuccess(broadcastID uint64) error {
+	if err := at.markComkunConsumptionSuccess(broadcastID); err != nil {
+		category := store.StoreErrorCategory(err)
+		_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, broadcastID, "checkpoint_failed:"+category)
+		logger.Warnf("[%s] comkun consumption checkpoint failed broadcast_id=%d category=%s", at.name, broadcastID, category)
+		return err
+	}
+	at.markComkunBroadcastConsumed(broadcastID)
+	return nil
+}
+
 func (at *AutoTrader) shouldPersistMirrorStartupBaseline() bool {
 	return at.comkunFollowSourceIsMT4Gold() || at.comkunFollowSourceIsOkxScreenMirror() || at.comkunFollowSourceIsHZExternal()
 }
@@ -1176,7 +1187,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 
 	var acquired bool
 	var lockErr error
-	if mt4Follow {
+	if mt4Follow || hzExternal {
 		acquired, lockErr = at.store.ComkunFollow().TryAcquireConsumptionLockWithCooldown(at.id, br.ID, 500*time.Millisecond)
 	} else {
 		acquired, lockErr = at.store.ComkunFollow().TryAcquireConsumptionLock(at.id, br.ID)
@@ -1216,12 +1227,16 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			Instrument: "__account__", PositionSide: "none", Action: "billing",
 			ClientOrderID: billingClientID, RequestSHA256: requestHash,
 		}); err != nil {
-			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing intent failed")
+			category := store.StoreErrorCategory(err)
+			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing intent failed:"+category)
+			logger.Warnf("[%s] HZ billing intent failed broadcast_id=%d category=%s", at.name, br.ID, category)
 			return nil
 		}
 		reservation, err := at.store.MirrorExecutionIntent().ReserveBilling(billingIntentKey, scanFeeUSDT)
 		if err != nil {
-			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing reservation failed")
+			category := store.StoreErrorCategory(err)
+			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing reservation failed:"+category)
+			logger.Warnf("[%s] HZ billing reservation failed broadcast_id=%d category=%s", at.name, br.ID, category)
 			return nil
 		}
 		platformBalanceAfter = reservation.BalanceAfter
@@ -1266,7 +1281,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		}
 		if hzExternal {
 			if err := at.store.MirrorExecutionIntent().RefundBilling(billingIntentKey, reason); err != nil {
-				logger.Warnf("[%s] HZ billing refund failed broadcast_id=%d: %v", at.name, br.ID, err)
+				logger.Warnf("[%s] HZ billing refund failed broadcast_id=%d category=%s", at.name, br.ID, store.StoreErrorCategory(err))
 			}
 			return
 		}
@@ -1326,9 +1341,10 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		err := at.reconcileComkunFollowMasterStateV2(ctx, br, record, schemeASkipTPSL, closeOnly || stateWire.PollingReconcile)
 		if err != nil {
 			if mt4Follow && errors.Is(err, errMT4BroadcastSuperseded) {
-				_ = at.markComkunConsumptionSuccess(br.ID)
+				if persistErr := at.persistComkunConsumptionSuccess(br.ID); persistErr != nil {
+					return nil
+				}
 				_ = at.store.ComkunFollow().MarkMT4TicketMappingStatus(at.id, br.ID, store.MT4MappingSuperseded, err.Error())
-				at.markComkunBroadcastConsumed(br.ID)
 				return nil
 			}
 			refundFee("silent_mirror")
@@ -1350,11 +1366,12 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			if len(em) > 1000 {
 				em = em[:1000]
 			}
-			_ = at.markComkunConsumptionSuccess(br.ID)
+			if persistErr := at.persistComkunConsumptionSuccess(br.ID); persistErr != nil {
+				return nil
+			}
 			if mt4Follow {
 				_ = at.store.ComkunFollow().MarkMT4TicketMappingStatus(at.id, br.ID, store.MT4MappingFailed, em)
 			}
-			at.markComkunBroadcastConsumed(br.ID)
 			logger.Warnf("[%s] comkun 内部同步失败，已静默跳过客户展示 broadcast_id=%d: %s", at.name, br.ID, em)
 			return nil
 		}
@@ -1363,15 +1380,25 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			logger.Infof("[%s] comkun 方案A 首轮镜像已完成，后续广播将同步止盈止损（若仍有剩余计数异常请检查配置）", at.name)
 		}
 		if hzExternal && feeReserved && hzMirrorRiskIncreaseExpired(&stateWire, time.Now()) {
-			if err := at.store.MirrorExecutionIntent().RefundBilling(billingIntentKey, "open_ttl_expired"); err != nil {
-				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing refund retry")
+			confirmedOpen, err := at.store.MirrorExecutionIntent().HasConfirmedOpen(stateWire.SourceEventID, at.userID, at.id)
+			if err != nil {
+				category := store.StoreErrorCategory(err)
+				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing recovery check failed:"+category)
 				return nil
 			}
-			feeReserved = false
+			if !confirmedOpen {
+				if err := at.store.MirrorExecutionIntent().RefundBilling(billingIntentKey, "open_ttl_expired"); err != nil {
+					category := store.StoreErrorCategory(err)
+					_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing refund retry:"+category)
+					return nil
+				}
+				feeReserved = false
+			}
 		}
 		if hzExternal && feeReserved {
 			if err := at.store.MirrorExecutionIntent().FinalizeBilling(billingIntentKey); err != nil {
-				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing finalization retry")
+				category := store.StoreErrorCategory(err)
+				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing finalization retry:"+category)
 				return nil
 			}
 			if scanSpendLedgerID > 0 {
@@ -1410,11 +1437,12 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			logger.Infof("[%s] comkun v2 静默同步快照 broadcast_id=%d（非主控 AI 分析，不生成跟单展示卡片）",
 				at.name, br.ID)
 		}
-		_ = at.markComkunConsumptionSuccess(br.ID)
+		if err := at.persistComkunConsumptionSuccess(br.ID); err != nil {
+			return nil
+		}
 		if mt4Follow {
 			_ = at.store.ComkunFollow().MarkMT4TicketMappingStatus(at.id, br.ID, store.MT4MappingApplied, "")
 		}
-		at.markComkunBroadcastConsumed(br.ID)
 		return nil
 	}
 
@@ -1427,8 +1455,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 				logger.Warnf("[%s] comkun 主控 AI 分析落库失败 broadcast_id=%d: %v（仍将标记广播已消费）", at.name, br.ID, saveErr)
 			}
 		}
-		_ = at.markComkunConsumptionSuccess(br.ID)
-		at.markComkunBroadcastConsumed(br.ID)
+		_ = at.persistComkunConsumptionSuccess(br.ID)
 		return nil
 	}
 
@@ -1445,8 +1472,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			logger.Warnf("[%s] comkun 主控 AI 分析落库失败 broadcast_id=%d: %v（仍将标记广播已消费）", at.name, br.ID, saveErr)
 		}
 	}
-	_ = at.markComkunConsumptionSuccess(br.ID)
-	at.markComkunBroadcastConsumed(br.ID)
+	_ = at.persistComkunConsumptionSuccess(br.ID)
 	return nil
 }
 

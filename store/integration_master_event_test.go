@@ -132,6 +132,10 @@ func TestMirrorExecutionIntentAndBillingAreIdempotent(t *testing.T) {
 	if err := st.MirrorExecutionIntent().RefundBilling("intent-fixed", "duplicate_refund"); err != nil {
 		t.Fatal(err)
 	}
+	afterRefund, err := st.MirrorExecutionIntent().ReserveBilling("intent-fixed", 0.25)
+	if err != nil || afterRefund.Reserved {
+		t.Fatalf("refunded reservation=%+v err=%v", afterRefund, err)
+	}
 	user, _ := st.User().GetByID("user-1")
 	if user.BalanceUSDT != 1 {
 		t.Fatalf("balance=%v want 1", user.BalanceUSDT)
@@ -143,6 +147,56 @@ func TestMirrorExecutionIntentAndBillingAreIdempotent(t *testing.T) {
 	var net float64
 	if err := st.GormDB().Model(&WalletLedger{}).Select("COALESCE(SUM(delta),0)").Scan(&net).Error; err != nil || net != 0 {
 		t.Fatalf("ledger net=%v err=%v", net, err)
+	}
+}
+
+func TestCorrectRefundedBillingForConfirmedOpenIsIdempotent(t *testing.T) {
+	st := newIntegrationTestStore(t)
+	if err := st.GormDB().Create(&User{ID: "user-correction", Email: "correction@example.test", PasswordHash: "x", BalanceUSDT: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MirrorExecutionIntent().Ensure(MirrorExecutionIntentInput{
+		IntentKey: "billing-correction", MasterEventID: "event-correction", BroadcastID: 3,
+		UserID: "user-correction", TraderID: "trader-correction", ExchangeID: "exchange-correction",
+		Instrument: "__account__", PositionSide: "none", Action: "billing", ClientOrderID: "billing-correction",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MirrorExecutionIntent().ReserveBilling("billing-correction", 0.25); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MirrorExecutionIntent().Ensure(MirrorExecutionIntentInput{
+		IntentKey: "open-correction", MasterEventID: "event-correction", BroadcastID: 3,
+		UserID: "user-correction", TraderID: "trader-correction", ExchangeID: "exchange-correction",
+		Instrument: "BTCUSDT", PositionSide: "long", Action: "open", ClientOrderID: "open-correction",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MirrorExecutionIntent().MarkConfirmed("open-correction", "remote-order"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MirrorExecutionIntent().RefundBilling("billing-correction", "open_ttl_expired"); err != nil {
+		t.Fatal(err)
+	}
+	corrected, err := st.MirrorExecutionIntent().CorrectRefundedBillingForConfirmedOpen("billing-correction", "sequence3_confirmed_open")
+	if err != nil || !corrected {
+		t.Fatalf("corrected=%t err=%v", corrected, err)
+	}
+	corrected, err = st.MirrorExecutionIntent().CorrectRefundedBillingForConfirmedOpen("billing-correction", "duplicate")
+	if err != nil || corrected {
+		t.Fatalf("duplicate corrected=%t err=%v", corrected, err)
+	}
+	user, err := st.User().GetByID("user-correction")
+	if err != nil || user.BalanceUSDT != 0.75 {
+		t.Fatalf("user=%+v err=%v", user, err)
+	}
+	var net float64
+	if err := st.GormDB().Model(&WalletLedger{}).Select("COALESCE(SUM(delta),0)").Scan(&net).Error; err != nil || net != -0.25 {
+		t.Fatalf("ledger net=%v err=%v", net, err)
+	}
+	var usage AIPlatformUsageLedger
+	if err := st.GormDB().First(&usage).Error; err != nil || usage.Status != AIPlatformUsageStatusSuccess {
+		t.Fatalf("usage=%+v err=%v", usage, err)
 	}
 }
 

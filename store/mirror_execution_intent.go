@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,6 +75,18 @@ type MirrorExecutionIntentStore struct {
 	store *Store
 }
 
+// ponytail: SQLite is a single-writer store; serialize only these short wallet
+// transactions. Exchange fan-out remains concurrent. Remove when production moves to Postgres.
+var mirrorBillingSQLiteMu sync.Mutex
+
+func (s *MirrorExecutionIntentStore) billingTransaction(operation func() error) error {
+	if s.db != nil && s.db.Dialector.Name() == "sqlite" {
+		mirrorBillingSQLiteMu.Lock()
+		defer mirrorBillingSQLiteMu.Unlock()
+	}
+	return retrySQLiteBusy(s.db, operation)
+}
+
 func NewMirrorExecutionIntentStore(db *gorm.DB, st *Store) *MirrorExecutionIntentStore {
 	return &MirrorExecutionIntentStore{db: db, store: st}
 }
@@ -99,7 +112,9 @@ func (s *MirrorExecutionIntentStore) Ensure(input MirrorExecutionIntentInput) (*
 		Status: MirrorIntentPrepared, BillingStatus: MirrorBillingNone,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := s.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "intent_key"}}, DoNothing: true}).Create(row).Error; err != nil {
+	if err := retrySQLiteBusy(s.db, func() error {
+		return s.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "intent_key"}}, DoNothing: true}).Create(row).Error
+	}); err != nil {
 		return nil, err
 	}
 	var existing MirrorExecutionIntent
@@ -122,24 +137,30 @@ func (s *MirrorExecutionIntentStore) Get(intentKey string) (*MirrorExecutionInte
 }
 
 func (s *MirrorExecutionIntentStore) MarkSubmitted(intentKey string) error {
-	return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
-		"status": MirrorIntentSubmitted, "attempt_count": gorm.Expr("attempt_count + 1"),
-		"last_error": "", "updated_at": time.Now().UTC(),
-	}).Error
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
+			"status": MirrorIntentSubmitted, "attempt_count": gorm.Expr("attempt_count + 1"),
+			"last_error": "", "updated_at": time.Now().UTC(),
+		}).Error
+	})
 }
 
 func (s *MirrorExecutionIntentStore) MarkConfirmed(intentKey, exchangeOrderID string) error {
 	now := time.Now().UTC()
-	return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
-		"status": MirrorIntentConfirmed, "exchange_order_id": exchangeOrderID,
-		"last_error": "", "confirmed_at": now, "updated_at": now,
-	}).Error
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
+			"status": MirrorIntentConfirmed, "exchange_order_id": exchangeOrderID,
+			"last_error": "", "confirmed_at": now, "updated_at": now,
+		}).Error
+	})
 }
 
 func (s *MirrorExecutionIntentStore) MarkFailed(intentKey, lastError string) error {
-	return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
-		"status": MirrorIntentFailed, "last_error": lastError, "updated_at": time.Now().UTC(),
-	}).Error
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
+			"status": MirrorIntentFailed, "last_error": lastError, "updated_at": time.Now().UTC(),
+		}).Error
+	})
 }
 
 func (s *MirrorExecutionIntentStore) ReserveBilling(intentKey string, amount float64) (MirrorBillingReservation, error) {
@@ -147,101 +168,183 @@ func (s *MirrorExecutionIntentStore) ReserveBilling(intentKey string, amount flo
 		return MirrorBillingReservation{}, nil
 	}
 	var result MirrorBillingReservation
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		var intent MirrorExecutionIntent
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
-			return err
-		}
-		if intent.BillingStatus == MirrorBillingPending || intent.BillingStatus == MirrorBillingCharged {
-			result = MirrorBillingReservation{Reserved: true, BalanceAfter: intent.BillingBalanceAfter,
-				WalletLedgerID: intent.WalletLedgerID, UsageLedgerID: intent.UsageLedgerID}
+	err := s.billingTransaction(func() error {
+		result = MirrorBillingReservation{}
+		return s.db.Transaction(func(tx *gorm.DB) error {
+			var intent MirrorExecutionIntent
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
+				return err
+			}
+			if intent.BillingStatus == MirrorBillingPending || intent.BillingStatus == MirrorBillingCharged {
+				result = MirrorBillingReservation{Reserved: true, BalanceAfter: intent.BillingBalanceAfter,
+					WalletLedgerID: intent.WalletLedgerID, UsageLedgerID: intent.UsageLedgerID}
+				return nil
+			}
+			if intent.BillingStatus == MirrorBillingRefunded {
+				result = MirrorBillingReservation{BalanceAfter: intent.BillingBalanceAfter,
+					WalletLedgerID: intent.WalletLedgerID, UsageLedgerID: intent.UsageLedgerID}
+				return nil
+			}
+			var user User
+			if err := tx.Where("id = ?", intent.UserID).First(&user).Error; err != nil {
+				return err
+			}
+			balanceAfter, ok, err := s.store.User().AddBalanceDelta(tx, intent.UserID, -amount)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				result = MirrorBillingReservation{Insufficient: true, BalanceAfter: user.BalanceUSDT}
+				return nil
+			}
+			ledgerID, err := s.store.Billing().AppendLedger(tx, intent.UserID, -amount, balanceAfter, "comkun_follow_scan", intent.TraderID)
+			if err != nil {
+				return err
+			}
+			usageID, err := s.store.AIPlatformUsage().CreatePendingTx(tx, intent.UserID, intent.TraderID,
+				"comkun-ai", "comkun-ai", 0, amount, 0, amount, user.BalanceUSDT, balanceAfter)
+			if err != nil {
+				return err
+			}
+			if err := tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
+				"billing_status": MirrorBillingPending, "billing_amount": amount,
+				"wallet_ledger_id": ledgerID, "usage_ledger_id": usageID,
+				"billing_balance_after": balanceAfter, "updated_at": time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			result = MirrorBillingReservation{Reserved: true, BalanceAfter: balanceAfter, WalletLedgerID: ledgerID, UsageLedgerID: usageID}
 			return nil
-		}
-		user, err := s.store.User().GetByID(intent.UserID)
-		if err != nil {
-			return err
-		}
-		balanceAfter, ok, err := s.store.User().AddBalanceDelta(tx, intent.UserID, -amount)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			result = MirrorBillingReservation{Insufficient: true, BalanceAfter: user.BalanceUSDT}
-			return nil
-		}
-		ledgerID, err := s.store.Billing().AppendLedger(tx, intent.UserID, -amount, balanceAfter, "comkun_follow_scan", intent.TraderID)
-		if err != nil {
-			return err
-		}
-		usageID, err := s.store.AIPlatformUsage().CreatePendingTx(tx, intent.UserID, intent.TraderID,
-			"comkun-ai", "comkun-ai", 0, amount, 0, amount, user.BalanceUSDT, balanceAfter)
-		if err != nil {
-			return err
-		}
-		if err := tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
-			"billing_status": MirrorBillingPending, "billing_amount": amount,
-			"wallet_ledger_id": ledgerID, "usage_ledger_id": usageID,
-			"billing_balance_after": balanceAfter, "updated_at": time.Now().UTC(),
-		}).Error; err != nil {
-			return err
-		}
-		result = MirrorBillingReservation{Reserved: true, BalanceAfter: balanceAfter, WalletLedgerID: ledgerID, UsageLedgerID: usageID}
-		return nil
+		})
 	})
 	return result, err
 }
 
 func (s *MirrorExecutionIntentStore) FinalizeBilling(intentKey string) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		var intent MirrorExecutionIntent
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
-			return err
-		}
-		if intent.BillingStatus == MirrorBillingCharged || intent.BillingStatus == MirrorBillingNone {
-			return nil
-		}
-		if intent.BillingStatus != MirrorBillingPending {
-			return fmt.Errorf("billing cannot finalize from %s", intent.BillingStatus)
-		}
-		if err := tx.Model(&AIPlatformUsageLedger{}).Where("id = ?", intent.UsageLedgerID).Updates(map[string]interface{}{
-			"status":          AIPlatformUsageStatusSuccess,
-			"payment_tx_hash": fmt.Sprintf("wallet_ledger:%d", intent.WalletLedgerID),
-			"updated_at":      time.Now().UTC(),
-		}).Error; err != nil {
-			return err
-		}
-		return tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
-			"billing_status": MirrorBillingCharged, "updated_at": time.Now().UTC(),
-		}).Error
+	return s.billingTransaction(func() error {
+		return s.db.Transaction(func(tx *gorm.DB) error {
+			var intent MirrorExecutionIntent
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
+				return err
+			}
+			if intent.BillingStatus == MirrorBillingCharged || intent.BillingStatus == MirrorBillingNone {
+				return nil
+			}
+			if intent.BillingStatus != MirrorBillingPending {
+				return fmt.Errorf("billing cannot finalize from %s", intent.BillingStatus)
+			}
+			if err := tx.Model(&AIPlatformUsageLedger{}).Where("id = ?", intent.UsageLedgerID).Updates(map[string]interface{}{
+				"status":          AIPlatformUsageStatusSuccess,
+				"payment_tx_hash": fmt.Sprintf("wallet_ledger:%d", intent.WalletLedgerID),
+				"updated_at":      time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
+				"billing_status": MirrorBillingCharged, "updated_at": time.Now().UTC(),
+			}).Error
+		})
 	})
 }
 
 func (s *MirrorExecutionIntentStore) RefundBilling(intentKey, reason string) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		var intent MirrorExecutionIntent
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
-			return err
-		}
-		if intent.BillingStatus == MirrorBillingRefunded || intent.BillingStatus == MirrorBillingNone {
-			return nil
-		}
-		if intent.BillingStatus != MirrorBillingPending && intent.BillingStatus != MirrorBillingCharged {
-			return fmt.Errorf("billing cannot refund from %s", intent.BillingStatus)
-		}
-		balanceAfter, _, err := s.store.User().AddBalanceDelta(tx, intent.UserID, intent.BillingAmount)
-		if err != nil {
-			return err
-		}
-		if _, err := s.store.Billing().AppendLedger(tx, intent.UserID, intent.BillingAmount, balanceAfter,
-			"comkun_follow_scan_refund:"+strings.TrimSpace(reason), intent.TraderID); err != nil {
-			return err
-		}
-		if err := s.store.AIPlatformUsage().MarkRefundedTx(tx, intent.UsageLedgerID, reason, balanceAfter); err != nil {
-			return err
-		}
-		return tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
-			"billing_status": MirrorBillingRefunded, "billing_balance_after": balanceAfter,
-			"updated_at": time.Now().UTC(),
-		}).Error
+	return s.billingTransaction(func() error {
+		return s.db.Transaction(func(tx *gorm.DB) error {
+			var intent MirrorExecutionIntent
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
+				return err
+			}
+			if intent.BillingStatus == MirrorBillingRefunded || intent.BillingStatus == MirrorBillingNone {
+				return nil
+			}
+			if intent.BillingStatus != MirrorBillingPending && intent.BillingStatus != MirrorBillingCharged {
+				return fmt.Errorf("billing cannot refund from %s", intent.BillingStatus)
+			}
+			balanceAfter, _, err := s.store.User().AddBalanceDelta(tx, intent.UserID, intent.BillingAmount)
+			if err != nil {
+				return err
+			}
+			if _, err := s.store.Billing().AppendLedger(tx, intent.UserID, intent.BillingAmount, balanceAfter,
+				"comkun_follow_scan_refund:"+strings.TrimSpace(reason), intent.TraderID); err != nil {
+				return err
+			}
+			if err := s.store.AIPlatformUsage().MarkRefundedTx(tx, intent.UsageLedgerID, reason, balanceAfter); err != nil {
+				return err
+			}
+			return tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
+				"billing_status": MirrorBillingRefunded, "billing_balance_after": balanceAfter,
+				"updated_at": time.Now().UTC(),
+			}).Error
+		})
 	})
+}
+
+func (s *MirrorExecutionIntentStore) HasConfirmedOpen(masterEventID, userID, traderID string) (bool, error) {
+	var count int64
+	err := s.db.Model(&MirrorExecutionIntent{}).
+		Where("master_event_id = ? AND user_id = ? AND trader_id = ? AND action = ? AND status = ?",
+			masterEventID, userID, traderID, "open", MirrorIntentConfirmed).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (s *MirrorExecutionIntentStore) CorrectRefundedBillingForConfirmedOpen(intentKey, reason string) (bool, error) {
+	corrected := false
+	err := s.billingTransaction(func() error {
+		return s.db.Transaction(func(tx *gorm.DB) error {
+			var intent MirrorExecutionIntent
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_key = ?", intentKey).First(&intent).Error; err != nil {
+				return err
+			}
+			if intent.BillingStatus == MirrorBillingCharged {
+				return nil
+			}
+			if intent.BillingStatus != MirrorBillingRefunded {
+				return fmt.Errorf("billing correction requires refunded status, got %s", intent.BillingStatus)
+			}
+			var confirmed int64
+			if err := tx.Model(&MirrorExecutionIntent{}).
+				Where("master_event_id = ? AND user_id = ? AND trader_id = ? AND action = ? AND status = ?",
+					intent.MasterEventID, intent.UserID, intent.TraderID, "open", MirrorIntentConfirmed).
+				Count(&confirmed).Error; err != nil {
+				return err
+			}
+			if confirmed == 0 {
+				return fmt.Errorf("billing correction requires a confirmed open intent")
+			}
+			balanceAfter, ok, err := s.store.User().AddBalanceDelta(tx, intent.UserID, -intent.BillingAmount)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("billing correction balance insufficient")
+			}
+			ledgerID, err := s.store.Billing().AppendLedger(tx, intent.UserID, -intent.BillingAmount, balanceAfter,
+				"comkun_follow_scan_correction:"+strings.TrimSpace(reason), intent.TraderID)
+			if err != nil {
+				return err
+			}
+			if err := tx.Model(&AIPlatformUsageLedger{}).Where("id = ?", intent.UsageLedgerID).Updates(map[string]interface{}{
+				"status":               AIPlatformUsageStatusSuccess,
+				"error_message":        "",
+				"wallet_balance_after": balanceAfter,
+				"payment_tx_hash":      fmt.Sprintf("wallet_ledger:%d", ledgerID),
+				"updated_at":           time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&MirrorExecutionIntent{}).Where("id = ?", intent.ID).Updates(map[string]interface{}{
+				"billing_status":        MirrorBillingCharged,
+				"wallet_ledger_id":      ledgerID,
+				"billing_balance_after": balanceAfter,
+				"last_error":            "billing_correction:" + strings.TrimSpace(reason),
+				"updated_at":            time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			corrected = true
+			return nil
+		})
+	})
+	return corrected, err
 }

@@ -149,13 +149,20 @@ func (s *ComkunFollowStore) ReclaimStaleConsumptionLocks(traderID string, maxAge
 		maxAge = comkunConsumptionStaleProcessing
 	}
 	cutoff := time.Now().UTC().Add(-maxAge)
-	res := s.db.Model(&ComkunFollowBroadcastConsumption{}).
-		Where("trader_id = ? AND status = ? AND updated_at < ?", traderID, "processing", cutoff).
-		Updates(map[string]interface{}{
-			"status":     "failed",
-			"error":      "stale_processing_reclaim",
-			"updated_at": time.Now().UTC(),
-		})
+	var res *gorm.DB
+	err := retrySQLiteBusy(s.db, func() error {
+		res = s.db.Model(&ComkunFollowBroadcastConsumption{}).
+			Where("trader_id = ? AND status = ? AND updated_at < ?", traderID, "processing", cutoff).
+			Updates(map[string]interface{}{
+				"status":     "failed",
+				"error":      "stale_processing_reclaim",
+				"updated_at": time.Now().UTC(),
+			})
+		return res.Error
+	})
+	if err != nil {
+		return 0, err
+	}
 	return res.RowsAffected, res.Error
 }
 
@@ -206,9 +213,6 @@ func (s *ComkunFollowStore) TryAcquireConsumptionLockWithCooldown(traderID strin
 	if traderID == "" || broadcastID == 0 {
 		return false, fmt.Errorf("trader_id and broadcast_id required")
 	}
-	if _, err := s.ReclaimStaleConsumptionLocks(traderID, comkunConsumptionStaleProcessing); err != nil {
-		return false, err
-	}
 	now := time.Now().UTC()
 	row := &ComkunFollowBroadcastConsumption{
 		TraderID:    traderID,
@@ -217,9 +221,12 @@ func (s *ComkunFollowStore) TryAcquireConsumptionLockWithCooldown(traderID strin
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(row)
-	if res.Error != nil {
-		return false, res.Error
+	var res *gorm.DB
+	if err := retrySQLiteBusy(s.db, func() error {
+		res = s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(row)
+		return res.Error
+	}); err != nil {
+		return false, err
 	}
 	if res.RowsAffected > 0 {
 		return true, nil
@@ -229,18 +236,23 @@ func (s *ComkunFollowStore) TryAcquireConsumptionLockWithCooldown(traderID strin
 	if err := s.db.Where("trader_id = ? AND broadcast_id = ?", traderID, broadcastID).First(&existing).Error; err != nil {
 		return false, err
 	}
-	if existing.Status != "failed" {
+	eligible := existing.Status == "failed" && (retryCooldown <= 0 || existing.UpdatedAt.IsZero() || time.Since(existing.UpdatedAt) >= retryCooldown)
+	if existing.Status == "processing" && (existing.UpdatedAt.IsZero() || time.Since(existing.UpdatedAt) >= comkunConsumptionStaleProcessing) {
+		eligible = true
+	}
+	if !eligible {
 		return false, nil
 	}
-	if retryCooldown > 0 && !existing.UpdatedAt.IsZero() && time.Since(existing.UpdatedAt) < retryCooldown {
-		return false, nil
-	}
-	if err := s.db.Model(&ComkunFollowBroadcastConsumption{}).
-		Where("id = ? AND status = ?", existing.ID, "failed").
-		Updates(map[string]interface{}{"status": "processing", "error": "", "updated_at": now}).Error; err != nil {
+	previousStatus := existing.Status
+	if err := retrySQLiteBusy(s.db, func() error {
+		res = s.db.Model(&ComkunFollowBroadcastConsumption{}).
+			Where("id = ? AND status = ? AND updated_at = ?", existing.ID, previousStatus, existing.UpdatedAt).
+			Updates(map[string]interface{}{"status": "processing", "error": "", "updated_at": now})
+		return res.Error
+	}); err != nil {
 		return false, err
 	}
-	return true, nil
+	return res.RowsAffected == 1, nil
 }
 
 // GetMaxSuccessfulConsumptionBroadcastID 已成功消费（含静默跳过落库）的广播 id 最大值，供被控重启时与决策表共同恢复水位线。
@@ -284,9 +296,18 @@ func (s *ComkunFollowStore) MarkConsumptionSuccessWithCheckpoint(traderID string
 	if len(checkpoint) > 1000 {
 		checkpoint = checkpoint[:1000]
 	}
-	return s.db.Model(&ComkunFollowBroadcastConsumption{}).
-		Where("trader_id = ? AND broadcast_id = ?", strings.TrimSpace(traderID), broadcastID).
-		Updates(map[string]interface{}{"status": "success", "error": checkpoint, "updated_at": time.Now().UTC()}).Error
+	return retrySQLiteBusy(s.db, func() error {
+		res := s.db.Model(&ComkunFollowBroadcastConsumption{}).
+			Where("trader_id = ? AND broadcast_id = ?", strings.TrimSpace(traderID), broadcastID).
+			Updates(map[string]interface{}{"status": "success", "error": checkpoint, "updated_at": time.Now().UTC()})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("consumption checkpoint not found")
+		}
+		return nil
+	})
 }
 
 func (s *ComkunFollowStore) GetConsumptionCheckpoint(traderID string, broadcastID uint64) string {
@@ -318,14 +339,16 @@ func (s *ComkunFollowStore) MarkConsumptionStartupBaseline(traderID string, broa
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	return s.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "trader_id"}, {Name: "broadcast_id"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"status":     "success",
-			"error":      comkunConsumptionErrorStartupBaseline,
-			"updated_at": now,
-		}),
-	}).Create(row).Error
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "trader_id"}, {Name: "broadcast_id"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"status":     "success",
+				"error":      comkunConsumptionErrorStartupBaseline,
+				"updated_at": now,
+			}),
+		}).Create(row).Error
+	})
 }
 
 func (s *ComkunFollowStore) IsStartupBaselineConsumption(traderID string, broadcastID uint64) bool {
@@ -345,9 +368,11 @@ func (s *ComkunFollowStore) MarkConsumptionFailed(traderID string, broadcastID u
 	if len(msg) > 1000 {
 		msg = msg[:1000]
 	}
-	return s.db.Model(&ComkunFollowBroadcastConsumption{}).
-		Where("trader_id = ? AND broadcast_id = ?", strings.TrimSpace(traderID), broadcastID).
-		Updates(map[string]interface{}{"status": "failed", "error": msg, "updated_at": time.Now().UTC()}).Error
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Model(&ComkunFollowBroadcastConsumption{}).
+			Where("trader_id = ? AND broadcast_id = ?", strings.TrimSpace(traderID), broadcastID).
+			Updates(map[string]interface{}{"status": "failed", "error": msg, "updated_at": time.Now().UTC()}).Error
+	})
 }
 
 // LatestFailedConsumptionError 跟单被控端最近一次广播消费失败的原因（用于主控看板状态提示）

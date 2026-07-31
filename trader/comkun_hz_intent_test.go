@@ -1,6 +1,7 @@
 package trader
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -305,6 +306,112 @@ func TestHZExpiredOpenRefundsBillingWithoutTradeIntent(t *testing.T) {
 	}
 	if status, err := st.ComkunFollow().GetConsumptionStatus(traderID, broadcast.ID); err != nil || status != "success" {
 		t.Fatalf("consumption status=%q err=%v", status, err)
+	}
+}
+
+func TestHZExpiredOpenWithConfirmedTradeFinalizesBilling(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "hz-expired-confirmed.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const userID = "user-confirmed"
+	const traderID = "trader-confirmed"
+	if err := st.GormDB().Create(&store.User{
+		ID: userID, Email: "confirmed@example.test", PasswordHash: "x", BalanceUSDT: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	sourceID := store.HZMasterSourceStrategyID("master-confirmed")
+	wire := comkunMasterStateWire{
+		V: 1, SourceEventID: "event-confirmed", SourceSequence: 3,
+		OccurredAt: time.Now().Add(-3 * time.Minute), EventType: "OPEN",
+		Positions: []kernel.PositionInfo{{
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+		}},
+		PendingOrders: []kernel.PendingOrder{},
+	}
+	raw, _ := json.Marshal(wire)
+	broadcast, err := st.ComkunFollow().InsertBroadcast(sourceID, 1_000, "AI策略执行", "[]", string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlying := &recoveringHZIntentTrader{
+		balance: 1_000, contractSize: 1,
+		positions: []map[string]interface{}{{
+			"positionId": "follower-position", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.03,
+		}},
+	}
+	at := &AutoTrader{
+		id: traderID, name: traderID, userID: userID, exchangeID: "exchange-confirmed", exchange: "hz",
+		initialBalance: 1_000, store: st, trader: underlying, isRunning: true,
+		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+			ComkunMarketFollow: true, ComkunMarketSourceStrategyID: sourceID,
+		}},
+	}
+	fee := at.comkunFollowScanFeeForBroadcast(broadcast)
+	billingKey, billingClientID := hzMirrorIntentIDs(wire.SourceEventID, userID, traderID, "__account__", "none", "billing")
+	requestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%.12g", fee))))
+	if _, err := st.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
+		IntentKey: billingKey, MasterEventID: wire.SourceEventID, BroadcastID: broadcast.ID,
+		UserID: userID, TraderID: traderID, ExchangeID: "exchange-confirmed",
+		Instrument: "__account__", PositionSide: "none", Action: "billing",
+		ClientOrderID: billingClientID, RequestSHA256: requestHash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MirrorExecutionIntent().ReserveBilling(billingKey, fee); err != nil {
+		t.Fatal(err)
+	}
+	openKey, openClientID := hzMirrorIntentIDs(wire.SourceEventID, userID, traderID, "BTCUSDT", "long", "open")
+	if _, err := st.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
+		IntentKey: openKey, MasterEventID: wire.SourceEventID, BroadcastID: broadcast.ID,
+		UserID: userID, TraderID: traderID, ExchangeID: "exchange-confirmed",
+		Instrument: "BTCUSDT", PositionSide: "long", Action: "open", ClientOrderID: openClientID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MirrorExecutionIntent().MarkConfirmed(openKey, "remote-order"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &kernel.Context{Account: kernel.AccountInfo{TotalEquity: 1_000}}
+	if err := at.runComkunFollowCycle(ctx, &store.DecisionRecord{ExecutionLog: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	billing, err := st.MirrorExecutionIntent().Get(billingKey)
+	if err != nil || billing.BillingStatus != store.MirrorBillingCharged {
+		t.Fatalf("billing=%+v err=%v, confirmed trade must stay charged", billing, err)
+	}
+	user, err := st.User().GetByID(userID)
+	if err != nil || user.BalanceUSDT != 1-fee {
+		t.Fatalf("balance=%v fee=%v err=%v", user.BalanceUSDT, fee, err)
+	}
+}
+
+func TestComkunCheckpointFailureDoesNotAdvanceMemoryWatermark(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "checkpoint-failure.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const traderID = "checkpoint-trader"
+	const broadcastID = uint64(5)
+	acquired, err := st.ComkunFollow().TryAcquireConsumptionLockWithCooldown(traderID, broadcastID, 0)
+	if err != nil || !acquired {
+		t.Fatalf("acquired=%t err=%v", acquired, err)
+	}
+	sqlDB, err := st.GormDB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	at := &AutoTrader{id: traderID, name: traderID, store: st}
+	if err := at.persistComkunConsumptionSuccess(broadcastID); err == nil {
+		t.Fatal("closed database unexpectedly persisted checkpoint")
+	}
+	if at.comkunFollowBroadcastAlreadyConsumed(broadcastID) {
+		t.Fatal("failed durable checkpoint advanced the memory watermark")
 	}
 }
 
