@@ -1,6 +1,7 @@
 package hz
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -39,10 +40,13 @@ func TestCloseDisconnectsActiveStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	trader, err := NewTrader(server.URL+"/api/v1", "key", "secret", true)
+	client, err := newClient(server.URL+"/api/v1", "key", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	trader := &Trader{client: client, cancelStream: cancel}
+	go trader.runStream(ctx)
 	defer trader.Close()
 	select {
 	case <-connected:
@@ -94,10 +98,14 @@ func TestMarketPauseBlocksOpeningButAllowsClose(t *testing.T) {
 	}))
 	defer server.Close()
 
-	trader, err := NewTrader(server.URL+"/api/v1", "key", "secret", true)
+	client, err := newClient(server.URL+"/api/v1", "key", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	trader := &Trader{client: client, cancelStream: cancel}
+	trader.scopeVerified.Store(true)
+	go trader.runStream(ctx)
 	defer trader.Close()
 	deadline := time.Now().Add(time.Second)
 	for (!trader.streamReady.Load() || !trader.streamOpeningStopped.Load()) &&

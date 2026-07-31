@@ -33,6 +33,8 @@ type Trader struct {
 	cancelStream            context.CancelFunc
 }
 
+const followerRESTReconcileInterval = 15 * time.Second
+
 func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error) {
 	if apiKey == "" || secret == "" {
 		return nil, fmt.Errorf("HZ API key and secret are required")
@@ -58,14 +60,13 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 		cancel()
 		return nil, fmt.Errorf("load HZ instruments: %w", err)
 	}
-	go trader.runStream(ctx)
-	go trader.reconcileLoop(ctx, time.Minute)
+	go trader.reconcileLoop(ctx, followerRESTReconcileInterval)
 	return trader, nil
 }
 
 func (t *Trader) Close() { t.cancelStream() }
 func (t *Trader) IsReady() bool {
-	return t.streamReady.Load() && t.reconcileHealthy.Load() &&
+	return t.reconcileHealthy.Load() &&
 		!t.streamOpeningStopped.Load() && !t.accountOpeningStopped.Load()
 }
 

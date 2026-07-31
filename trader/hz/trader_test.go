@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
@@ -262,23 +260,57 @@ func TestReconcileFailureBlocksOpening(t *testing.T) {
 	}
 }
 
-func TestStreamReconcilesBeforeAllowingOpening(t *testing.T) {
-	upgrader := websocket.Upgrader{}
+func TestNewTraderUsesRESTReconciliationWithoutWebSocket(t *testing.T) {
+	if followerRESTReconcileInterval != 15*time.Second {
+		t.Fatalf("REST reconcile interval=%s, want 15s", followerRESTReconcileInterval)
+	}
+	var wsRequests atomic.Int32
+	var accountRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/capabilities":
 			writeCapabilities(w)
+		case "/api/v1/instruments":
+			writeInstruments(w)
+		case "/api/v1/account":
+			accountRequests.Add(1)
+			_ = json.NewEncoder(w).Encode(testScopeAccount())
+		case "/api/v1/positions", "/api/v1/orders/open":
+			_, _ = w.Write([]byte("[]"))
 		case "/api/v1/ws":
-			socket, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				return
-			}
-			defer socket.Close()
-			_ = socket.WriteJSON(streamEnvelope{
-				Type: "system.status", Sequence: 1,
-				Data: json.RawMessage(`{"marketStatus":"open","apiOpeningStopped":false}`),
-			})
-			time.Sleep(100 * time.Millisecond)
+			wsRequests.Add(1)
+			http.Error(w, "websocket forbidden", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	trader, err := NewTrader(server.URL+"/api/v1", "key", "secret", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer trader.Close()
+	deadline := time.Now().Add(time.Second)
+	for !trader.IsReady() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !trader.IsReady() {
+		t.Fatal("initial REST reconciliation did not make trader ready")
+	}
+	if got := wsRequests.Load(); got != 0 {
+		t.Fatalf("HZ follower opened %d websocket request(s)", got)
+	}
+	if got := accountRequests.Load(); got < 2 {
+		t.Fatalf("account requests=%d, want capability check plus REST reconciliation", got)
+	}
+}
+
+func TestRESTReconcilesBeforeAllowingOpening(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/capabilities":
+			writeCapabilities(w)
 		case "/api/v1/account":
 			_ = json.NewEncoder(w).Encode(testScopeAccount())
 		case "/api/v1/positions", "/api/v1/orders/open":
@@ -304,7 +336,7 @@ func TestStreamReconcilesBeforeAllowingOpening(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !trader.IsReady() {
-		t.Fatal("stream never became ready after REST reconciliation")
+		t.Fatal("trader never became ready after REST reconciliation")
 	}
 }
 

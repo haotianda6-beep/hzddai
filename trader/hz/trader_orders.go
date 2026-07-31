@@ -85,10 +85,10 @@ func (t *Trader) placeOrder(request createOrderRequest) (order, error) {
 
 func (t *Trader) openingBlockReason() string {
 	switch {
-	case !t.streamReady.Load():
-		return "HZ 实时连接未就绪，已停止新开仓"
 	case !t.reconcileHealthy.Load():
 		return "HZ 账户对账失败，已停止新开仓"
+	case t.streamOpeningStopped.Load():
+		return "HZ 平台已停止 API 新开仓"
 	case t.accountOpeningStopped.Load():
 		return "HZ 账户当前不可交易，已停止新开仓"
 	default:
@@ -101,6 +101,7 @@ func (t *Trader) reconcileOnce() {
 }
 
 func (t *Trader) reconcileLoop(ctx context.Context, interval time.Duration) {
+	t.reconcileOnce()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
