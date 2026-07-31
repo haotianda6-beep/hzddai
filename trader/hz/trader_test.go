@@ -131,6 +131,28 @@ func TestCommodityQuantityLotConversion(t *testing.T) {
 	}
 }
 
+func TestBTCQuantityFloorsToLotStepWithoutExactStepDrift(t *testing.T) {
+	spec := instrument{
+		Instrument: "BTCUSDT", LotPrecision: 3, MinLots: "0.001",
+		MaxLots: "100", LotStep: "0.001", ContractSize: "1",
+	}
+	tests := []struct {
+		quantity float64
+		wantLots string
+	}{
+		{0.020004, "0.020"},
+		{0.010002, "0.010"},
+		{0.0020004, "0.002"},
+		{0.020, "0.020"},
+	}
+	for _, test := range tests {
+		lots, err := (&Trader{}).lotsForQuantityWithSpec(spec, test.quantity)
+		if err != nil || lots != test.wantLots {
+			t.Fatalf("quantity=%.12f lots=%q err=%v, want %q", test.quantity, lots, err, test.wantLots)
+		}
+	}
+}
+
 func TestPartialCloseConvertsQuantityAndRejectsOverClose(t *testing.T) {
 	var mu sync.Mutex
 	var closed []string

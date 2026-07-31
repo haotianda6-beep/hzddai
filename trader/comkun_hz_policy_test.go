@@ -1,11 +1,38 @@
 package trader
 
 import (
+	"math"
 	"testing"
 	"time"
 
 	"nofx/kernel"
 )
+
+func TestHZExternalFloorsFinalTargetBeforeReduce(t *testing.T) {
+	tests := []struct {
+		name                   string
+		current, rawTarget     float64
+		wantTarget, wantReduce float64
+	}{
+		{"10k", 0.030, 0.020004, 0.020, 0.010},
+		{"5k", 0.015, 0.010002, 0.010, 0.005},
+		{"1k", 0.003, 0.0020004, 0.002, 0.001},
+		{"exact step", 0.030, 0.020, 0.020, 0.010},
+		{"close", 0.003, 0, 0, 0.003},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target, err := floorHZMirrorTarget(mirrorTestQuantityFormatter{}, "BTCUSDT", test.rawTarget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reduce := test.current - target
+			if math.Abs(target-test.wantTarget) > 1e-12 || math.Abs(reduce-test.wantReduce) > 1e-12 {
+				t.Fatalf("target=%.12f reduce=%.12f, want target=%.12f reduce=%.12f", target, reduce, test.wantTarget, test.wantReduce)
+			}
+		})
+	}
+}
 
 func TestHZExternalOpenTTLAndCloseOnlyPolicy(t *testing.T) {
 	now := time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC)

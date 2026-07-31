@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -33,6 +35,12 @@ func (trader *recoveringHZIntentTrader) QuantityForLots(_ string, lots float64) 
 		contractSize = 1
 	}
 	return lots * contractSize, nil
+}
+
+func (trader *recoveringHZIntentTrader) FormatQuantity(_ string, quantity float64) (string, error) {
+	const step = 0.001
+	floored := math.Floor((quantity+step*1e-9)/step) * step
+	return strconv.FormatFloat(floored, 'f', 3, 64), nil
 }
 
 func (trader *recoveringHZIntentTrader) GetBalance() (map[string]interface{}, error) {

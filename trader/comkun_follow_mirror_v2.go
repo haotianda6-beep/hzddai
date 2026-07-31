@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -271,6 +272,21 @@ type mirrorQuantityFormatter interface {
 	FormatQuantity(symbol string, quantity float64) (string, error)
 }
 
+func floorHZMirrorTarget(formatter mirrorQuantityFormatter, symbol string, target float64) (float64, error) {
+	if target <= 0 {
+		return 0, nil
+	}
+	formatted, err := formatter.FormatQuantity(symbol, target)
+	if err != nil {
+		return 0, err
+	}
+	floored, err := strconv.ParseFloat(formatted, 64)
+	if err != nil || math.IsNaN(floored) || math.IsInf(floored, 0) || floored < 0 {
+		return 0, fmt.Errorf("invalid HZ floored target %q", formatted)
+	}
+	return floored, nil
+}
+
 func mirrorQuantitiesAligned(formatter mirrorQuantityFormatter, key string, target, follower float64) bool {
 	if formatter != nil {
 		if sym, _, ok := splitPosKey(key); ok {
@@ -377,6 +393,21 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		hzTarget, hzErr := buildHZMasterTargetFromWire(&wire, masterEq, followerEq, hzTrader.QuantityForLots)
 		if hzErr != nil {
 			return fmt.Errorf("HZ dynamic contract conversion: %w", hzErr)
+		}
+		for key, rawTarget := range hzTarget {
+			symbol, _, ok := splitPosKey(key)
+			if !ok {
+				continue
+			}
+			flooredTarget, floorErr := floorHZMirrorTarget(at.trader, symbol, rawTarget)
+			if floorErr != nil {
+				return fmt.Errorf("HZ target quantity floor: %w", floorErr)
+			}
+			if flooredTarget == 0 {
+				delete(hzTarget, key)
+				continue
+			}
+			hzTarget[key] = flooredTarget
 		}
 		masterTarget = hzTarget
 	}
