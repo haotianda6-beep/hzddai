@@ -2,6 +2,7 @@ package trader
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"nofx/kernel"
 	"nofx/store"
 	"nofx/trader/hz"
+	"nofx/trader/types"
 )
 
 type recoveringHZIntentTrader struct {
@@ -19,6 +21,9 @@ type recoveringHZIntentTrader struct {
 	balance       float64
 	contractSize  float64
 	opens, closes int
+	balanceCalls  int
+	positionCalls int
+	orderCalls    int
 }
 
 func (trader *recoveringHZIntentTrader) QuantityForLots(_ string, lots float64) (float64, error) {
@@ -30,11 +35,18 @@ func (trader *recoveringHZIntentTrader) QuantityForLots(_ string, lots float64) 
 }
 
 func (trader *recoveringHZIntentTrader) GetBalance() (map[string]interface{}, error) {
+	trader.balanceCalls++
 	return map[string]interface{}{"total_equity": trader.balance}, nil
 }
 
 func (trader *recoveringHZIntentTrader) GetPositions() ([]map[string]interface{}, error) {
+	trader.positionCalls++
 	return trader.positions, nil
+}
+
+func (trader *recoveringHZIntentTrader) GetOpenOrders(string) ([]types.OpenOrder, error) {
+	trader.orderCalls++
+	return nil, nil
 }
 
 func (trader *recoveringHZIntentTrader) OpenLong(string, float64, int) (map[string]interface{}, error) {
@@ -187,5 +199,124 @@ func TestHZMirrorIntentRecoversAcceptedOrderAcrossRestart(t *testing.T) {
 	intent, err := st.MirrorExecutionIntent().Get(intentKey)
 	if err != nil || intent.Status != store.MirrorIntentConfirmed || intent.ExchangeOrderID != "remote-order-1" {
 		t.Fatalf("intent=%+v err=%v", intent, err)
+	}
+}
+
+func TestHZThirtyFollowersBackOffBeforeExchangeSnapshot(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "hz-idle-backoff.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceID := store.HZMasterSourceStrategyID("master-idle")
+	wire := comkunMasterStateWire{
+		V: 1, SourceEventID: "event-failed", SourceSequence: 1,
+		OccurredAt: time.Now(), EventType: "OPEN",
+		Positions: []kernel.PositionInfo{{
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+		}},
+		PendingOrders: []kernel.PendingOrder{},
+	}
+	raw, _ := json.Marshal(wire)
+	broadcast, err := st.ComkunFollow().InsertBroadcast(sourceID, 10_000, "AI策略执行", "[]", string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var balanceCalls, positionCalls, orderCalls int
+	for i := 0; i < 30; i++ {
+		traderID := fmt.Sprintf("trader-%02d", i)
+		acquired, err := st.ComkunFollow().TryAcquireConsumptionLock(traderID, broadcast.ID)
+		if err != nil || !acquired {
+			t.Fatalf("seed failed consumption %d: acquired=%t err=%v", i, acquired, err)
+		}
+		if err := st.ComkunFollow().MarkConsumptionFailed(traderID, broadcast.ID, "temporary"); err != nil {
+			t.Fatal(err)
+		}
+		underlying := &recoveringHZIntentTrader{balance: 10_000, contractSize: 1}
+		at := &AutoTrader{
+			id: traderID, name: traderID, userID: fmt.Sprintf("user-%02d", i),
+			exchangeID: fmt.Sprintf("exchange-%02d", i), exchange: "hz",
+			initialBalance: 10_000, store: st, trader: underlying, isRunning: true,
+			config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+				ComkunMarketFollow: true, ComkunMarketSourceStrategyID: sourceID,
+			}},
+		}
+		if err := at.runCycle(); err != nil {
+			t.Fatalf("follower %d runCycle: %v", i, err)
+		}
+		balanceCalls += underlying.balanceCalls
+		positionCalls += underlying.positionCalls
+		orderCalls += underlying.orderCalls
+	}
+	if balanceCalls+positionCalls+orderCalls != 0 {
+		t.Fatalf("cooldown made B calls: balance=%d positions=%d orders=%d", balanceCalls, positionCalls, orderCalls)
+	}
+}
+
+func TestHZExpiredOpenRefundsBillingWithoutTradeIntent(t *testing.T) {
+	st, err := store.New(filepath.Join(t.TempDir(), "hz-expired-refund.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const userID = "user-expired"
+	const traderID = "trader-expired"
+	if err := st.GormDB().Create(&store.User{
+		ID: userID, Email: "expired@example.test", PasswordHash: "x", BalanceUSDT: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	sourceID := store.HZMasterSourceStrategyID("master-expired")
+	wire := comkunMasterStateWire{
+		V: 1, SourceEventID: "event-expired", SourceSequence: 1,
+		OccurredAt: time.Now().Add(-3 * time.Minute), EventType: "OPEN",
+		Positions: []kernel.PositionInfo{{
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+		}},
+		PendingOrders: []kernel.PendingOrder{},
+	}
+	raw, _ := json.Marshal(wire)
+	broadcast, err := st.ComkunFollow().InsertBroadcast(sourceID, 10_000, "AI策略执行", "[]", string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlying := &recoveringHZIntentTrader{balance: 1_000, contractSize: 1}
+	at := &AutoTrader{
+		id: traderID, name: traderID, userID: userID, exchangeID: "exchange-expired", exchange: "hz",
+		initialBalance: 1_000, store: st, trader: underlying, isRunning: true,
+		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+			ComkunMarketFollow: true, ComkunMarketSourceStrategyID: sourceID,
+		}},
+	}
+	ctx := &kernel.Context{Account: kernel.AccountInfo{TotalEquity: 1_000}}
+	if err := at.runComkunFollowCycle(ctx, &store.DecisionRecord{ExecutionLog: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if underlying.opens != 0 {
+		t.Fatalf("expired OPEN submitted %d order(s)", underlying.opens)
+	}
+	billingKey, _ := hzMirrorIntentIDs(wire.SourceEventID, userID, traderID, "__account__", "none", "billing")
+	intent, err := st.MirrorExecutionIntent().Get(billingKey)
+	if err != nil || intent.BillingStatus != store.MirrorBillingRefunded {
+		t.Fatalf("billing intent=%+v err=%v", intent, err)
+	}
+	user, err := st.User().GetByID(userID)
+	if err != nil || user.BalanceUSDT != 1 {
+		t.Fatalf("user=%+v err=%v", user, err)
+	}
+	if status, err := st.ComkunFollow().GetConsumptionStatus(traderID, broadcast.ID); err != nil || status != "success" {
+		t.Fatalf("consumption status=%q err=%v", status, err)
+	}
+}
+
+func TestHZFollowFallbackPollBacksOffToFifteenSeconds(t *testing.T) {
+	at := &AutoTrader{
+		exchange: "hz",
+		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+			ComkunMarketFollow:           true,
+			ComkunMarketSourceStrategyID: store.HZMasterSourceStrategyID("master-backoff"),
+		}},
+	}
+	if got := at.comkunFollowPollWaitAfterCycle(time.Second); got != 15*time.Second {
+		t.Fatalf("HZ fallback poll=%s, want 15s", got)
 	}
 }

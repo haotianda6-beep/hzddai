@@ -60,6 +60,20 @@ func (at *AutoTrader) runCycle() error {
 					at.name, br.ID, br.CreatedAt.UTC().Format(time.RFC3339))
 				return nil
 			}
+			if br != nil {
+				retryCooldown := 2 * time.Minute
+				if store.IsMT4GoldMasterStrategyID(sourceID) {
+					retryCooldown = 500 * time.Millisecond
+				}
+				due, dueErr := at.store.ComkunFollow().ConsumptionAttemptDueWithCooldown(at.id, br.ID, retryCooldown)
+				if dueErr != nil {
+					logger.Warnf("[%s] comkun 跟单：读取重试退避状态失败（静默跳过本轮）: %v", at.name, dueErr)
+					return nil
+				}
+				if !due {
+					return nil
+				}
+			}
 		}
 	}
 

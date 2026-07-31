@@ -165,6 +165,42 @@ func (s *ComkunFollowStore) TryAcquireConsumptionLock(traderID string, broadcast
 	return s.TryAcquireConsumptionLockWithCooldown(traderID, broadcastID, comkunConsumptionFailedRetryCooldown)
 }
 
+// ConsumptionAttemptDue keeps exchange reads out of the hot polling path while
+// another attempt is processing or a failed attempt is cooling down.
+func (s *ComkunFollowStore) ConsumptionAttemptDue(traderID string, broadcastID uint64) (bool, error) {
+	return s.ConsumptionAttemptDueWithCooldown(traderID, broadcastID, comkunConsumptionFailedRetryCooldown)
+}
+
+func (s *ComkunFollowStore) ConsumptionAttemptDueWithCooldown(
+	traderID string,
+	broadcastID uint64,
+	retryCooldown time.Duration,
+) (bool, error) {
+	traderID = strings.TrimSpace(traderID)
+	if traderID == "" || broadcastID == 0 {
+		return false, fmt.Errorf("trader_id and broadcast_id required")
+	}
+	var existing ComkunFollowBroadcastConsumption
+	err := s.db.Where("trader_id = ? AND broadcast_id = ?", traderID, broadcastID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	sinceUpdate := time.Since(existing.UpdatedAt)
+	switch existing.Status {
+	case "success":
+		return false, nil
+	case "processing":
+		return existing.UpdatedAt.IsZero() || sinceUpdate >= comkunConsumptionStaleProcessing, nil
+	case "failed":
+		return retryCooldown <= 0 || existing.UpdatedAt.IsZero() || sinceUpdate >= retryCooldown, nil
+	default:
+		return true, nil
+	}
+}
+
 func (s *ComkunFollowStore) TryAcquireConsumptionLockWithCooldown(traderID string, broadcastID uint64, retryCooldown time.Duration) (bool, error) {
 	traderID = strings.TrimSpace(traderID)
 	if traderID == "" || broadcastID == 0 {

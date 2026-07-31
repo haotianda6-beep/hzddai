@@ -644,6 +644,17 @@ func hzMirrorDeltaAllowed(delta float64, occurredAt, now time.Time, closeOnly bo
 	return !occurredAt.Before(now.Add(-2 * time.Minute))
 }
 
+func hzMirrorRiskIncreaseExpired(wire *comkunMasterStateWire, now time.Time) bool {
+	if wire == nil {
+		return false
+	}
+	eventType := strings.ToUpper(strings.TrimSpace(wire.EventType))
+	if eventType != "OPEN" && eventType != "INCREASE" {
+		return false
+	}
+	return !hzMirrorDeltaAllowed(1, wire.OccurredAt, now, false)
+}
+
 // buildMT4MasterTargetFromWire preserves the MT4 account risk percentage.
 // MT4 cent-account lots are not a safe proxy for used margin, especially for
 // martingale books that accumulate many small tickets.

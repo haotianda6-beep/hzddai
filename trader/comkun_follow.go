@@ -1200,6 +1200,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 	feeReserved := false
 	closeOnly := false
 	billingIntentKey := ""
+	billingClientID := ""
 	var scanSpendLedgerID uint64
 	if hzExternal && scanFeeUSDT > 0 {
 		var stateWire comkunMasterStateWire
@@ -1207,7 +1208,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing event metadata missing")
 			return nil
 		}
-		billingIntentKey, billingClientID := hzMirrorIntentIDs(stateWire.SourceEventID, at.userID, at.id, "__account__", "none", "billing")
+		billingIntentKey, billingClientID = hzMirrorIntentIDs(stateWire.SourceEventID, at.userID, at.id, "__account__", "none", "billing")
 		requestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%.12g", scanFeeUSDT))))
 		if _, err := at.store.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
 			IntentKey: billingIntentKey, MasterEventID: stateWire.SourceEventID, BroadcastID: br.ID,
@@ -1360,6 +1361,13 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		if schemeASkipTPSL && at.mirrorSchemeAPostSeedCyclesRemaining > 0 {
 			at.mirrorSchemeAPostSeedCyclesRemaining--
 			logger.Infof("[%s] comkun 方案A 首轮镜像已完成，后续广播将同步止盈止损（若仍有剩余计数异常请检查配置）", at.name)
+		}
+		if hzExternal && feeReserved && hzMirrorRiskIncreaseExpired(&stateWire, time.Now()) {
+			if err := at.store.MirrorExecutionIntent().RefundBilling(billingIntentKey, "open_ttl_expired"); err != nil {
+				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing refund retry")
+				return nil
+			}
+			feeReserved = false
 		}
 		if hzExternal && feeReserved {
 			if err := at.store.MirrorExecutionIntent().FinalizeBilling(billingIntentKey); err != nil {

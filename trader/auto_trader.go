@@ -486,6 +486,9 @@ func (at *AutoTrader) isComkunListingMaster() bool {
 // comkunFollowPollWaitAfterCycle 主循环休眠：被控跟单固定短轮询等主控；非跟单仍用 ScanInterval。
 func (at *AutoTrader) comkunFollowPollWaitAfterCycle(scanWait time.Duration) time.Duration {
 	if at.config.StrategyConfig != nil && store.IsComkunMarketFollowStrategy(at.config.StrategyConfig) {
+		if at.comkunFollowSourceIsHZExternal() && comkunFollowFollowMasterPollInterval < 15*time.Second {
+			return 15 * time.Second
+		}
 		return comkunFollowFollowMasterPollInterval
 	}
 	if scanWait <= 0 {
