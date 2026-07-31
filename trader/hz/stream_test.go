@@ -30,7 +30,7 @@ func TestCloseDisconnectsActiveStream(t *testing.T) {
 			_ = socket.Close()
 			close(disconnected)
 		case "/api/v1/account":
-			_ = json.NewEncoder(w).Encode(account{Currency: "USD", Tradable: true})
+			_ = json.NewEncoder(w).Encode(testScopeAccount())
 		case "/api/v1/positions", "/api/v1/orders/open":
 			_, _ = w.Write([]byte("[]"))
 		default:
@@ -77,7 +77,7 @@ func TestMarketPauseBlocksOpeningButAllowsClose(t *testing.T) {
 			_, _, _ = socket.ReadMessage()
 			_ = socket.Close()
 		case r.URL.Path == "/api/v1/account":
-			_ = json.NewEncoder(w).Encode(account{Currency: "USD", Tradable: true})
+			_ = json.NewEncoder(w).Encode(testScopeAccount())
 		case r.URL.Path == "/api/v1/positions":
 			_ = json.NewEncoder(w).Encode([]position{{
 				PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", Lots: "0.010",

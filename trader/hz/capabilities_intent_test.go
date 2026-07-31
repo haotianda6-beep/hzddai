@@ -22,20 +22,38 @@ func TestExecuteWithIntentClearsUnusedIntent(t *testing.T) {
 
 func TestVerifyCapabilitiesRequiresAIScopeAndSafePermissions(t *testing.T) {
 	tests := []struct {
-		name string
-		cap  capabilities
-		ok   bool
+		name        string
+		permissions map[string]bool
+		scope       string
+		wallet      string
+		book        string
+		orderTypes  []string
+		ok          bool
 	}{
-		{"safe", capabilities{Read: true, Trade: true, AccountScope: "AI", AccountID: "a", WalletID: "w", PositionBookID: "p", OrderTypes: []string{"MARKET"}}, true},
-		{"withdraw", capabilities{Read: true, Trade: true, Withdraw: true, AccountScope: "AI", AccountID: "a", WalletID: "w", PositionBookID: "p", OrderTypes: []string{"MARKET"}}, false},
-		{"manual scope", capabilities{Read: true, Trade: true, AccountScope: "MANUAL", AccountID: "a", WalletID: "w", PositionBookID: "p", OrderTypes: []string{"MARKET"}}, false},
-		{"missing book", capabilities{Read: true, Trade: true, AccountScope: "AI", AccountID: "a", WalletID: "w", OrderTypes: []string{"MARKET"}}, false},
-		{"limit enabled", capabilities{Read: true, Trade: true, AccountScope: "AI", AccountID: "a", WalletID: "w", PositionBookID: "p", OrderTypes: []string{"MARKET", "LIMIT"}}, false},
+		{"safe", map[string]bool{"read": true, "trade": true}, "AI", "w", "p", []string{"MARKET"}, true},
+		{"withdraw", map[string]bool{"read": true, "trade": true, "withdraw": true}, "AI", "w", "p", []string{"MARKET"}, false},
+		{"manual scope", map[string]bool{"read": true, "trade": true}, "MANUAL", "w", "p", []string{"MARKET"}, false},
+		{"missing book", map[string]bool{"read": true, "trade": true}, "AI", "w", "", []string{"MARKET"}, false},
+		{"limit enabled", map[string]bool{"read": true, "trade": true}, "AI", "w", "p", []string{"MARKET", "LIMIT"}, false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_ = json.NewEncoder(w).Encode(test.cap)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/capabilities":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"apiVersion": "v1", "permissions": test.permissions,
+						"accountScope": test.scope, "walletId": test.wallet,
+						"positionBookId": test.book, "orderTypes": test.orderTypes,
+					})
+				case "/account":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"accountId": "a", "accountScope": test.scope,
+						"walletId": test.wallet, "positionBookId": test.book,
+					})
+				default:
+					http.NotFound(w, r)
+				}
 			}))
 			defer server.Close()
 			_, err := VerifyCapabilities(server.URL, "key", "secret")

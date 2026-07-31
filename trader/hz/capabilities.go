@@ -12,6 +12,7 @@ import (
 
 type VerifiedCapabilities struct {
 	Capabilities
+	AccountID               string
 	AccountFingerprint      string
 	WalletFingerprint       string
 	PositionBookFingerprint string
@@ -32,20 +33,30 @@ func verifyCapabilities(client *client) (*VerifiedCapabilities, error) {
 	if err := client.do(context.Background(), http.MethodGet, "/capabilities", nil, "", &value); err != nil {
 		return nil, fmt.Errorf("verify HZ capabilities: %w", err)
 	}
-	if !value.Read || !value.Trade || value.Withdraw || value.Transfer || value.Security ||
+	permissions := value.Permissions
+	if !permissions.Read || !permissions.Trade || permissions.Withdraw || permissions.Transfer || permissions.Security ||
 		!strings.EqualFold(strings.TrimSpace(value.AccountScope), "AI") {
 		return nil, fmt.Errorf("HZ credential must be read+trade only and restricted to AI account scope")
 	}
 	if len(value.OrderTypes) != 1 || !strings.EqualFold(strings.TrimSpace(value.OrderTypes[0]), "MARKET") {
 		return nil, fmt.Errorf("HZ AI scope must allow MARKET orders only")
 	}
-	if strings.TrimSpace(value.AccountID) == "" || strings.TrimSpace(value.WalletID) == "" ||
-		strings.TrimSpace(value.PositionBookID) == "" {
+	if strings.TrimSpace(value.WalletID) == "" || strings.TrimSpace(value.PositionBookID) == "" {
 		return nil, fmt.Errorf("HZ AI scope identifiers are incomplete")
+	}
+	var remoteAccount account
+	if err := client.do(context.Background(), http.MethodGet, "/account", nil, "", &remoteAccount); err != nil {
+		return nil, fmt.Errorf("verify HZ account scope: %w", err)
+	}
+	if strings.TrimSpace(remoteAccount.AccountID) == "" ||
+		!strings.EqualFold(strings.TrimSpace(remoteAccount.AccountScope), "AI") ||
+		remoteAccount.WalletID != value.WalletID || remoteAccount.PositionBookID != value.PositionBookID {
+		return nil, fmt.Errorf("HZ account scope identifiers do not match capabilities")
 	}
 	return &VerifiedCapabilities{
 		Capabilities:            value,
-		AccountFingerprint:      fingerprint(value.AccountID),
+		AccountID:               remoteAccount.AccountID,
+		AccountFingerprint:      fingerprint(remoteAccount.AccountID),
 		WalletFingerprint:       fingerprint(value.WalletID),
 		PositionBookFingerprint: fingerprint(value.PositionBookID),
 	}, nil

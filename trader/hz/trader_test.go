@@ -229,7 +229,7 @@ func TestReconcileFailureBlocksOpening(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/api/v1/account":
-			_ = json.NewEncoder(w).Encode(account{Currency: "USD", Tradable: true})
+			_ = json.NewEncoder(w).Encode(testScopeAccount())
 		case "/api/v1/positions", "/api/v1/orders/open":
 			_, _ = w.Write([]byte("[]"))
 		case "/api/v1/instruments":
@@ -280,7 +280,7 @@ func TestStreamReconcilesBeforeAllowingOpening(t *testing.T) {
 			})
 			time.Sleep(100 * time.Millisecond)
 		case "/api/v1/account":
-			_ = json.NewEncoder(w).Encode(account{Currency: "USD", Tradable: true})
+			_ = json.NewEncoder(w).Encode(testScopeAccount())
 		case "/api/v1/positions", "/api/v1/orders/open":
 			_, _ = w.Write([]byte("[]"))
 		case "/api/v1/instruments":
@@ -343,7 +343,14 @@ func newTestTrader(t *testing.T, apiURL string, crossMargin bool) *Trader {
 
 func writeCapabilities(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(Capabilities{
-		Read: true, Trade: true, AccountScope: "AI",
-		AccountID: "account", WalletID: "wallet", PositionBookID: "book", OrderTypes: []string{"MARKET"},
+		APIVersion: "v1", Permissions: permissionSet{Read: true, Trade: true}, AccountScope: "AI",
+		WalletID: "wallet", PositionBookID: "book", OrderTypes: []string{"MARKET"},
 	})
+}
+
+func testScopeAccount() account {
+	return account{
+		AccountID: "account", AccountScope: "AI", WalletID: "wallet", PositionBookID: "book",
+		Currency: "USD", Tradable: true,
+	}
 }
