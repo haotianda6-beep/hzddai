@@ -2,6 +2,7 @@ package trader
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"nofx/logger"
 	"nofx/store"
 	"nofx/trader/binance"
+	hzadapter "nofx/trader/hz"
 	tradertypes "nofx/trader/types"
 )
 
@@ -38,6 +40,99 @@ const (
 
 type mirrorPositionCacheInvalidator interface {
 	InvalidatePositionsCache()
+}
+
+type hzMirrorTrader interface {
+	QuantityForLots(symbol string, lots float64) (float64, error)
+	ExecuteWithIntent(clientOrderID string, execute func() (map[string]interface{}, error)) (map[string]interface{}, error)
+	LookupOrderByClientID(clientOrderID string) (map[string]interface{}, error)
+}
+
+func hzMirrorIntentIDs(masterEventID, userID, traderID, instrument, side, action string) (string, string) {
+	canonical := strings.Join([]string{
+		strings.TrimSpace(masterEventID), strings.TrimSpace(userID), strings.TrimSpace(traderID),
+		strings.ToUpper(strings.TrimSpace(instrument)), strings.ToLower(strings.TrimSpace(side)), strings.TrimSpace(action),
+	}, "|")
+	sum := sha256.Sum256([]byte(canonical))
+	key := fmt.Sprintf("%x", sum[:])
+	return key, "comkun-" + key[:32]
+}
+
+func mirrorResultOrderID(result map[string]interface{}) string {
+	if result == nil {
+		return ""
+	}
+	for _, key := range []string{"orderId", "order_id"} {
+		if value, ok := result[key].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func followerRemotePositionID(positions []map[string]interface{}, key string) string {
+	for _, position := range positions {
+		symbol, _ := position["symbol"].(string)
+		side, _ := position["side"].(string)
+		if posKey(symbol, side) != key {
+			continue
+		}
+		if value, ok := position["positionId"].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func (at *AutoTrader) executeHZMirrorIntent(
+	br *store.ComkunMasterBroadcast,
+	wire *comkunMasterStateWire,
+	instrument, side, action, remotePositionID string,
+	targetQuantity, deltaQuantity float64,
+	execute func() (map[string]interface{}, error),
+) (map[string]interface{}, error) {
+	hzTrader, ok := at.trader.(hzMirrorTrader)
+	if !ok || at.store == nil || wire == nil || strings.TrimSpace(wire.SourceEventID) == "" {
+		return nil, fmt.Errorf("HZ mirror execution intent metadata is incomplete")
+	}
+	intentKey, clientOrderID := hzMirrorIntentIDs(wire.SourceEventID, at.userID, at.id, instrument, side, action)
+	requestRaw := fmt.Sprintf("%s|%s|%s|%.12g|%.12g", instrument, side, remotePositionID, targetQuantity, deltaQuantity)
+	requestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(requestRaw)))
+	intent, err := at.store.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
+		IntentKey: intentKey, MasterEventID: wire.SourceEventID, BroadcastID: br.ID,
+		UserID: at.userID, TraderID: at.id, ExchangeID: at.exchangeID,
+		Instrument: strings.ToUpper(instrument), PositionSide: strings.ToLower(side), Action: action,
+		RemotePositionID: remotePositionID, TargetQuantity: targetQuantity, DeltaQuantity: deltaQuantity,
+		ClientOrderID: clientOrderID, RequestSHA256: requestHash,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if intent.Status == store.MirrorIntentConfirmed {
+		return map[string]interface{}{"orderId": intent.ExchangeOrderID, "status": "RECOVERED"}, nil
+	}
+	if intent.Status == store.MirrorIntentSubmitted || intent.Status == store.MirrorIntentFailed {
+		recovered, lookupErr := hzTrader.LookupOrderByClientID(intent.ClientOrderID)
+		if lookupErr == nil {
+			_ = at.store.MirrorExecutionIntent().MarkConfirmed(intent.IntentKey, mirrorResultOrderID(recovered))
+			return recovered, nil
+		}
+		if !hzadapter.IsNotFound(lookupErr) {
+			return nil, fmt.Errorf("mirror_transient: query original HZ order: %w", lookupErr)
+		}
+	}
+	if err := at.store.MirrorExecutionIntent().MarkSubmitted(intent.IntentKey); err != nil {
+		return nil, err
+	}
+	result, err := hzTrader.ExecuteWithIntent(intent.ClientOrderID, execute)
+	if err != nil {
+		_ = at.store.MirrorExecutionIntent().MarkFailed(intent.IntentKey, err.Error())
+		return nil, err
+	}
+	if err := at.store.MirrorExecutionIntent().MarkConfirmed(intent.IntentKey, mirrorResultOrderID(result)); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func mirrorInvalidatePositionsCache(t tradertypes.Trader) {
@@ -107,6 +202,13 @@ func (at *AutoTrader) seedMirrorBaselineFromMasterBroadcast(br *store.ComkunMast
 		followerEq = 0
 	}
 	target := buildMirrorMasterTargetFromWire(&wire, masterEq, followerEq)
+	if at.comkunFollowSourceIsHZExternal() {
+		if hzTrader, ok := at.trader.(hzMirrorTrader); ok {
+			if hzTarget, err := buildHZMasterTargetFromWire(&wire, masterEq, followerEq, hzTrader.QuantityForLots); err == nil {
+				target = hzTarget
+			}
+		}
+	}
 	if at.comkunFollowSourceIsMT4Gold() {
 		followLev := store.ComkunMirrorFollowerMarginLeverageOrDefault(at.config.StrategyConfig)
 		target = buildMT4MasterTargetFromWire(&wire, masterEq, followerEq, followLev)
@@ -206,14 +308,15 @@ func (at *AutoTrader) mirrorSeedBlockOpenKey(k string) {
 }
 
 // reconcileComkunFollowMasterStateV2 按主控快照对齐被控（WS API 优先 + REST 回退）。
-func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br *store.ComkunMasterBroadcast, record *store.DecisionRecord, schemeASkipTPSL bool) error {
+func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br *store.ComkunMasterBroadcast, record *store.DecisionRecord, schemeASkipTPSL, closeOnly bool) error {
 	var wire comkunMasterStateWire
 	if err := json.Unmarshal([]byte(strings.TrimSpace(br.MasterStateJSON)), &wire); err != nil {
 		return fmt.Errorf("v2 解析主控状态 JSON: %w", err)
 	}
 	webMirror := at.comkunFollowSourceIsBnScreenMirror()
 	mt4Mirror := at.comkunFollowSourceIsMT4Gold()
-	marketOnlyMirror := webMirror || mt4Mirror
+	hzExternal := at.comkunFollowSourceIsHZExternal()
+	marketOnlyMirror := webMirror || mt4Mirror || hzExternal
 	if mt4Mirror && !mt4WireHasActualMargin(&wire) {
 		if record != nil {
 			record.ExecutionLog = append(record.ExecutionLog,
@@ -227,6 +330,8 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			mode = "web_screen_market_only"
 		} else if mt4Mirror {
 			mode = "mt4_latest_target_market_only"
+		} else if hzExternal {
+			mode = "hz_ai_scope_market_only"
 		}
 		record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
 			"v2 镜像协议(%s): broadcast_id=%d mirror_semantic_fp=%s scheme_a_skip_tpsl=%v",
@@ -264,6 +369,17 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 
 	// ---- Phase 1: 构建主控目标 ----
 	masterTarget := buildMirrorMasterTargetFromWire(&wire, masterEq, followerEq)
+	if hzExternal {
+		hzTrader, ok := at.trader.(hzMirrorTrader)
+		if !ok {
+			return fmt.Errorf("HZ trader does not expose dynamic lot conversion")
+		}
+		hzTarget, hzErr := buildHZMasterTargetFromWire(&wire, masterEq, followerEq, hzTrader.QuantityForLots)
+		if hzErr != nil {
+			return fmt.Errorf("HZ dynamic contract conversion: %w", hzErr)
+		}
+		masterTarget = hzTarget
+	}
 	if mt4Mirror {
 		masterTarget = buildMT4MasterTargetFromWire(&wire, masterEq, followerEq, fl)
 	}
@@ -357,7 +473,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 				"v2 订单同步: %s 安全模式：主控无此持仓连击 %d/%d，暂缓市价平仓", k, streak, requiredFlatConfirms))
 			continue
 		}
-		if !mt4Mirror && hadLast && time.Since(lastAt) < mirrorCloseCooldown {
+		if !mt4Mirror && !hzExternal && hadLast && time.Since(lastAt) < mirrorCloseCooldown {
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
 				"v2 订单同步: %s 该合约距上次镜像市价全平不足 %.0f 秒，暂缓全平", sym, mirrorCloseCooldown.Seconds()))
 			continue
@@ -369,7 +485,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		}
 
 		// 先撤该币对全部挂单（止盈止损/限价）
-		if !mt4Mirror {
+		if !mt4Mirror && !hzExternal {
 			if err := at.trader.CancelAllOrders(sym); err != nil {
 				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("⚠ v2 平仓前撤单 %s: %v", sym, err))
 			}
@@ -397,6 +513,15 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 					closeResult, closeErr = at.trader.CloseShort(sym, 0)
 				}
 			}
+		} else if hzExternal {
+			action := "close"
+			remotePositionID := followerRemotePositionID(positions, k)
+			closeResult, closeErr = at.executeHZMirrorIntent(br, &wire, sym, side, action, remotePositionID, 0, -foll[k], func() (map[string]interface{}, error) {
+				if side == "long" {
+					return at.trader.CloseLong(sym, 0)
+				}
+				return at.trader.CloseShort(sym, 0)
+			})
 		} else {
 			if side == "long" {
 				closeResult, closeErr = at.trader.CloseLong(sym, 0)
@@ -483,10 +608,20 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		if !ok2 {
 			continue
 		}
+		if hzExternal && !hzMirrorDeltaAllowed(delta, wire.OccurredAt, time.Now(), closeOnly) {
+			if record != nil {
+				reason := "余额不足，close-only 禁止增加风险"
+				if !closeOnly {
+					reason = "开仓事件超过 2 分钟，不再补开"
+				}
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("HZ %s %s: %s", sym, side, reason))
+			}
+			continue
+		}
 		diffQty := math.Abs(delta)
 		underTargetStartup := webStartupAlign && delta > 0 && fq+qtyEps(mq) < mq
 		baseQty := math.Max(math.Abs(mq), math.Abs(fq))
-		if baseQty > 0 && !underTargetStartup && !mt4Mirror {
+		if baseQty > 0 && !underTargetStartup && !mt4Mirror && !hzExternal {
 			diffPct := diffQty / baseQty
 			if diffPct < 0.05 {
 				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
@@ -495,40 +630,42 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 		}
 
-		if price, perr := at.trader.GetMarketPrice(sym); perr == nil && price > 0 {
-			minN := mirrorMinNotionalUSDT(at, sym)
-			notionalForMin := diffQty * price
-			if underTargetStartup {
-				notionalForMin = mq * price
-			}
-			missingLeg := fq+qtyEps(mq) < mq
-			if webMirror && missingLeg && delta > 0 {
-				notionalForMin = mq * price
-			}
-			skipBelowMin := notionalForMin+1e-9 < minN
-			if skipBelowMin && webMirror && delta > 0 && (underTargetStartup || missingLeg) {
-				bootQty := mirrorWebBootstrapOpenQty(at, sym, price, minN)
-				if bootQty > fq && bootQty*price+1e-9 >= minN {
-					delta = bootQty - fq
-					diffQty = math.Abs(delta)
-					notionalForMin = diffQty * price
-					skipBelowMin = notionalForMin+1e-9 < minN
-					if record != nil && !skipBelowMin {
-						record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
-							"v2 网页镜像: %s %s 缩放目标名义 %.4f USDT < 最小 %.2f，改用最小可下单 qty=%.6f（约 %.2f USDT）",
-							sym, side, mq*price, minN, bootQty, bootQty*price))
+		if !hzExternal {
+			if price, perr := at.trader.GetMarketPrice(sym); perr == nil && price > 0 {
+				minN := mirrorMinNotionalUSDT(at, sym)
+				notionalForMin := diffQty * price
+				if underTargetStartup {
+					notionalForMin = mq * price
+				}
+				missingLeg := fq+qtyEps(mq) < mq
+				if webMirror && missingLeg && delta > 0 {
+					notionalForMin = mq * price
+				}
+				skipBelowMin := notionalForMin+1e-9 < minN
+				if skipBelowMin && webMirror && delta > 0 && (underTargetStartup || missingLeg) {
+					bootQty := mirrorWebBootstrapOpenQty(at, sym, price, minN)
+					if bootQty > fq && bootQty*price+1e-9 >= minN {
+						delta = bootQty - fq
+						diffQty = math.Abs(delta)
+						notionalForMin = diffQty * price
+						skipBelowMin = notionalForMin+1e-9 < minN
+						if record != nil && !skipBelowMin {
+							record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
+								"v2 网页镜像: %s %s 缩放目标名义 %.4f USDT < 最小 %.2f，改用最小可下单 qty=%.6f（约 %.2f USDT）",
+								sym, side, mq*price, minN, bootQty, bootQty*price))
+						}
 					}
 				}
-			}
-			if skipBelowMin {
-				if underTargetStartup {
-					record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
-						"v2 网页镜像启动对齐: %s %s 目标名义 %.4f USDT < 最小 %.2f，跳过", sym, side, notionalForMin, minN))
-				} else {
-					record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
-						"v2 订单同步: %s %s 差额名义 %.4f USDT < 最小 %.2f，跟单账户太小自动跳过", sym, side, notionalForMin, minN))
+				if skipBelowMin {
+					if underTargetStartup {
+						record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
+							"v2 网页镜像启动对齐: %s %s 目标名义 %.4f USDT < 最小 %.2f，跳过", sym, side, notionalForMin, minN))
+					} else {
+						record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
+							"v2 订单同步: %s %s 差额名义 %.4f USDT < 最小 %.2f，跟单账户太小自动跳过", sym, side, notionalForMin, minN))
+					}
+					continue
 				}
-				continue
 			}
 		}
 
@@ -579,6 +716,17 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 						openResult, openErr = at.trader.OpenShort(sym, addQty, posLev)
 					}
 				}
+			} else if hzExternal {
+				action := "increase"
+				if fq <= qtyEps(mq) {
+					action = "open"
+				}
+				openResult, openErr = at.executeHZMirrorIntent(br, &wire, sym, side, action, "", mq, addQty, func() (map[string]interface{}, error) {
+					if side == "long" {
+						return at.trader.OpenLong(sym, addQty, posLev)
+					}
+					return at.trader.OpenShort(sym, addQty, posLev)
+				})
 			} else {
 				if side == "long" {
 					openResult, openErr = at.trader.OpenLong(sym, addQty, posLev)
@@ -629,12 +777,14 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 			// ---- 减仓：WS API 部分平仓优先，失败回退 REST ----
 			closeQty := math.Abs(delta)
-			if price, perr := at.trader.GetMarketPrice(sym); perr == nil && price > 0 {
-				minN := mirrorMinNotionalUSDT(at, sym)
-				if closeQty*price+1e-9 < minN {
-					record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
-						"v2 订单同步: %s %s 需减仓名义 %.4f USDT < 最小 %.2f，跳过部分平仓", sym, side, closeQty*price, minN))
-					continue
+			if !hzExternal {
+				if price, perr := at.trader.GetMarketPrice(sym); perr == nil && price > 0 {
+					minN := mirrorMinNotionalUSDT(at, sym)
+					if closeQty*price+1e-9 < minN {
+						record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
+							"v2 订单同步: %s %s 需减仓名义 %.4f USDT < 最小 %.2f，跳过部分平仓", sym, side, closeQty*price, minN))
+						continue
+					}
 				}
 			}
 
@@ -655,6 +805,14 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 						closeResult, closeErr = at.trader.CloseShort(sym, closeQty)
 					}
 				}
+			} else if hzExternal {
+				remotePositionID := followerRemotePositionID(positions, k)
+				closeResult, closeErr = at.executeHZMirrorIntent(br, &wire, sym, side, "reduce", remotePositionID, mq, -closeQty, func() (map[string]interface{}, error) {
+					if side == "long" {
+						return at.trader.CloseLong(sym, closeQty)
+					}
+					return at.trader.CloseShort(sym, closeQty)
+				})
 			} else {
 				if side == "long" {
 					closeResult, closeErr = at.trader.CloseLong(sym, closeQty)

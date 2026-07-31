@@ -13,6 +13,7 @@ import (
 	"nofx/crypto"
 	"nofx/logger"
 	"nofx/store"
+	"nofx/trader/hz"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -263,6 +264,26 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 				SafeBadRequest(c, err.Error())
 				return
 			}
+			if exchangeData.Enabled {
+				apiKey := strings.TrimSpace(exchangeData.APIKey)
+				secretKey := strings.TrimSpace(exchangeData.SecretKey)
+				if apiKey == "" {
+					apiKey = string(exRow.APIKey)
+				}
+				if secretKey == "" {
+					secretKey = string(exRow.SecretKey)
+				}
+				verified, verifyErr := hz.VerifyCapabilities(exchangeData.APIURL, apiKey, secretKey)
+				if verifyErr != nil {
+					SafeBadRequest(c, "HZ AI 账户权限或隔离范围校验失败")
+					return
+				}
+				if err = s.store.Exchange().UpdateHZScopeFingerprints(userID, exchangeID,
+					verified.AccountFingerprint, verified.WalletFingerprint, verified.PositionBookFingerprint); err != nil {
+					SafeInternalError(c, "Save HZ scope fingerprints", err)
+					return
+				}
+			}
 		}
 		if exchangeTypeUsesOutboundProxy(exRow.ExchangeType) {
 			manual := ""
@@ -395,6 +416,14 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 			return
 		}
 	}
+	var hzCapabilities *hz.VerifiedCapabilities
+	if req.ExchangeType == "hz" {
+		hzCapabilities, err = hz.VerifyCapabilities(req.APIURL, req.APIKey, req.SecretKey)
+		if err != nil {
+			SafeBadRequest(c, "HZ AI 账户权限或隔离范围校验失败")
+			return
+		}
+	}
 
 	outbound := strings.TrimSpace(req.OutboundProxyURL)
 
@@ -440,6 +469,14 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 		logger.Infof("❌ Failed to create exchange account: %v", err)
 		SafeInternalError(c, "Failed to create exchange account", err)
 		return
+	}
+	if hzCapabilities != nil {
+		if err := s.store.Exchange().UpdateHZScopeFingerprints(userID, id,
+			hzCapabilities.AccountFingerprint, hzCapabilities.WalletFingerprint,
+			hzCapabilities.PositionBookFingerprint); err != nil {
+			SafeInternalError(c, "Save HZ scope fingerprints", err)
+			return
+		}
 	}
 
 	s.exchangeAccountStateCache.Invalidate(userID)

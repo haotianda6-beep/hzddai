@@ -1,5 +1,22 @@
 package hz
 
+// Capabilities is the server-asserted permission and isolation boundary for an
+// HZ API credential. All identifiers are hashed before they are persisted by A.
+type Capabilities struct {
+	Read           bool     `json:"read"`
+	Trade          bool     `json:"trade"`
+	Withdraw       bool     `json:"withdraw"`
+	Transfer       bool     `json:"transfer"`
+	Security       bool     `json:"security"`
+	AccountScope   string   `json:"accountScope"`
+	AccountID      string   `json:"accountId"`
+	WalletID       string   `json:"walletId"`
+	PositionBookID string   `json:"positionBookId"`
+	OrderTypes     []string `json:"orderTypes"`
+}
+
+type capabilities = Capabilities
+
 type account struct {
 	AccountID       string `json:"accountId"`
 	Currency        string `json:"currency"`

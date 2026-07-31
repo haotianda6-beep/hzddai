@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/provider/hyperliquid"
 	"nofx/provider/nofxos"
 	"nofx/security"
 	"nofx/store"
+	"os"
 	"strings"
 	"time"
 )
@@ -23,11 +23,14 @@ import (
 
 // PositionInfo position information
 type PositionInfo struct {
+	PositionID       string  `json:"position_id,omitempty"`
 	Symbol           string  `json:"symbol"`
 	Side             string  `json:"side"` // "long" or "short"
 	EntryPrice       float64 `json:"entry_price"`
 	MarkPrice        float64 `json:"mark_price"`
 	Quantity         float64 `json:"quantity"`
+	Lots             float64 `json:"lots,omitempty"`
+	PositionValue    float64 `json:"position_value,omitempty"`
 	Leverage         int     `json:"leverage"`
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`
 	UnrealizedPnLPct float64 `json:"unrealized_pnl_pct"`

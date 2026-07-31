@@ -18,24 +18,26 @@ type Store struct {
 	driver *DBDriver // Database driver for abstraction (legacy)
 
 	// Sub-stores (lazy initialization)
-	user              *UserStore
-	aiModel           *AIModelStore
-	exchange          *ExchangeStore
-	trader            *TraderStore
-	decision          *DecisionStore
-	position          *PositionStore
-	strategy          *StrategyStore
-	equity            *EquityStore
-	order             *OrderStore
-	grid              *GridStore
-	aiCharge          *AIChargeStore
-	aiPlatformUsage   *AIPlatformUsageStore
-	telegramConfig    TelegramConfigStore
-	billing           *BillingStore
-	notification      *NotificationStore
-	comkunFollow      *ComkunFollowStore
-	proxyPool         *ProxyPoolStore
-	proxyFault        *OutboundProxyFaultStore
+	user                   *UserStore
+	aiModel                *AIModelStore
+	exchange               *ExchangeStore
+	trader                 *TraderStore
+	decision               *DecisionStore
+	position               *PositionStore
+	strategy               *StrategyStore
+	equity                 *EquityStore
+	order                  *OrderStore
+	grid                   *GridStore
+	aiCharge               *AIChargeStore
+	aiPlatformUsage        *AIPlatformUsageStore
+	telegramConfig         TelegramConfigStore
+	billing                *BillingStore
+	notification           *NotificationStore
+	comkunFollow           *ComkunFollowStore
+	integrationMasterEvent *IntegrationMasterEventStore
+	mirrorExecutionIntent  *MirrorExecutionIntentStore
+	proxyPool              *ProxyPoolStore
+	proxyFault             *OutboundProxyFaultStore
 
 	mu sync.RWMutex
 }
@@ -184,6 +186,12 @@ func (s *Store) initTables() error {
 	}
 	if err := s.ComkunFollow().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize comkun follow tables: %w", err)
+	}
+	if err := s.IntegrationMasterEvent().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize integration master event tables: %w", err)
+	}
+	if err := s.MirrorExecutionIntent().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize mirror execution intent tables: %w", err)
 	}
 	if err := s.ProxyPool().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize outbound proxy pool tables: %w", err)
@@ -365,6 +373,24 @@ func (s *Store) ComkunFollow() *ComkunFollowStore {
 		s.comkunFollow = NewComkunFollowStore(s.gdb)
 	}
 	return s.comkunFollow
+}
+
+func (s *Store) IntegrationMasterEvent() *IntegrationMasterEventStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.integrationMasterEvent == nil {
+		s.integrationMasterEvent = NewIntegrationMasterEventStore(s.gdb)
+	}
+	return s.integrationMasterEvent
+}
+
+func (s *Store) MirrorExecutionIntent() *MirrorExecutionIntentStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.mirrorExecutionIntent == nil {
+		s.mirrorExecutionIntent = NewMirrorExecutionIntentStore(s.gdb, s)
+	}
+	return s.mirrorExecutionIntent
 }
 
 // ProxyPool 管理员 SOCKS5 代理池（币安 REST 出口）

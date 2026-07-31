@@ -1,6 +1,7 @@
 package trader
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -482,9 +483,22 @@ func (at *AutoTrader) comkunFollowSourceIsOkxScreenMirror() bool {
 	return store.IsOkxScreenMirrorMasterStrategyID(sid)
 }
 
+func (at *AutoTrader) comkunFollowSourceIsHZExternal() bool {
+	if at.config.StrategyConfig == nil || !strings.EqualFold(at.exchange, "hz") {
+		return false
+	}
+	sid := strings.TrimSpace(store.ResolveComkunFollowSourceStrategyID(at.config.StrategyConfig))
+	return strings.HasPrefix(sid, store.HZMasterSourcePrefix)
+}
+
 func (at *AutoTrader) comkunFollowBroadcastIsFresh(br *store.ComkunMasterBroadcast) bool {
 	if br == nil || br.ID == 0 {
 		return false
+	}
+	// HZ events must always reach reconciliation: stale risk-increasing deltas
+	// are rejected there, while reductions and full closes never expire.
+	if at.comkunFollowSourceIsHZExternal() {
+		return true
 	}
 	// 网页镜像：DOM 广播可能因浏览器标签休眠间歇停顿；最新快照仍代表当前网页仓位。
 	// 不因进程重启 startTime 或 5 分钟 TTL 拒绝消费，否则冷启动/标签挂起后无法全仓对齐。
@@ -1079,7 +1093,7 @@ func (at *AutoTrader) markComkunConsumptionSuccess(broadcastID uint64) error {
 }
 
 func (at *AutoTrader) shouldPersistMirrorStartupBaseline() bool {
-	return at.comkunFollowSourceIsMT4Gold() || at.comkunFollowSourceIsOkxScreenMirror()
+	return at.comkunFollowSourceIsMT4Gold() || at.comkunFollowSourceIsOkxScreenMirror() || at.comkunFollowSourceIsHZExternal()
 }
 
 // saveComkunFollowDecision 落库后若本轮成功则记录已消费的主控广播 id，避免同一条广播重复扣费/重复打交易所
@@ -1140,6 +1154,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		return at.saveComkunSubscriptionExpiredDecision(ctx, sourceID, br, record)
 	}
 	mt4Follow := store.IsMT4GoldMasterStrategyID(sourceID)
+	hzExternal := at.comkunFollowSourceIsHZExternal()
 	if mt4Follow {
 		if err := at.store.ComkunFollow().EnsureMT4TicketMappings(at.id, sourceID, br.ID, at.initialBalance); err != nil {
 			record.Success = false
@@ -1152,9 +1167,11 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 	}
 
 	scanFeeUSDT := at.comkunFollowScanFeeForBroadcast(br)
-	balanceOK, balanceErr := at.requireComkunFollowPlatformBalance(ctx, sourceID, br, record, scanFeeUSDT)
-	if !balanceOK {
-		return balanceErr
+	if !hzExternal {
+		balanceOK, balanceErr := at.requireComkunFollowPlatformBalance(ctx, sourceID, br, record, scanFeeUSDT)
+		if !balanceOK {
+			return balanceErr
+		}
 	}
 
 	var acquired bool
@@ -1181,8 +1198,39 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 
 	platformBalanceAfter := 0.0
 	feeReserved := false
+	closeOnly := false
+	billingIntentKey := ""
 	var scanSpendLedgerID uint64
-	if scanFeeUSDT > 0 {
+	if hzExternal && scanFeeUSDT > 0 {
+		var stateWire comkunMasterStateWire
+		if err := json.Unmarshal([]byte(strings.TrimSpace(br.MasterStateJSON)), &stateWire); err != nil || strings.TrimSpace(stateWire.SourceEventID) == "" {
+			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing event metadata missing")
+			return nil
+		}
+		billingIntentKey, billingClientID := hzMirrorIntentIDs(stateWire.SourceEventID, at.userID, at.id, "__account__", "none", "billing")
+		requestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%.12g", scanFeeUSDT))))
+		if _, err := at.store.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
+			IntentKey: billingIntentKey, MasterEventID: stateWire.SourceEventID, BroadcastID: br.ID,
+			UserID: at.userID, TraderID: at.id, ExchangeID: at.exchangeID,
+			Instrument: "__account__", PositionSide: "none", Action: "billing",
+			ClientOrderID: billingClientID, RequestSHA256: requestHash,
+		}); err != nil {
+			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing intent failed")
+			return nil
+		}
+		reservation, err := at.store.MirrorExecutionIntent().ReserveBilling(billingIntentKey, scanFeeUSDT)
+		if err != nil {
+			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing reservation failed")
+			return nil
+		}
+		platformBalanceAfter = reservation.BalanceAfter
+		if reservation.Insufficient {
+			closeOnly = true
+		} else {
+			feeReserved = reservation.Reserved
+			scanSpendLedgerID = reservation.WalletLedgerID
+		}
+	} else if scanFeeUSDT > 0 {
 		var chargeErr error
 		platformBalanceAfter, scanSpendLedgerID, chargeErr = at.chargeComkunFollowScanUsage(scanFeeUSDT)
 		if chargeErr != nil {
@@ -1213,6 +1261,12 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 	}
 	refundFee := func(reason string) {
 		if !feeReserved || scanFeeUSDT <= 0 {
+			return
+		}
+		if hzExternal {
+			if err := at.store.MirrorExecutionIntent().RefundBilling(billingIntentKey, reason); err != nil {
+				logger.Warnf("[%s] HZ billing refund failed broadcast_id=%d: %v", at.name, br.ID, err)
+			}
 			return
 		}
 		_ = at.store.Transaction(func(tx *gorm.DB) error {
@@ -1268,7 +1322,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		if at.comkunFollowSourceIsBnScreenMirror() {
 			schemeASkipTPSL = true
 		}
-		err := at.reconcileComkunFollowMasterStateV2(ctx, br, record, schemeASkipTPSL)
+		err := at.reconcileComkunFollowMasterStateV2(ctx, br, record, schemeASkipTPSL, closeOnly || stateWire.PollingReconcile)
 		if err != nil {
 			if mt4Follow && errors.Is(err, errMT4BroadcastSuperseded) {
 				_ = at.markComkunConsumptionSuccess(br.ID)
@@ -1306,6 +1360,15 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		if schemeASkipTPSL && at.mirrorSchemeAPostSeedCyclesRemaining > 0 {
 			at.mirrorSchemeAPostSeedCyclesRemaining--
 			logger.Infof("[%s] comkun 方案A 首轮镜像已完成，后续广播将同步止盈止损（若仍有剩余计数异常请检查配置）", at.name)
+		}
+		if hzExternal && feeReserved {
+			if err := at.store.MirrorExecutionIntent().FinalizeBilling(billingIntentKey); err != nil {
+				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing finalization retry")
+				return nil
+			}
+			if scanSpendLedgerID > 0 {
+				store.DispatchAgentRebateSpendIfEligible(at.userID, scanFeeUSDT, scanSpendLedgerID, "comkun_follow_scan")
+			}
 		}
 		_ = platformBalanceAfter
 		_ = ratio

@@ -43,6 +43,7 @@ func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
 	trader.client.http.Timeout = 10 * time.Millisecond
 	trader.streamReady.Store(true)
 	trader.reconcileHealthy.Store(true)
+	trader.SetNextIntent("comkun-open-test")
 	result, err := trader.OpenLong("XAUUSD", 1, 500)
 	if err != nil {
 		t.Fatal(err)
@@ -141,8 +142,7 @@ func TestPartialCloseConvertsQuantityAndRejectsOverClose(t *testing.T) {
 			writeInstruments(w)
 		case r.URL.Path == "/api/v1/positions":
 			_ = json.NewEncoder(w).Encode([]position{
-				{PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", Lots: "0.010"},
-				{PositionID: "pos-2", Instrument: "XAUUSD", Side: "LONG", Lots: "0.020"},
+				{PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", Lots: "0.020"},
 			})
 		case strings.HasSuffix(r.URL.Path, "/close"):
 			var input map[string]string
@@ -160,16 +160,18 @@ func TestPartialCloseConvertsQuantityAndRejectsOverClose(t *testing.T) {
 	defer server.Close()
 	trader := newTestTrader(t, server.URL+"/api/v1", true)
 
+	trader.SetNextIntent("comkun-close-1")
 	if _, err := trader.CloseLong("XAUUSD", 1.5); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
 	got := strings.Join(closed, ",")
 	mu.Unlock()
-	if got != "0.010,0.005" {
+	if got != "0.015" {
 		t.Fatalf("wrong close lots: %s", got)
 	}
-	if _, err := trader.CloseLong("XAUUSD", 3.1); err == nil {
+	trader.SetNextIntent("comkun-close-2")
+	if _, err := trader.CloseLong("XAUUSD", 2.1); err == nil {
 		t.Fatal("expected over-close to be rejected")
 	}
 }
@@ -264,6 +266,8 @@ func TestStreamReconcilesBeforeAllowingOpening(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/v1/capabilities":
+			writeCapabilities(w)
 		case "/api/v1/ws":
 			socket, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
@@ -332,6 +336,14 @@ func newTestTrader(t *testing.T, apiURL string, crossMargin bool) *Trader {
 		t.Fatal(err)
 	}
 	trader := &Trader{client: client}
+	trader.scopeVerified.Store(true)
 	trader.crossMargin.Store(crossMargin)
 	return trader
+}
+
+func writeCapabilities(w http.ResponseWriter) {
+	_ = json.NewEncoder(w).Encode(Capabilities{
+		Read: true, Trade: true, AccountScope: "AI",
+		AccountID: "account", WalletID: "wallet", PositionBookID: "book", OrderTypes: []string{"MARKET"},
+	})
 }

@@ -451,16 +451,14 @@ func (es EncryptedString) Value() (driver.Value, error) {
 		return "", nil
 	}
 
-	// Encrypt if crypto service is set
-	if globalCryptoService != nil {
-		encrypted, err := globalCryptoService.EncryptForStorage(string(es))
-		if err != nil {
-			// If encryption fails, return the original value
-			return string(es), nil
-		}
-		return encrypted, nil
+	if globalCryptoService == nil {
+		return nil, fmt.Errorf("encrypted storage is unavailable")
 	}
-	return string(es), nil
+	encrypted, err := globalCryptoService.EncryptForStorage(string(es))
+	if err != nil {
+		return nil, fmt.Errorf("encrypt sensitive value: %w", err)
+	}
+	return encrypted, nil
 }
 
 // String returns the plaintext string value

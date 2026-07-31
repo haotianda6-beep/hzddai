@@ -16,6 +16,10 @@ func TestCloseDisconnectsActiveStream(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/v1/capabilities":
+			writeCapabilities(w)
+		case "/api/v1/instruments":
+			writeInstruments(w)
 		case "/api/v1/ws":
 			socket, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
@@ -57,6 +61,10 @@ func TestMarketPauseBlocksOpeningButAllowsClose(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/capabilities":
+			writeCapabilities(w)
+		case r.URL.Path == "/api/v1/instruments":
+			writeInstruments(w)
 		case r.URL.Path == "/api/v1/ws":
 			socket, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
@@ -102,6 +110,7 @@ func TestMarketPauseBlocksOpeningButAllowsClose(t *testing.T) {
 	if _, err := trader.OpenLong("XAUUSD", 1, 500); err == nil {
 		t.Fatal("opening succeeded while market was paused")
 	}
+	trader.SetNextIntent("comkun-paused-close")
 	if _, err := trader.CloseLong("XAUUSD", 0); err != nil {
 		t.Fatalf("closing should remain available while market is paused: %v", err)
 	}

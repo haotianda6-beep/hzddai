@@ -15,15 +15,22 @@ import (
 )
 
 type Trader struct {
-	client                *client
-	crossMargin           atomic.Bool
-	streamReady           atomic.Bool
-	reconcileHealthy      atomic.Bool
-	streamOpeningStopped  atomic.Bool
-	accountOpeningStopped atomic.Bool
-	instrumentMu          sync.RWMutex
-	instrumentCache       map[string]instrument
-	cancelStream          context.CancelFunc
+	client                  *client
+	crossMargin             atomic.Bool
+	streamReady             atomic.Bool
+	reconcileHealthy        atomic.Bool
+	streamOpeningStopped    atomic.Bool
+	accountOpeningStopped   atomic.Bool
+	instrumentMu            sync.RWMutex
+	instrumentCache         map[string]instrument
+	scopeVerified           atomic.Bool
+	accountFingerprint      string
+	walletFingerprint       string
+	positionBookFingerprint string
+	intentExecutionMu       sync.Mutex
+	intentMu                sync.Mutex
+	nextIntent              string
+	cancelStream            context.CancelFunc
 }
 
 func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error) {
@@ -34,9 +41,23 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 	if err != nil {
 		return nil, err
 	}
+	verified, err := verifyCapabilities(client)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	trader := &Trader{client: client, cancelStream: cancel}
+	trader := &Trader{
+		client: client, cancelStream: cancel,
+		accountFingerprint:      verified.AccountFingerprint,
+		walletFingerprint:       verified.WalletFingerprint,
+		positionBookFingerprint: verified.PositionBookFingerprint,
+	}
 	trader.crossMargin.Store(crossMargin)
+	trader.scopeVerified.Store(true)
+	if _, err := trader.instruments(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("load HZ instruments: %w", err)
+	}
 	go trader.runStream(ctx)
 	go trader.reconcileLoop(ctx, time.Minute)
 	return trader, nil
@@ -111,6 +132,9 @@ func (t *Trader) OpenShort(symbol string, quantity float64, leverage int) (map[s
 }
 
 func (t *Trader) open(symbol, side string, quantity float64, leverage int) (map[string]interface{}, error) {
+	if !t.scopeVerified.Load() {
+		return nil, fmt.Errorf("HZ AI account scope is not verified")
+	}
 	if !t.IsReady() {
 		return nil, fmt.Errorf("%s", t.openingBlockReason())
 	}
@@ -119,9 +143,12 @@ func (t *Trader) open(symbol, side string, quantity float64, leverage int) (map[
 		return nil, err
 	}
 	request := createOrderRequest{
-		Instrument: strings.ToUpper(symbol), Side: side, OrderType: "MARKET",
+		ClientOrderID: t.popNextIntent(), Instrument: strings.ToUpper(symbol), Side: side, OrderType: "MARKET",
 		SizeMode: "LOTS", Size: lots, Leverage: leverage,
 		MarginMode: t.marginMode(),
+	}
+	if request.ClientOrderID == "" {
+		return nil, fmt.Errorf("HZ opening requires a fixed execution intent")
 	}
 	placed, err := t.placeOrder(request)
 	if err != nil {
@@ -139,12 +166,18 @@ func (t *Trader) CloseShort(symbol string, quantity float64) (map[string]interfa
 }
 
 func (t *Trader) closePosition(symbol, side string, quantity float64) (map[string]interface{}, error) {
+	if !t.scopeVerified.Load() {
+		return nil, fmt.Errorf("HZ AI account scope is not verified")
+	}
 	positions, err := t.positionsFor(symbol, side)
 	if err != nil {
 		return nil, err
 	}
 	if len(positions) == 0 {
 		return nil, fmt.Errorf("%s position not found for %s", strings.ToLower(side), symbol)
+	}
+	if len(positions) != 1 {
+		return nil, fmt.Errorf("ambiguous HZ %s %s positions: exact position ID is required", symbol, strings.ToLower(side))
 	}
 	remainingLots := 0.0
 	lotPrecision := 0
@@ -159,33 +192,25 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		}
 		remainingLots = number(lots)
 		lotPrecision = spec.LotPrecision
-		totalLots := 0.0
-		for _, item := range positions {
-			totalLots += number(item.Lots)
-		}
+		totalLots := number(positions[0].Lots)
 		if remainingLots > totalLots+1e-9 {
 			return nil, fmt.Errorf("close quantity exceeds %s %s position", symbol, strings.ToLower(side))
 		}
 	}
+	item := positions[0]
+	closeLots := item.Lots
+	if quantity > 0 {
+		closeLots = strconv.FormatFloat(remainingLots, 'f', lotPrecision, 64)
+	}
+	intent := t.popNextIntent()
+	if intent == "" {
+		return nil, fmt.Errorf("HZ close requires a fixed execution intent")
+	}
 	var last positionAction
-	for _, item := range positions {
-		size := number(item.Lots)
-		closeLots := item.Lots
-		if quantity > 0 && remainingLots < size {
-			size = remainingLots
-			closeLots = strconv.FormatFloat(size, 'f', lotPrecision, 64)
-		}
-		body := map[string]string{"lots": closeLots}
-		if err := t.client.doJSON(context.Background(), http.MethodPost,
-			"/positions/"+url.PathEscape(item.PositionID)+"/close", body, &last, randomToken()); err != nil {
-			return nil, err
-		}
-		if quantity > 0 {
-			remainingLots -= size
-			if remainingLots <= 1e-9 {
-				break
-			}
-		}
+	body := map[string]string{"lots": closeLots}
+	if err := t.client.doJSON(context.Background(), http.MethodPost,
+		"/positions/"+url.PathEscape(item.PositionID)+"/close", body, &last, intent); err != nil {
+		return nil, err
 	}
 	return map[string]interface{}{
 		"orderId": last.ClosedPosition.PositionID, "symbol": strings.ToUpper(symbol),
@@ -195,8 +220,8 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 }
 
 func (t *Trader) SetLeverage(_ string, leverage int) error {
-	if leverage < 100 || leverage > 2000 {
-		return fmt.Errorf("HZ leverage must be between 100 and 2000")
+	if leverage <= 0 {
+		return fmt.Errorf("HZ leverage must be positive")
 	}
 	return nil
 }
@@ -239,6 +264,9 @@ func (t *Trader) CancelStopOrders(symbol string) error {
 }
 
 func (t *Trader) CancelAllOrders(symbol string) error {
+	if !t.scopeVerified.Load() {
+		return fmt.Errorf("HZ AI account scope is not verified")
+	}
 	orders, err := t.GetOpenOrders(symbol)
 	if err != nil {
 		return err
@@ -249,6 +277,43 @@ func (t *Trader) CancelAllOrders(symbol string) error {
 		}
 	}
 	return nil
+}
+
+// SetNextIntent supplies the stable client/idempotency key for exactly one
+// subsequent position-changing call.
+func (t *Trader) SetNextIntent(clientOrderID string) {
+	t.intentMu.Lock()
+	t.nextIntent = strings.TrimSpace(clientOrderID)
+	t.intentMu.Unlock()
+}
+
+// ExecuteWithIntent serializes the one-shot intent handoff so a failed
+// preflight or a concurrent call cannot leak the clientOrderId to another
+// order.
+func (t *Trader) ExecuteWithIntent(clientOrderID string, execute func() (map[string]interface{}, error)) (map[string]interface{}, error) {
+	clientOrderID = strings.TrimSpace(clientOrderID)
+	if clientOrderID == "" || execute == nil {
+		return nil, fmt.Errorf("HZ execution intent is required")
+	}
+	t.intentExecutionMu.Lock()
+	defer t.intentExecutionMu.Unlock()
+	t.SetNextIntent(clientOrderID)
+	defer t.clearNextIntent()
+	return execute()
+}
+
+func (t *Trader) clearNextIntent() {
+	t.intentMu.Lock()
+	t.nextIntent = ""
+	t.intentMu.Unlock()
+}
+
+func (t *Trader) popNextIntent() string {
+	t.intentMu.Lock()
+	defer t.intentMu.Unlock()
+	value := t.nextIntent
+	t.nextIntent = ""
+	return value
 }
 
 func (t *Trader) FormatQuantity(symbol string, quantity float64) (string, error) {

@@ -378,13 +378,17 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		logger.Infof("🏦 [%s] Using Indodax Spot trading", config.Name)
 		trader = indodax.NewIndodaxTrader(config.IndodaxAPIKey, config.IndodaxSecretKey)
 	case "hz":
-		if err = market.ConfigureHZ(config.HZAPIURL); err != nil {
-			return nil, fmt.Errorf("failed to configure HZ market data: %w", err)
-		}
-		trader, err = hz.NewTrader(config.HZAPIURL, config.HZAPIKey, config.HZSecretKey, config.IsCrossMargin)
+		var hzTrader *hz.Trader
+		hzTrader, err = hz.NewTrader(config.HZAPIURL, config.HZAPIKey, config.HZSecretKey, config.IsCrossMargin)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize HZ trader: %w", err)
 		}
+		if err = market.ConfigureHZ(config.HZAPIURL); err != nil {
+			hzTrader.Close()
+			return nil, fmt.Errorf("failed to configure HZ market data: %w", err)
+		}
+		market.SetHZInstruments(hzTrader.InstrumentNames())
+		trader = hzTrader
 	default:
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
 	}

@@ -31,7 +31,11 @@ func TestGetWithTimeframesUsesHZCandles(t *testing.T) {
 	if err := ConfigureHZ(server.URL + "/api/v1"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ConfigureHZ("") })
+	SetHZInstruments([]string{"XAUUSD"})
+	t.Cleanup(func() {
+		_ = ConfigureHZ("")
+		SetHZInstruments(nil)
+	})
 	data, err := GetWithTimeframes("XAUUSD", []string{"5m"}, "5m", 20)
 	if err != nil {
 		t.Fatal(err)

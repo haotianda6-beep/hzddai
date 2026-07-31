@@ -249,6 +249,12 @@ func buildComkunVolumeOIBrief(ctx *kernel.Context, se *kernel.StrategyEngine) ma
 
 type comkunMasterStateWire struct {
 	V                int                              `json:"v"`
+	SourceEventID    string                           `json:"source_event_id,omitempty"`
+	SourceSequence   int64                            `json:"source_sequence,omitempty"`
+	SnapshotSequence int64                            `json:"snapshot_sequence,omitempty"`
+	OccurredAt       time.Time                        `json:"occurred_at,omitempty"`
+	EventType        string                           `json:"event_type,omitempty"`
+	PollingReconcile bool                             `json:"polling_reconcile,omitempty"`
 	Positions        []kernel.PositionInfo            `json:"positions"`
 	PendingOrders    []kernel.PendingOrder            `json:"pending_orders"`
 	CandidateCoins   []string                         `json:"candidate_coins,omitempty"`
@@ -591,6 +597,51 @@ func buildMirrorMasterTargetFromWire(wire *comkunMasterStateWire, masterEq, foll
 		masterTarget[posKey(sym, side)] += mq
 	}
 	return masterTarget
+}
+
+type hzLotsQuantityConverter func(symbol string, lots float64) (float64, error)
+
+func hzScaledPositionQuantity(mp kernel.PositionInfo, masterEq, followerEq float64, convert hzLotsQuantityConverter) (float64, error) {
+	if masterEq <= 0 || followerEq <= 0 || mp.Lots <= 0 || convert == nil {
+		return 0, nil
+	}
+	quantity, err := convert(mp.Symbol, mp.Lots)
+	if err != nil {
+		return 0, err
+	}
+	return math.Abs(quantity) * followerEq / masterEq, nil
+}
+
+func buildHZMasterTargetFromWire(wire *comkunMasterStateWire, masterEq, followerEq float64, convert hzLotsQuantityConverter) (map[string]float64, error) {
+	target := make(map[string]float64)
+	if wire == nil {
+		return target, nil
+	}
+	for _, position := range wire.Positions {
+		symbol := strings.TrimSpace(position.Symbol)
+		side := strings.ToLower(strings.TrimSpace(position.Side))
+		if symbol == "" || (side != "long" && side != "short") {
+			continue
+		}
+		quantity, err := hzScaledPositionQuantity(position, masterEq, followerEq, convert)
+		if err != nil {
+			return nil, err
+		}
+		if quantity > 0 {
+			target[posKey(symbol, side)] += quantity
+		}
+	}
+	return target, nil
+}
+
+func hzMirrorDeltaAllowed(delta float64, occurredAt, now time.Time, closeOnly bool) bool {
+	if delta <= 0 {
+		return true
+	}
+	if closeOnly || occurredAt.IsZero() {
+		return false
+	}
+	return !occurredAt.Before(now.Add(-2 * time.Minute))
 }
 
 // buildMT4MasterTargetFromWire preserves the MT4 account risk percentage.

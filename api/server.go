@@ -27,6 +27,7 @@ type Server struct {
 	httpServer                *http.Server
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
+	hzMasterPollCancel        context.CancelFunc
 }
 
 // NewServer Creates API server
@@ -63,6 +64,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 
 	// Setup routes
 	s.setupRoutes()
+	s.startHZMasterEventPoller()
 
 	return s
 }
@@ -128,6 +130,11 @@ func (s *Server) setupRoutes() {
 		s.route(api, "POST", "/strategies/estimate-tokens", "Estimate token usage for a strategy config", s.handleEstimateTokens)
 
 		// Authentication related routes (no authentication required)
+		s.routeWithSchema(api, "POST", "/integrations/hz/v1/master-events", "HZ AI master event ingestion",
+			`Headers: X-HZ-Event-Id, X-HZ-Event-Timestamp (13-digit milliseconds), X-HZ-Event-Nonce (UUID), X-HZ-Event-Signature (HMAC-SHA256 hex of timestamp+"\n"+nonce+"\n"+rawBody)
+Body: {"eventId":"<string>","sequence":"<positive integer string>","eventType":"OPEN|INCREASE|REDUCE|CLOSE|PROTECTION|LIQUIDATION|RECONCILE","occurredAt":"<RFC3339>","masterAccountId":"<string>","account":{"accountId":"<string>","accountScope":"AI","walletId":"ai:<id>","positionBookId":"ai:<id>","currency":"<string>","balance":"<decimal>","equity":"<positive decimal>","availableMargin":"<decimal>","usedMargin":"<decimal>","marginRatio":"<decimal>","unrealizedPnl":"<decimal>","tradable":<bool>},"positions":[<HZ API v1 position>]}
+200: accepted or duplicate. 409 SEQUENCE_GAP: {"expected_next_sequence":<integer>}`,
+			s.handleHZMasterEvent)
 		s.route(api, "POST", "/auth/send-register-code", "Send email OTP for first-time registration", s.handleSendRegisterEmailCode)
 		s.route(api, "POST", "/auth/send-reset-password-code", "Send email OTP for password reset", s.handleSendResetPasswordEmailCode)
 		s.route(api, "POST", "/register", "Register new user", s.handleRegister)
@@ -690,6 +697,9 @@ func (s *Server) Start() error {
 
 // Shutdown Gracefully shutdown server
 func (s *Server) Shutdown() error {
+	if s.hzMasterPollCancel != nil {
+		s.hzMasterPollCancel()
+	}
 	if s.httpServer == nil {
 		return nil
 	}

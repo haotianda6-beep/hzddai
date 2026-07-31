@@ -18,27 +18,30 @@ type ExchangeStore struct {
 
 // Exchange exchange configuration
 type Exchange struct {
-	ID                      string                 `gorm:"primaryKey" json:"id"`
-	ExchangeType            string                 `gorm:"column:exchange_type;not null;default:''" json:"exchange_type"`
-	AccountName             string                 `gorm:"column:account_name;not null;default:''" json:"account_name"`
-	UserID                  string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name                    string                 `gorm:"not null" json:"name"`
-	Type                    string                 `gorm:"not null" json:"type"` // "cex" or "dex"
-	Enabled                 bool                   `gorm:"default:false" json:"enabled"`
-	APIKey                  crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	SecretKey               crypto.EncryptedString `gorm:"column:secret_key;default:''" json:"secretKey"`
-	Passphrase              crypto.EncryptedString `gorm:"column:passphrase;default:''" json:"passphrase"`
-	Testnet                 bool                   `gorm:"default:false" json:"testnet"`
-	APIURL                  string                 `gorm:"column:api_url;default:''" json:"apiUrl"`
-	HyperliquidWalletAddr   string                 `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
-	HyperliquidUnifiedAcct  bool                   `gorm:"column:hyperliquid_unified_account;default:true" json:"hyperliquidUnifiedAccount"` // Unified Account mode (Spot as collateral)
-	AsterUser               string                 `gorm:"column:aster_user;default:''" json:"asterUser"`
-	AsterSigner             string                 `gorm:"column:aster_signer;default:''" json:"asterSigner"`
-	AsterPrivateKey         crypto.EncryptedString `gorm:"column:aster_private_key;default:''" json:"asterPrivateKey"`
-	LighterWalletAddr       string                 `gorm:"column:lighter_wallet_addr;default:''" json:"lighterWalletAddr"`
-	LighterPrivateKey       crypto.EncryptedString `gorm:"column:lighter_private_key;default:''" json:"lighterPrivateKey"`
-	LighterAPIKeyPrivateKey crypto.EncryptedString `gorm:"column:lighter_api_key_private_key;default:''" json:"lighterAPIKeyPrivateKey"`
-	LighterAPIKeyIndex      int                    `gorm:"column:lighter_api_key_index;default:0" json:"lighterAPIKeyIndex"`
+	ID                        string                 `gorm:"primaryKey" json:"id"`
+	ExchangeType              string                 `gorm:"column:exchange_type;not null;default:''" json:"exchange_type"`
+	AccountName               string                 `gorm:"column:account_name;not null;default:''" json:"account_name"`
+	UserID                    string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name                      string                 `gorm:"not null" json:"name"`
+	Type                      string                 `gorm:"not null" json:"type"` // "cex" or "dex"
+	Enabled                   bool                   `gorm:"default:false" json:"enabled"`
+	APIKey                    crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
+	SecretKey                 crypto.EncryptedString `gorm:"column:secret_key;default:''" json:"secretKey"`
+	Passphrase                crypto.EncryptedString `gorm:"column:passphrase;default:''" json:"passphrase"`
+	Testnet                   bool                   `gorm:"default:false" json:"testnet"`
+	APIURL                    string                 `gorm:"column:api_url;default:''" json:"apiUrl"`
+	HZAccountFingerprint      string                 `gorm:"column:hz_account_fingerprint;default:''" json:"-"`
+	HZWalletFingerprint       string                 `gorm:"column:hz_wallet_fingerprint;default:''" json:"-"`
+	HZPositionBookFingerprint string                 `gorm:"column:hz_position_book_fingerprint;default:''" json:"-"`
+	HyperliquidWalletAddr     string                 `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
+	HyperliquidUnifiedAcct    bool                   `gorm:"column:hyperliquid_unified_account;default:true" json:"hyperliquidUnifiedAccount"` // Unified Account mode (Spot as collateral)
+	AsterUser                 string                 `gorm:"column:aster_user;default:''" json:"asterUser"`
+	AsterSigner               string                 `gorm:"column:aster_signer;default:''" json:"asterSigner"`
+	AsterPrivateKey           crypto.EncryptedString `gorm:"column:aster_private_key;default:''" json:"asterPrivateKey"`
+	LighterWalletAddr         string                 `gorm:"column:lighter_wallet_addr;default:''" json:"lighterWalletAddr"`
+	LighterPrivateKey         crypto.EncryptedString `gorm:"column:lighter_private_key;default:''" json:"lighterPrivateKey"`
+	LighterAPIKeyPrivateKey   crypto.EncryptedString `gorm:"column:lighter_api_key_private_key;default:''" json:"lighterAPIKeyPrivateKey"`
+	LighterAPIKeyIndex        int                    `gorm:"column:lighter_api_key_index;default:0" json:"lighterAPIKeyIndex"`
 	// Binance：REST 请求走独立 HTTP/SOCKS 出口，分散交易所按 IP 统计的请求权重（私有 WS 仍可能走本机，权重主要来自 REST）。
 	OutboundProxyURL crypto.EncryptedString `gorm:"column:outbound_proxy_url;default:''"`
 	CreatedAt        time.Time              `json:"created_at"`
@@ -58,9 +61,11 @@ func (s *ExchangeStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'exchanges'`).Scan(&tableExists)
 		if tableExists > 0 {
-			if !s.db.Migrator().HasColumn(&Exchange{}, "APIURL") {
-				if err := s.db.Migrator().AddColumn(&Exchange{}, "APIURL"); err != nil {
-					return err
+			for _, field := range []string{"APIURL", "HZAccountFingerprint", "HZWalletFingerprint", "HZPositionBookFingerprint"} {
+				if !s.db.Migrator().HasColumn(&Exchange{}, field) {
+					if err := s.db.Migrator().AddColumn(&Exchange{}, field); err != nil {
+						return err
+					}
 				}
 			}
 			// Still run data migrations
@@ -82,6 +87,23 @@ func (s *ExchangeStore) initTables() error {
 	// Fix empty account_name for existing records
 	s.db.Model(&Exchange{}).Where("account_name = '' OR account_name IS NULL").Update("account_name", "Default")
 
+	return nil
+}
+
+func (s *ExchangeStore) UpdateHZScopeFingerprints(userID, id, account, wallet, positionBook string) error {
+	result := s.db.Model(&Exchange{}).Where("id = ? AND user_id = ? AND exchange_type = ?", id, userID, "hz").
+		Updates(map[string]any{
+			"hz_account_fingerprint":       account,
+			"hz_wallet_fingerprint":        wallet,
+			"hz_position_book_fingerprint": positionBook,
+			"updated_at":                   time.Now().UTC(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("HZ exchange not found: id=%s", id)
+	}
 	return nil
 }
 

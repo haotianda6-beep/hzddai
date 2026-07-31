@@ -14,8 +14,9 @@ import (
 
 var hzMarket struct {
 	sync.RWMutex
-	baseURL *url.URL
-	client  *http.Client
+	baseURL     *url.URL
+	client      *http.Client
+	instruments map[string]struct{}
 }
 
 type hzCandle struct {
@@ -46,12 +47,24 @@ func ConfigureHZ(apiURL string) error {
 }
 
 func IsHZSymbol(symbol string) bool {
-	switch strings.ToUpper(strings.TrimSpace(symbol)) {
-	case "XAUUSD", "XAGUSD", "WTIUSD":
-		return true
-	default:
-		return false
+	hzMarket.RLock()
+	defer hzMarket.RUnlock()
+	_, ok := hzMarket.instruments[strings.ToUpper(strings.TrimSpace(symbol))]
+	return ok
+}
+
+// SetHZInstruments replaces the HZ market routing allow-list with the
+// server-authoritative instrument set returned by B.
+func SetHZInstruments(instruments []string) {
+	next := make(map[string]struct{}, len(instruments))
+	for _, instrument := range instruments {
+		if name := strings.ToUpper(strings.TrimSpace(instrument)); name != "" {
+			next[name] = struct{}{}
+		}
 	}
+	hzMarket.Lock()
+	hzMarket.instruments = next
+	hzMarket.Unlock()
 }
 
 func hzConfigured(symbol string) bool {

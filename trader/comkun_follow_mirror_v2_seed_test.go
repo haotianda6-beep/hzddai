@@ -54,6 +54,19 @@ func TestMirrorStartupBaselineCheckpointPersistsForOKX(t *testing.T) {
 	}
 }
 
+func TestMirrorStartupBaselineCheckpointPersistsForHZ(t *testing.T) {
+	at := &AutoTrader{
+		exchange: "hz",
+		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+			ComkunMarketFollow:           true,
+			ComkunMarketSourceStrategyID: store.HZMasterSourceStrategyID("master-1"),
+		}},
+	}
+	if !at.shouldPersistMirrorStartupBaseline() {
+		t.Fatal("HZ startup baseline must survive restarts so existing master exposure is never chased")
+	}
+}
+
 func TestMirrorSeedAdjustedTarget(t *testing.T) {
 	at := &AutoTrader{
 		mirrorSeedBaselineQty: map[string]float64{

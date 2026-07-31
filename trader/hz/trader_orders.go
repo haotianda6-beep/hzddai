@@ -14,41 +14,13 @@ import (
 )
 
 func (t *Trader) PlaceLimitOrder(request *types.LimitOrderRequest) (*types.LimitOrderResult, error) {
-	if request.PostOnly || request.ReduceOnly {
-		return nil, fmt.Errorf("HZ API does not support Post Only or reduce-only limit orders")
-	}
-	if !t.IsReady() {
-		return nil, fmt.Errorf("%s", t.openingBlockReason())
-	}
-	lots, err := t.lotsForQuantity(request.Symbol, request.Quantity)
-	if err != nil {
-		return nil, err
-	}
-	side := strings.ToUpper(request.PositionSide)
-	if side == "" {
-		if strings.EqualFold(request.Side, "BUY") {
-			side = "LONG"
-		} else {
-			side = "SHORT"
-		}
-	}
-	price := decimal(request.Price)
-	placed, err := t.placeOrder(createOrderRequest{
-		ClientOrderID: request.ClientID, Instrument: strings.ToUpper(request.Symbol),
-		Side: side, OrderType: "LIMIT", SizeMode: "LOTS", Size: lots,
-		Leverage: request.Leverage, MarginMode: t.marginMode(), LimitPrice: &price,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &types.LimitOrderResult{
-		OrderID: placed.OrderID, ClientID: placed.ClientOrderID, Symbol: placed.Instrument,
-		Side: request.Side, PositionSide: placed.Side, Price: request.Price,
-		Quantity: request.Quantity, Status: placed.Status,
-	}, nil
+	return nil, fmt.Errorf("HZ AI scope supports MARKET orders only")
 }
 
 func (t *Trader) CancelOrder(_ string, orderID string) error {
+	if !t.scopeVerified.Load() {
+		return fmt.Errorf("HZ AI account scope is not verified")
+	}
 	var value order
 	return t.client.do(context.Background(), http.MethodDelete,
 		"/orders/"+url.PathEscape(orderID), nil, randomToken(), &value)
@@ -78,6 +50,9 @@ func (t *Trader) Reconcile() (err error) {
 }
 
 func (t *Trader) placeOrder(request createOrderRequest) (order, error) {
+	if !t.scopeVerified.Load() {
+		return order{}, fmt.Errorf("HZ AI account scope is not verified")
+	}
 	if !t.IsReady() {
 		return order{}, fmt.Errorf("%s", t.openingBlockReason())
 	}
@@ -145,6 +120,25 @@ func (t *Trader) orderByClientID(clientOrderID string) (order, error) {
 	return value, err
 }
 
+// LookupOrderByClientID recovers an order accepted by B before an A process
+// interruption. Callers must reuse the same clientOrderId and never mint a new
+// identifier for the same execution intent.
+func (t *Trader) LookupOrderByClientID(clientOrderID string) (map[string]interface{}, error) {
+	if !t.scopeVerified.Load() {
+		return nil, fmt.Errorf("HZ AI account scope is not verified")
+	}
+	value, err := t.orderByClientID(clientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	return orderResult(value, 0), nil
+}
+
+func IsNotFound(err error) bool {
+	apiErr, ok := err.(*APIError)
+	return ok && apiErr.Status == http.StatusNotFound
+}
+
 func (t *Trader) positions() ([]position, error) {
 	var values []position
 	err := t.client.do(context.Background(), http.MethodGet, "/positions", nil, "", &values)
@@ -168,12 +162,18 @@ func (t *Trader) positionsFor(symbol, side string) ([]position, error) {
 }
 
 func (t *Trader) setProtection(symbol, side, field, value string) error {
+	if !t.scopeVerified.Load() {
+		return fmt.Errorf("HZ AI account scope is not verified")
+	}
 	positions, err := t.positionsFor(symbol, side)
 	if err != nil {
 		return err
 	}
 	if len(positions) == 0 {
 		return fmt.Errorf("position not found for %s %s", symbol, side)
+	}
+	if len(positions) != 1 {
+		return fmt.Errorf("ambiguous HZ %s %s positions: exact position ID is required", symbol, strings.ToLower(side))
 	}
 	body := map[string]any{field: value}
 	var updated position
@@ -183,29 +183,37 @@ func (t *Trader) setProtection(symbol, side, field, value string) error {
 }
 
 func (t *Trader) clearProtection(symbol, field string) error {
+	if !t.scopeVerified.Load() {
+		return fmt.Errorf("HZ AI account scope is not verified")
+	}
 	positions, err := t.positions()
 	if err != nil {
 		return err
 	}
+	filtered := make([]position, 0, 1)
 	for _, item := range positions {
 		if item.Instrument != strings.ToUpper(symbol) {
 			continue
 		}
-		body := map[string]any{}
-		if field == "stopLoss" || field == "both" {
-			body["stopLoss"] = nil
-		}
-		if field == "takeProfit" || field == "both" {
-			body["takeProfit"] = nil
-		}
-		var updated position
-		if err := t.client.doJSON(context.Background(), http.MethodPatch,
-			"/positions/"+url.PathEscape(item.PositionID)+"/protection",
-			body, &updated, randomToken()); err != nil {
-			return err
-		}
+		filtered = append(filtered, item)
 	}
-	return nil
+	if len(filtered) == 0 {
+		return nil
+	}
+	if len(filtered) != 1 {
+		return fmt.Errorf("ambiguous HZ %s positions: exact position ID is required", symbol)
+	}
+	body := map[string]any{}
+	if field == "stopLoss" || field == "both" {
+		body["stopLoss"] = nil
+	}
+	if field == "takeProfit" || field == "both" {
+		body["takeProfit"] = nil
+	}
+	var updated position
+	return t.client.doJSON(context.Background(), http.MethodPatch,
+		"/positions/"+url.PathEscape(filtered[0].PositionID)+"/protection",
+		body, &updated, randomToken())
 }
 
 func (t *Trader) marginMode() string {
@@ -294,6 +302,19 @@ func quantityForLots(spec instrument, lots string) (float64, error) {
 		return 0, fmt.Errorf("invalid HZ instrument quantity")
 	}
 	return lotValue * contractSize, nil
+}
+
+// QuantityForLots converts B's canonical lot count using the cached dynamic
+// contract specification for the instrument.
+func (t *Trader) QuantityForLots(symbol string, lots float64) (float64, error) {
+	if !finite(lots) || lots <= 0 {
+		return 0, fmt.Errorf("invalid HZ lots for %s", symbol)
+	}
+	spec, err := t.instrument(symbol)
+	if err != nil {
+		return 0, err
+	}
+	return quantityForLots(spec, strconv.FormatFloat(lots, 'f', -1, 64))
 }
 
 func finite(value float64) bool {
