@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import useSWR from 'swr'
 import { Menu, X, ChevronDown, Gift, Wallet as WalletIcon } from 'lucide-react'
 import { AiTradeNotificationDropdown } from './AiTradeNotificationDropdown'
-import { VipTierBadge } from './VipTierBadge'
 import { api } from '../../lib/api'
 import { t, type Language } from '../../i18n/translations'
 import {
@@ -53,34 +52,39 @@ export default function HeaderBar({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const userDropdownRef = useRef<HTMLDivElement>(null)
-  const resolvedCurrentPage = currentPage ?? getCurrentPageForPath(location.pathname)
+  const resolvedCurrentPage =
+    currentPage ?? getCurrentPageForPath(location.pathname)
 
-  const { data: rebateBal } = useSWR(
-    isLoggedIn && user ? 'header-agent-rebate-vip' : null,
-    () => api.getAgentRebateBalance(),
+  const { data: partner } = useSWR(
+    isLoggedIn && user ? 'header-partner-role' : null,
+    () => api.getPartnerDashboard(),
     { refreshInterval: 120_000, revalidateOnFocus: true }
   )
-
-  const vipLevel =
-    rebateBal &&
-    rebateBal.configured &&
-    rebateBal.synced &&
-    typeof rebateBal.rebate_vip_level === 'number'
-      ? rebateBal.rebate_vip_level
-      : undefined
+  const partnerRole = partner?.user.role
+  const partnerRoleName = partnerRole
+    ? { retail: '散户', ib: 'IB', studio: '工作室', branch: '分公司' }[
+        partnerRole
+      ]
+    : undefined
 
   const userDisplayName =
     (user?.display_name && user.display_name.trim()) ||
     user?.email?.split('@')[0] ||
     ''
   const walletBalance = user?.balance_usdt ?? 0
-  const walletBalanceClass = walletBalance < 0 ? 'text-red-400' : 'text-[#d4ff33]'
+  const walletBalanceClass =
+    walletBalance < 0 ? 'text-red-400' : 'text-[#d4ff33]'
 
   const navigateInApp = (path: string) => {
     navigate(path)
   }
 
-  const tryNav = (path: string, page: Page, requiresAuth: boolean, featureLabel: string) => {
+  const tryNav = (
+    path: string,
+    page: Page,
+    requiresAuth: boolean,
+    featureLabel: string
+  ) => {
     if (requiresAuth && !isLoggedIn) {
       onLoginRequired?.(featureLabel)
       return
@@ -110,8 +114,11 @@ export default function HeaderBar({
     resolvedCurrentPage === 'strategy-market' ||
     resolvedCurrentPage === 'auto-arbitrage'
   const boardActive =
-    resolvedCurrentPage === 'trader' || resolvedCurrentPage === 'data' || resolvedCurrentPage === 'news'
-  const tradersActive = resolvedCurrentPage === 'traders' || resolvedCurrentPage === 'strategy'
+    resolvedCurrentPage === 'trader' ||
+    resolvedCurrentPage === 'data' ||
+    resolvedCurrentPage === 'news'
+  const tradersActive =
+    resolvedCurrentPage === 'traders' || resolvedCurrentPage === 'strategy'
 
   return (
     <header className="static-home-header z-50 font-lumbody">
@@ -135,13 +142,22 @@ export default function HeaderBar({
               className={marketActive ? '!text-[#d4ff33]' : undefined}
             >
               策略市场
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 opacity-80"
+                aria-hidden
+                strokeWidth={2}
+              />
             </Link>
             <div className="sh-nav-dropdown">
               <button
                 type="button"
                 onClick={() =>
-                  tryNav(ROUTES.strategyMarket, 'strategy-market', true, '策略市场')
+                  tryNav(
+                    ROUTES.strategyMarket,
+                    'strategy-market',
+                    true,
+                    '策略市场'
+                  )
                 }
               >
                 策略市场
@@ -149,7 +165,12 @@ export default function HeaderBar({
               <button
                 type="button"
                 onClick={() =>
-                  tryNav(ROUTES.autoArbitrage, 'auto-arbitrage', true, '全自动套利系统')
+                  tryNav(
+                    ROUTES.autoArbitrage,
+                    'auto-arbitrage',
+                    true,
+                    '全自动套利系统'
+                  )
                 }
               >
                 全自动套利系统
@@ -158,25 +179,42 @@ export default function HeaderBar({
           </div>
 
           <div className="sh-nav-item">
-            <Link to={ROUTES.data} className={boardActive ? '!text-[#d4ff33]' : undefined}>
+            <Link
+              to={ROUTES.data}
+              className={boardActive ? '!text-[#d4ff33]' : undefined}
+            >
               数据看板
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 opacity-80"
+                aria-hidden
+                strokeWidth={2}
+              />
             </Link>
             <div className="sh-nav-dropdown">
               <button
                 type="button"
                 onClick={() =>
-                  tryNav(ROUTES.dashboard, 'trader', true, t('dashboardNav', lang))
+                  tryNav(
+                    ROUTES.dashboard,
+                    'trader',
+                    true,
+                    t('dashboardNav', lang)
+                  )
                 }
               >
                 AI策略数据看板
               </button>
-              <button type="button" onClick={() => tryNav(ROUTES.data, 'data', false, '数据')}>
+              <button
+                type="button"
+                onClick={() => tryNav(ROUTES.data, 'data', false, '数据')}
+              >
                 行情数据
               </button>
               <button
                 type="button"
-                onClick={() => tryNav(ROUTES.news, 'news', true, '新闻信息监控')}
+                onClick={() =>
+                  tryNav(ROUTES.news, 'news', true, '新闻信息监控')
+                }
               >
                 新闻信息监控
               </button>
@@ -184,20 +222,36 @@ export default function HeaderBar({
           </div>
 
           <div className="sh-nav-item">
-            <Link to={ROUTES.traders} className={tradersActive ? '!text-[#d4ff33]' : undefined}>
+            <Link
+              to={ROUTES.traders}
+              className={tradersActive ? '!text-[#d4ff33]' : undefined}
+            >
               AI交易员配置
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden strokeWidth={2} />
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 opacity-80"
+                aria-hidden
+                strokeWidth={2}
+              />
             </Link>
             <div className="sh-nav-dropdown">
               <button
                 type="button"
-                onClick={() => tryNav(TRADERS_WIZARD_ENTRY, 'traders', true, t('configNav', lang))}
+                onClick={() =>
+                  tryNav(
+                    TRADERS_WIZARD_ENTRY,
+                    'traders',
+                    true,
+                    t('configNav', lang)
+                  )
+                }
               >
                 AI交易员配置
               </button>
               <button
                 type="button"
-                onClick={() => tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')}
+                onClick={() =>
+                  tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')
+                }
               >
                 策略构建器
               </button>
@@ -267,43 +321,23 @@ export default function HeaderBar({
                     {(userDisplayName || user.email)[0].toUpperCase()}
                   </div>
                 )}
-                {/* 名字与 VIP 徽章同一组：徽章紧跟在名字后面 */}
+                {/* 名字与合作伙伴身份同一组 */}
                 <div className="hidden min-w-0 max-w-[130px] items-center gap-1.5 lg:flex xl:max-w-[200px]">
                   <span className="truncate text-sm text-[#d4ff33]/90">
                     {userDisplayName || user.email}
                   </span>
-                  {vipLevel != null && vipLevel >= 0 ? (
-                    <>
-                      <VipTierBadge level={vipLevel} />
-                      {rebateBal?.configured === true &&
-                      rebateBal.synced === true &&
-                      rebateBal.rebate_is_studio === true ? (
-                        <span
-                          title="工作室：直推名义分成额外 +5%"
-                          className="shrink-0 rounded border border-amber-400/45 bg-amber-500/15 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100"
-                        >
-                          工作室
-                        </span>
-                      ) : null}
-                    </>
+                  {partnerRoleName ? (
+                    <span className="shrink-0 rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#d4ff33]">
+                      {partnerRoleName}
+                    </span>
                   ) : null}
                 </div>
                 {/* 窄屏不显示昵称时：仅在头像与箭头之间保留徽章 */}
                 <div className="hidden shrink-0 items-center gap-1.5 sm:hidden">
-                  {vipLevel != null && vipLevel >= 0 ? (
-                    <>
-                      <VipTierBadge level={vipLevel} />
-                      {rebateBal?.configured === true &&
-                      rebateBal.synced === true &&
-                      rebateBal.rebate_is_studio === true ? (
-                        <span
-                          title="工作室：直推名义分成额外 +5%"
-                          className="shrink-0 rounded border border-amber-400/45 bg-amber-500/15 px-1 py-0.5 text-[9px] font-bold text-amber-100"
-                        >
-                          工作室
-                        </span>
-                      ) : null}
-                    </>
+                  {partnerRoleName ? (
+                    <span className="shrink-0 rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-1 py-0.5 text-[9px] font-bold text-[#d4ff33]">
+                      {partnerRoleName}
+                    </span>
                   ) : null}
                 </div>
                 <ChevronDown className="hidden h-4 w-4 shrink-0 text-[#9d9daa] lg:block" />
@@ -312,11 +346,15 @@ export default function HeaderBar({
               {userDropdownOpen && (
                 <div className="absolute right-0 top-full z-50 mt-2 w-[min(92vw,260px)] min-w-[200px] overflow-hidden rounded-2xl border border-outline-variant/25 bg-surface-container-high/95 py-1 shadow-2xl backdrop-blur-md">
                   <div className="border-b border-outline-variant/20 px-3 py-2">
-                    <div className="text-[11px] text-on-surface-variant/80">{t('loggedInAs', lang)}</div>
+                    <div className="text-[11px] text-on-surface-variant/80">
+                      {t('loggedInAs', lang)}
+                    </div>
                     <div className="truncate text-sm font-medium text-on-surface">
                       {userDisplayName || user.email}
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-on-surface-variant/70">{user.email}</div>
+                    <div className="mt-0.5 truncate text-[11px] text-on-surface-variant/70">
+                      {user.email}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -411,7 +449,11 @@ export default function HeaderBar({
             whileTap={{ scale: 0.9 }}
             aria-label={mobileMenuOpen ? '关闭菜单' : '打开菜单'}
           >
-            {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            {mobileMenuOpen ? (
+              <X className="h-6 w-6" />
+            ) : (
+              <Menu className="h-6 w-6" />
+            )}
           </motion.button>
         </div>
       </nav>
@@ -433,11 +475,18 @@ export default function HeaderBar({
               className="flex h-full flex-col overflow-y-auto overscroll-contain px-3 py-3 pb-[calc(16px+env(safe-area-inset-bottom))] font-lumbody sm:px-5 sm:py-5"
             >
               <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
-                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">策略市场</p>
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">
+                  策略市场
+                </p>
                 <button
                   type="button"
                   onClick={() =>
-                    tryNav(ROUTES.strategyMarket, 'strategy-market', true, '策略市场')
+                    tryNav(
+                      ROUTES.strategyMarket,
+                      'strategy-market',
+                      true,
+                      '策略市场'
+                    )
                   }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
@@ -446,7 +495,12 @@ export default function HeaderBar({
                 <button
                   type="button"
                   onClick={() =>
-                    tryNav(ROUTES.autoArbitrage, 'auto-arbitrage', true, '全自动套利系统')
+                    tryNav(
+                      ROUTES.autoArbitrage,
+                      'auto-arbitrage',
+                      true,
+                      '全自动套利系统'
+                    )
                   }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
@@ -454,11 +508,18 @@ export default function HeaderBar({
                 </button>
               </div>
               <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
-                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">数据看板</p>
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">
+                  数据看板
+                </p>
                 <button
                   type="button"
                   onClick={() =>
-                    tryNav(ROUTES.dashboard, 'trader', true, t('dashboardNav', lang))
+                    tryNav(
+                      ROUTES.dashboard,
+                      'trader',
+                      true,
+                      t('dashboardNav', lang)
+                    )
                   }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
@@ -473,24 +534,37 @@ export default function HeaderBar({
                 </button>
                 <button
                   type="button"
-                  onClick={() => tryNav(ROUTES.news, 'news', true, '新闻信息监控')}
+                  onClick={() =>
+                    tryNav(ROUTES.news, 'news', true, '新闻信息监控')
+                  }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
                   新闻信息监控
                 </button>
               </div>
               <div className="mb-4 grid grid-cols-2 gap-2 border-b border-white/10 pb-4">
-                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">AI交易员配置</p>
+                <p className="col-span-2 text-xs font-medium tracking-widest text-on-surface-variant/70">
+                  AI交易员配置
+                </p>
                 <button
                   type="button"
-                  onClick={() => tryNav(TRADERS_WIZARD_ENTRY, 'traders', true, t('configNav', lang))}
+                  onClick={() =>
+                    tryNav(
+                      TRADERS_WIZARD_ENTRY,
+                      'traders',
+                      true,
+                      t('configNav', lang)
+                    )
+                  }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
                   AI交易员配置
                 </button>
                 <button
                   type="button"
-                  onClick={() => tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')}
+                  onClick={() =>
+                    tryNav(ROUTES.strategy, 'strategy', true, '策略构建器')
+                  }
                   className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
                 >
                   策略构建器
@@ -514,8 +588,16 @@ export default function HeaderBar({
               {isHomePage && (
                 <div className="mb-auto space-y-3 border-t border-white/10 pt-6">
                   {[
-                    { key: 'features', label: t('features', lang), href: '#features' },
-                    { key: 'howItWorks', label: t('howItWorks', lang), href: '#how-it-works' },
+                    {
+                      key: 'features',
+                      label: t('features', lang),
+                      href: '#features',
+                    },
+                    {
+                      key: 'howItWorks',
+                      label: t('howItWorks', lang),
+                      href: '#how-it-works',
+                    },
                   ].map((item) => (
                     <a
                       key={item.key}
@@ -582,24 +664,26 @@ export default function HeaderBar({
                   </button>
                 </div>
               )}
-              {!isLoggedIn && resolvedCurrentPage !== 'login' && resolvedCurrentPage !== 'register' && (
-                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-4">
-                  <Link
-                    to={ROUTES.login}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
-                  >
-                    登录
-                  </Link>
-                  <Link
-                    to={ROUTES.register}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="rounded-xl bg-[#d4ff33] px-4 py-3 text-center text-sm font-bold text-black transition-colors hover:bg-[#d4e64a]"
-                  >
-                    注册
-                  </Link>
-                </div>
-              )}
+              {!isLoggedIn &&
+                resolvedCurrentPage !== 'login' &&
+                resolvedCurrentPage !== 'register' && (
+                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-4">
+                    <Link
+                      to={ROUTES.login}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-sm font-bold text-on-surface-variant transition-colors hover:border-[#d4ff33]/35 hover:text-[#d4ff33]"
+                    >
+                      登录
+                    </Link>
+                    <Link
+                      to={ROUTES.register}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="rounded-xl bg-[#d4ff33] px-4 py-3 text-center text-sm font-bold text-black transition-colors hover:bg-[#d4e64a]"
+                    >
+                      注册
+                    </Link>
+                  </div>
+                )}
             </motion.div>
           </motion.div>
         )}

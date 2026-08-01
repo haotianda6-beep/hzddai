@@ -38,6 +38,7 @@ type Store struct {
 	mirrorExecutionIntent  *MirrorExecutionIntentStore
 	proxyPool              *ProxyPoolStore
 	proxyFault             *OutboundProxyFaultStore
+	partnerRebateOutbox    *PartnerRebateOutboxStore
 
 	mu sync.RWMutex
 }
@@ -177,6 +178,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.Billing().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize billing tables: %w", err)
+	}
+	if err := s.PartnerRebateOutbox().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize partner rebate outbox: %w", err)
 	}
 	if err := s.User().BackfillMarketWeeklyTrialUsedFromLedger(); err != nil {
 		return fmt.Errorf("backfill market weekly trial flags: %w", err)
@@ -353,6 +357,16 @@ func (s *Store) Billing() *BillingStore {
 		s.billing = NewBillingStore(s.gdb)
 	}
 	return s.billing
+}
+
+// PartnerRebateOutbox returns the durable wallet-to-rebate delivery queue.
+func (s *Store) PartnerRebateOutbox() *PartnerRebateOutboxStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.partnerRebateOutbox == nil {
+		s.partnerRebateOutbox = NewPartnerRebateOutboxStore(s.gdb)
+	}
+	return s.partnerRebateOutbox
 }
 
 // Notification 用户站内通知

@@ -76,61 +76,111 @@ export async function getInviteMe(): Promise<InviteMePayload> {
   return handleJSONResponse(res)
 }
 
-/** GET /api/invite/network — 伞下关系树、主站可返佣消费合计、返利 VIP（若已同步） */
-export type InviteNetworkNode = {
-  id: string
-  email: string
-  display_name: string
-  created_at: string
-  balance_usdt: number
-  direct_invite_count: number
-  personal_consumption_usdt: number
-  team_consumption_usdt: number
-  rebate_synced: boolean
-  rebate_vip_level?: number
-  /** 运营起步档：自动升级不会低于该档（0 表示纯按团队业绩） */
-  rebate_vip_level_floor?: number
-  rebate_vip_level_locked?: boolean
-  rebate_is_studio?: boolean
-  rebate_team_total?: string
-  rebate_balance_usdt?: string
-  rebate_recharge_balance_usdt?: string
-  /** 运营总账号等：不参与返利统计与发放 */
-  rebate_exempt?: boolean
-  children: InviteNetworkNode[]
-}
+export type PartnerRole = 'retail' | 'ib' | 'studio' | 'branch'
 
-export type InviteNetworkPayload = {
-  invite_code: string
-  invite_link: string
-  rebate_metrics_available: boolean
-  root: {
-    id: string
-    email: string
-    display_name: string
-    direct_invite_count: number
-    personal_consumption_usdt: number
-    team_consumption_usdt: number
-    rebate_synced?: boolean
-    rebate_vip_level?: number
-    rebate_vip_level_floor?: number
-    rebate_vip_level_locked?: boolean
-    rebate_is_studio?: boolean
-    rebate_team_total?: string
-    rebate_balance_usdt?: string
-    rebate_recharge_balance_usdt?: string
-    rebate_exempt?: boolean
+export type PartnerDashboard = {
+  ok: boolean
+  user: {
+    platform_user_id: string
+    nickname: string
+    role: PartnerRole
+    role_rate_percent: string
+    available_balance_usdt: string
+    frozen_balance_usdt: string
+    lifetime_deposit_usdt: string
+    qualified_at?: string | null
   }
-  tree: InviteNetworkNode[]
-  stats: { total_descendants: number; max_depth: number }
-  generated_at: string
+  ib_progress: {
+    qualified_count: number
+    required_count: number
+    required_each_usdt: string
+    excluded_total_usdt: string
+    direct_users: Array<{
+      platform_user_id: string
+      nickname: string
+      deposit_usdt: string
+      qualified: boolean
+    }>
+  }
+  network: Array<{
+    platform_user_id: string
+    parent_platform_user_id?: string | null
+    nickname: string
+    role: PartnerRole
+    depth: number
+    deposit_usdt: string
+  }>
+  deposits: Array<{
+    id: number
+    user_uid: string
+    nickname: string
+    amount_usdt: string
+    event_type: 'deposit' | 'reversal'
+    source: string
+    occurred_at: string
+  }>
+  commissions: Array<{
+    id: number
+    source_platform_user_id: string
+    source_nickname: string
+    deposit_usdt: string
+    amount_usdt: string
+    rate_percent: string
+    role: PartnerRole
+    entry_type: 'commission' | 'reversal'
+    created_at: string
+  }>
+  withdrawals: Array<{
+    id: number
+    amount_usdt: string
+    network: 'TRC20'
+    address: string
+    status: 'pending' | 'approved' | 'paid' | 'rejected'
+    requested_at: string
+    review_note?: string | null
+  }>
 }
 
-export async function getInviteNetwork(): Promise<InviteNetworkPayload> {
-  const res = await fetch(`${API_BASE}/invite/network`, {
+export async function getPartnerDashboard(): Promise<PartnerDashboard> {
+  const res = await fetch(`${API_BASE}/partner/dashboard`, {
     headers: getAuthHeaders(),
   })
   return handleJSONResponse(res)
+}
+
+export async function postPartnerWithdrawal(
+  amountUsdt: string,
+  address: string
+) {
+  const res = await fetch(`${API_BASE}/partner/withdrawals`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      amount_usdt: amountUsdt.trim(),
+      address: address.trim(),
+    }),
+  })
+  return handleJSONResponse<{
+    ok: boolean
+    withdrawal_id: number
+    status: string
+  }>(res)
+}
+
+export async function postPartnerStudioRequest(
+  candidateUserId: string,
+  note = ''
+) {
+  const res = await fetch(`${API_BASE}/partner/studio-requests`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ candidate_user_id: candidateUserId, note }),
+  })
+  return handleJSONResponse<{
+    ok: boolean
+    request_id: number
+    status: string
+  }>(res)
 }
 
 export async function getUserNotifications(): Promise<{
@@ -187,84 +237,6 @@ export async function getWallet(): Promise<{
   is_finance?: boolean
 }> {
   const res = await fetch(`${API_BASE}/wallet`, { headers: getAuthHeaders() })
-  return handleJSONResponse(res)
-}
-
-/** 邀请返利（Python 返利服务）余额：由后端代理，需配置 AGENT_REBATE_* */
-export type AgentRebateBalanceResponse =
-  | { configured: false }
-  | { configured: true; synced: false; message?: string }
-  | {
-      configured: true
-      synced: true
-      rebate_balance_usdt: string
-      recharge_balance_usdt: string
-      rebate_nickname?: string
-      rebate_external_uid?: string
-      rebate_vip_level?: number
-      rebate_vip_level_floor?: number
-      rebate_vip_level_locked?: boolean
-      /** 工作室：直推名义分成 +5% */
-      rebate_is_studio?: boolean
-      /** 为 true 时不展示返佣操作入口（运营账号） */
-      rebate_exempt?: boolean
-    }
-
-export async function getAgentRebateBalance(): Promise<AgentRebateBalanceResponse> {
-  const res = await fetch(`${API_BASE}/user/agent-rebate-balance`, {
-    headers: getAuthHeaders(),
-  })
-  return handleJSONResponse(res)
-}
-
-/** 返利余额 → 返利系统内「充值记账」（不可直接等同于站内 AI 余额） */
-export async function postAgentRebateTransferToRecharge(
-  amount: string
-): Promise<{ ok: boolean }> {
-  const res = await fetch(
-    `${API_BASE}/user/agent-rebate/transfer-to-recharge`,
-    {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ amount: amount.trim() }),
-    }
-  )
-  return handleJSONResponse(res)
-}
-
-/** VIP5 周分红发放明细（返利侧入账到返佣余额后的历史记录） */
-export type AgentRebateDividendRow = {
-  amount_usdt: string
-  week_start: string
-  week_end: string
-  pool_usdt: string
-  weight_team_total?: string
-  created_at?: string | null
-}
-
-export async function getAgentRebateDividends(): Promise<
-  | { configured: false; rows: [] }
-  | {
-      configured: true
-      synced?: boolean
-      rows: AgentRebateDividendRow[]
-      error?: string
-    }
-> {
-  const res = await fetch(`${API_BASE}/user/agent-rebate-dividends`, {
-    headers: getAuthHeaders(),
-  })
-  return handleJSONResponse(res)
-}
-
-export async function postWalletRecharge(
-  amountUsdt: number
-): Promise<{ balance_usdt: number; message?: string }> {
-  const res = await fetch(`${API_BASE}/wallet/recharge`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ amount_usdt: amountUsdt }),
-  })
   return handleJSONResponse(res)
 }
 
@@ -452,32 +424,6 @@ export async function getAdminBinanceBrokerRebates(): Promise<{
   return handleJSONResponse(res)
 }
 
-export type AdminInvitePartner = {
-  id: string
-  email: string
-  display_name: string
-  invite_code: string
-  invite_link: string
-  customer_count: number
-  customers: Array<{
-    id: string
-    email: string
-    display_name: string
-    balance_usdt: number
-    created_at: string
-  }>
-}
-
-export async function getAdminInvitesOverview(): Promise<{
-  partners: AdminInvitePartner[]
-  generated_at: string
-}> {
-  const res = await fetch(`${API_BASE}/admin/invites-overview`, {
-    headers: getAuthHeaders(),
-  })
-  return handleJSONResponse(res)
-}
-
 export async function getAdminUsersOverview(): Promise<{
   users: AdminUserRow[]
   running_traders: AdminRunningTraderRow[]
@@ -514,31 +460,23 @@ export async function getAIPlatformUsage(
 export async function postAdminWalletAdjust(
   userId: string,
   deltaUsdt: number,
-  note?: string
+  note?: string,
+  confirmedDeposit = false,
+  originalDepositLedgerId?: number
 ): Promise<{ user_id: string; balance_usdt: number }> {
   const res = await fetch(
     `${API_BASE}/admin/users/${encodeURIComponent(userId)}/wallet-adjust`,
     {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ delta_usdt: deltaUsdt, note: note || '' }),
+      body: JSON.stringify({
+        delta_usdt: deltaUsdt,
+        note: note || '',
+        confirmed_deposit: confirmedDeposit,
+        original_deposit_ledger_id: originalDepositLedgerId || 0,
+      }),
     }
   )
-  return handleJSONResponse(res)
-}
-
-/** 管理员：返利侧设置 VIP、锁定等级、工作室（须服务器配置 AGENT_REBATE_*） */
-export async function postAdminRebateSetUserAttrs(payload: {
-  user_id: string
-  vip_level?: number
-  vip_level_locked?: boolean
-  is_studio?: boolean
-}): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}/admin/rebate/set-user-attrs`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  })
   return handleJSONResponse(res)
 }
 

@@ -301,13 +301,10 @@ func (at *AutoTrader) maybeChargeComkunFollowOffline(sourceID string, now time.T
 		at.stopComkunFollowForInsufficientBalance(comkunFollowBalanceStopMessage(u.BalanceUSDT, feeUSDT))
 		return nil
 	}
-	balanceAfter, ledgerID, err := at.chargeComkunFollowScanUsage(feeUSDT)
+	balanceAfter, _, err := at.chargeComkunFollowScanUsage(feeUSDT)
 	if err != nil {
 		logger.Warnf("[%s] comkun 跟单空闲计费失败: %v", at.name, err)
 		return nil
-	}
-	if ledgerID > 0 {
-		store.DispatchAgentRebateSpendIfEligible(at.userID, feeUSDT, ledgerID, "comkun_follow_scan")
 	}
 	if balanceAfter < -1e-9 {
 		at.stopComkunFollowForInsufficientBalance(comkunFollowBalanceStopMessage(balanceAfter, feeUSDT))
@@ -820,7 +817,6 @@ func (at *AutoTrader) chargeComkunDisplayFee() (float64, float64, bool, error) {
 	}
 	feeUSDT := randomComkunFollowDisplayFeeUSDT()
 	var balanceAfter float64
-	var spendLedgerID uint64
 	err := at.store.Transaction(func(tx *gorm.DB) error {
 		bal, ok, err := at.store.User().AddBalanceDelta(tx, at.userID, -feeUSDT)
 		if err != nil {
@@ -831,19 +827,15 @@ func (at *AutoTrader) chargeComkunDisplayFee() (float64, float64, bool, error) {
 			return fmt.Errorf("%w", errComkunPlatformBalanceInsufficient)
 		}
 		balanceAfter = bal
-		lid, e := at.store.Billing().AppendLedger(tx, at.userID, -feeUSDT, balanceAfter, "comkun_display_cycle", at.id)
+		_, e := at.store.Billing().AppendLedger(tx, at.userID, -feeUSDT, balanceAfter, "comkun_display_cycle", at.id)
 		if e != nil {
 			return e
 		}
-		spendLedgerID = lid
 		return nil
 	})
 	if err != nil {
 		logger.Warnf("[%s] COMKUN display fee skipped: %v", at.name, err)
 		return balanceAfter, feeUSDT, false, err
-	}
-	if feeUSDT > 1e-9 && spendLedgerID > 0 {
-		store.DispatchAgentRebateSpendIfEligible(at.userID, feeUSDT, spendLedgerID, "comkun_display_cycle")
 	}
 	return balanceAfter, feeUSDT, true, nil
 }
@@ -1212,7 +1204,6 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 	closeOnly := false
 	billingIntentKey := ""
 	billingClientID := ""
-	var scanSpendLedgerID uint64
 	if hzExternal && scanFeeUSDT > 0 {
 		var stateWire comkunMasterStateWire
 		if err := json.Unmarshal([]byte(strings.TrimSpace(br.MasterStateJSON)), &stateWire); err != nil || strings.TrimSpace(stateWire.SourceEventID) == "" {
@@ -1244,11 +1235,10 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			closeOnly = true
 		} else {
 			feeReserved = reservation.Reserved
-			scanSpendLedgerID = reservation.WalletLedgerID
 		}
 	} else if scanFeeUSDT > 0 {
 		var chargeErr error
-		platformBalanceAfter, scanSpendLedgerID, chargeErr = at.chargeComkunFollowScanUsage(scanFeeUSDT)
+		platformBalanceAfter, _, chargeErr = at.chargeComkunFollowScanUsage(scanFeeUSDT)
 		if chargeErr != nil {
 			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, chargeErr.Error())
 			if mt4Follow {
@@ -1262,9 +1252,6 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 			return at.saveComkunFollowDecision(record, br)
 		}
 		feeReserved = true
-		if scanSpendLedgerID > 0 {
-			store.DispatchAgentRebateSpendIfEligible(at.userID, scanFeeUSDT, scanSpendLedgerID, "comkun_follow_scan")
-		}
 		if platformBalanceAfter < -1e-9 {
 			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "platform balance debt after scan fee")
 			if mt4Follow {
@@ -1400,9 +1387,6 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 				category := store.StoreErrorCategory(err)
 				_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing finalization retry:"+category)
 				return nil
-			}
-			if scanSpendLedgerID > 0 {
-				store.DispatchAgentRebateSpendIfEligible(at.userID, scanFeeUSDT, scanSpendLedgerID, "comkun_follow_scan")
 			}
 		}
 		_ = platformBalanceAfter

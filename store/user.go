@@ -25,9 +25,10 @@ type User struct {
 	InvitedByUserID string  `gorm:"column:invited_by_user_id;not null;default:'';index" json:"invited_by_user_id"`
 	ProfileNamed    bool    `gorm:"column:profile_named;not null;default:false" json:"profile_named"`
 	// MarketWeeklyTrialUsed 为 true 表示该账号已使用过「策略市场周卡体验」资格（全站仅一次，与具体策略无关）
-	MarketWeeklyTrialUsed bool      `gorm:"column:market_weekly_trial_used;not null;default:false" json:"market_weekly_trial_used"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	MarketWeeklyTrialUsed bool       `gorm:"column:market_weekly_trial_used;not null;default:false" json:"market_weekly_trial_used"`
+	LastLoginAt           *time.Time `gorm:"column:last_login_at;index" json:"last_login_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
 }
 
 func (User) TableName() string { return "users" }
@@ -57,6 +58,7 @@ func (s *UserStore) initTables() error {
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id TEXT NOT NULL DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_named BOOLEAN NOT NULL DEFAULT FALSE`)
 			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS market_weekly_trial_used BOOLEAN NOT NULL DEFAULT FALSE`)
+			s.db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL`)
 			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_code ON users(invite_code) WHERE invite_code <> ''`)
 
 			// Ensure unique index exists on email (don't care about the name)
@@ -328,6 +330,12 @@ func (s *UserStore) UpdatePassword(userID, passwordHash string) error {
 		"password_hash": passwordHash,
 		"updated_at":    time.Now().UTC(),
 	}).Error
+}
+
+// MarkLogin records a verified login for exact inactivity cleanup.
+func (s *UserStore) MarkLogin(userID string) error {
+	now := time.Now().UTC()
+	return s.db.Model(&User{}).Where("id = ?", userID).Update("last_login_at", now).Error
 }
 
 // DeleteAll deletes all users (reset system to uninitialized state)

@@ -88,6 +88,7 @@ func (s *Server) handleRegister(c *gin.Context) {
 
 	// Create user（随机昵称 + 与 ID 绑定的默认头像）
 	userID := uuid.New().String()
+	registeredAt := time.Now().UTC()
 	var inviter *store.User
 	inviterID := ""
 	inviteCode := store.NormalizeInviteCode(req.InviteCode)
@@ -109,6 +110,7 @@ func (s *Server) handleRegister(c *gin.Context) {
 		InviteCode:      s.store.User().GenerateInviteCode(),
 		InvitedByUserID: inviterID,
 		ProfileNamed:    false,
+		LastLoginAt:     &registeredAt,
 	}
 
 	err = s.store.User().Create(user)
@@ -180,6 +182,10 @@ func (s *Server) handleLogin(c *gin.Context) {
 	fullUser, err := s.store.User().EnsureProfileDefaults(user.ID)
 	if err != nil {
 		SafeInternalError(c, "Failed to prepare user profile", err)
+		return
+	}
+	if err := s.store.User().MarkLogin(fullUser.ID); err != nil {
+		SafeInternalError(c, "Failed to record login", err)
 		return
 	}
 
@@ -277,8 +283,8 @@ func (s *Server) handleUpdateProfile(c *gin.Context) {
 		SafeInternalError(c, "Failed to reload user", err)
 		return
 	}
-	// 昵称变更同步到返利侧展示名（不改变邀请关系）
-	s.notifyAgentRebateUserSync(u.ID, nickFromUser(u), strings.TrimSpace(u.InvitedByUserID))
+	// 昵称变更后同步全新合作伙伴体系中的用户资料与邀请链。
+	s.syncInviteChainToAgentRebate(u.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":            u.ID,

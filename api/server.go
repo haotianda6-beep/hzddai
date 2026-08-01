@@ -28,6 +28,7 @@ type Server struct {
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
 	hzMasterPollCancel        context.CancelFunc
+	partnerRebateCancel       context.CancelFunc
 }
 
 // NewServer Creates API server
@@ -52,10 +53,6 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		port:                      port,
 	}
 
-	store.SetAgentRebateSpendCallback(func(userID string, spendUSDT float64, walletLedgerID uint64, ledgerReason string) {
-		s.NotifyAgentRebateAfterWalletSpend(userID, spendUSDT, walletLedgerID, ledgerReason)
-	})
-
 	binance.SetProxyFaultRecorder(func(in store.RecordFaultInput) {
 		if err := st.ProxyFault().RecordFault(in); err != nil {
 			logger.Warnf("record outbound proxy fault: %v", err)
@@ -65,6 +62,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	// Setup routes
 	s.setupRoutes()
 	s.startHZMasterEventPoller()
+	s.startPartnerRebateOutboxWorker()
 
 	return s
 }
@@ -165,15 +163,13 @@ Body: {"eventId":"<string>","sequence":"<positive integer string>","eventType":"
 				`Body: {"display_name":"<string, 1-32 chars>"}`,
 				s.handleUpdateProfile)
 
-			// 平台站内余额（策略市场消费 / 演示充值）
+			// 平台站内余额（策略市场消费；用户自助演示充值已停用）
 			s.route(protected, "GET", "/wallet", "Platform wallet balance and ledger", s.handleGetWallet)
-			s.route(protected, "POST", "/wallet/recharge", "Recharge platform USDT balance (demo)", s.handlePostWalletRecharge)
 			s.route(protected, "GET", "/notifications", "User in-app notifications (recharge, admin credit)", s.handleListUserNotifications)
 			s.route(protected, "GET", "/invite/me", "Current user's invite code, link and invited users", s.handleInviteMe)
-			s.route(protected, "GET", "/invite/network", "Invite umbrella tree + eligible spend + rebate metrics", s.handleInviteNetwork)
-			s.route(protected, "GET", "/user/agent-rebate-balance", "Proxy: agent rebate recharge/rebate balances", s.handleAgentRebateBalance)
-			s.route(protected, "POST", "/user/agent-rebate/transfer-to-recharge", "Proxy: rebate→recharge on agent rebate service", s.handleAgentRebateTransferToRecharge)
-			s.route(protected, "GET", "/user/agent-rebate-dividends", "Proxy: VIP5 weekly dividend payout history", s.handleAgentRebateDividends)
+			s.route(protected, "GET", "/partner/dashboard", "Partner rebate dashboard and umbrella ledger", s.handlePartnerDashboard)
+			s.route(protected, "POST", "/partner/withdrawals", "Submit TRC20 partner rebate withdrawal", s.handlePartnerWithdrawal)
+			s.route(protected, "POST", "/partner/studio-requests", "Branch nominates an umbrella user as studio", s.handlePartnerStudioRequest)
 
 			// Server IP query (requires authentication, for whitelist configuration)
 			s.route(protected, "GET", "/server-ip", "Get server public IP (for exchange whitelist)", s.handleGetServerIP)
@@ -414,7 +410,7 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 			admin := protected.Group("/admin", s.adminMiddleware())
 			{
 				s.route(admin, "GET", "/users-overview", "Admin: list users with balance and Binance positions", s.handleAdminUsersOverview)
-				s.route(admin, "GET", "/invites-overview", "Admin: list invite partners and their customers", s.handleAdminInviteOverview)
+				s.route(admin, "GET", "/partner/dashboard", "Admin: complete partner deposit and commission ledger", s.handleAdminPartnerDashboard)
 				s.route(admin, "GET", "/ai-platform-usage", "Admin: AI platform usage billing ledger", s.handleAdminAIPlatformUsage)
 				s.route(admin, "GET", "/binance-broker-rebates", "Admin: Binance broker rebate records", s.handleAdminBinanceBrokerRebates)
 				s.route(admin, "GET", "/users/:id", "Admin: user detail and wallet ledger", s.handleAdminUserDetail)
@@ -427,7 +423,9 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 				s.route(admin, "POST", "/comkun/trader-token-credit", "Admin: credit comkun virtual follow tokens to a trader", s.handleAdminComkunTraderTokenCredit)
 				s.route(admin, "POST", "/notifications/broadcast", "Admin: publish in-app broadcast visible to all logged-in users", s.handleAdminBroadcastNotification)
 				s.route(admin, "POST", "/strategies/:id/market-review", "Admin: approve or reject a customer strategy market listing request", s.handleAdminStrategyMarketReview)
-				s.route(admin, "POST", "/rebate/set-user-attrs", "Admin: set rebate VIP/studio on agent service", s.handleAdminRebateSetUserAttrs)
+				s.route(admin, "POST", "/partner/roles", "Admin: assign partner role", s.handleAdminPartnerRole)
+				s.route(admin, "POST", "/partner/studio-requests/:id/review", "Admin: review studio nomination", s.handleAdminPartnerStudioReview)
+				s.route(admin, "POST", "/partner/withdrawals/:id/review", "Admin: review partner withdrawal", s.handleAdminPartnerWithdrawalReview)
 				s.route(admin, "GET", "/outbound-proxy-pool", "Admin: SOCKS5 outbound proxy pool + assignments", s.handleAdminOutboundProxyPoolList)
 				s.route(admin, "POST", "/outbound-proxy-pool/import", "Admin: bulk import SOCKS5 proxy lines", s.handleAdminOutboundProxyPoolImport)
 				s.route(admin, "DELETE", "/outbound-proxy-pool/:id", "Admin: delete unassigned pool entry", s.handleAdminOutboundProxyPoolDelete)
@@ -699,6 +697,9 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() error {
 	if s.hzMasterPollCancel != nil {
 		s.hzMasterPollCancel()
+	}
+	if s.partnerRebateCancel != nil {
+		s.partnerRebateCancel()
 	}
 	if s.httpServer == nil {
 		return nil

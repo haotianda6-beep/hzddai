@@ -7,7 +7,6 @@ import { api } from '../lib/api'
 import type {
   AdminAIPlatformUsageRow,
   AdminBinanceBrokerRebateRow,
-  AdminInvitePartner,
   AdminOutboundProxyFaultRow,
   AdminOutboundProxyPoolRow,
   AdminRunningTraderRow,
@@ -17,23 +16,38 @@ import { ROUTES } from '../router/paths'
 
 /** 管理端持仓摘要：只展示多空（中文） */
 function formatAdminPositionSide(side: string): string {
-  const u = String(side || '').trim().toUpperCase()
+  const u = String(side || '')
+    .trim()
+    .toUpperCase()
   if (u === 'LONG' || u === 'BUY') return '多'
   if (u === 'SHORT' || u === 'SELL') return '空'
   return side || '—'
 }
 
 function formatUsageModelName(row: AdminAIPlatformUsageRow): string {
-  const provider = String(row.provider || '').trim().toLowerCase()
+  const provider = String(row.provider || '')
+    .trim()
+    .toLowerCase()
   const model = String(row.model || '').trim()
-  if (provider === 'comkun_ai' || provider === 'comkun-ai' || /跟单/.test(model)) return 'comkun-ai'
+  if (
+    provider === 'comkun_ai' ||
+    provider === 'comkun-ai' ||
+    /跟单/.test(model)
+  )
+    return 'comkun-ai'
   return model || '—'
 }
 
 function formatUsageProviderName(row: AdminAIPlatformUsageRow): string {
   const provider = String(row.provider || '').trim()
   const model = formatUsageModelName(row)
-  if (!provider || provider === 'comkun_ai' || provider === 'comkun-ai' || provider === model) return ''
+  if (
+    !provider ||
+    provider === 'comkun_ai' ||
+    provider === 'comkun-ai' ||
+    provider === model
+  )
+    return ''
   return provider
 }
 
@@ -71,10 +85,16 @@ function AdminCollapsibleSection({
           />
           <span className="min-w-0">
             <h2 className={titleClassName}>{title}</h2>
-            {subtitle ? <div className="mt-1 text-xs text-[#848E9C]">{subtitle}</div> : null}
+            {subtitle ? (
+              <div className="mt-1 text-xs text-[#848E9C]">{subtitle}</div>
+            ) : null}
           </span>
         </button>
-        {headerRight ? <div className="flex shrink-0 flex-wrap items-center gap-2">{headerRight}</div> : null}
+        {headerRight ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {headerRight}
+          </div>
+        ) : null}
       </div>
       {open ? <div className="p-4 sm:p-5">{children}</div> : null}
     </section>
@@ -82,40 +102,39 @@ function AdminCollapsibleSection({
 }
 
 export function AdminDashboardPage() {
-  const { data, error, isLoading, mutate } = useSWR('admin-users-overview', () => api.getAdminUsersOverview(), {
-    refreshInterval: 15000,
-  })
+  const { data, error, isLoading, mutate } = useSWR(
+    'admin-users-overview',
+    () => api.getAdminUsersOverview(),
+    {
+      refreshInterval: 15000,
+    }
+  )
   const [adjustUserId, setAdjustUserId] = useState<string | null>(null)
   const [deltaInput, setDeltaInput] = useState('')
   const [noteInput, setNoteInput] = useState('')
+  const [confirmedDeposit, setConfirmedDeposit] = useState(false)
+  const [originalDepositLedgerId, setOriginalDepositLedgerId] = useState('')
   const [usageUserId, setUsageUserId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [flattenSymbolInput, setFlattenSymbolInput] = useState('')
   const [flattenModalOpen, setFlattenModalOpen] = useState(false)
   const [flattenSubmitting, setFlattenSubmitting] = useState(false)
-  const [traderControlBusyId, setTraderControlBusyId] = useState<string | null>(null)
+  const [traderControlBusyId, setTraderControlBusyId] = useState<string | null>(
+    null
+  )
   const [proxyImportText, setProxyImportText] = useState('')
   const [proxyImportBusy, setProxyImportBusy] = useState(false)
-  const [proxyAssignPoolId, setProxyAssignPoolId] = useState<string | null>(null)
+  const [proxyAssignPoolId, setProxyAssignPoolId] = useState<string | null>(
+    null
+  )
   const [proxyAssignHost, setProxyAssignHost] = useState('')
   const [proxyAssignPick, setProxyAssignPick] = useState('')
   const [proxyAssignUserId, setProxyAssignUserId] = useState('')
   const [proxyAssignExchangeId, setProxyAssignExchangeId] = useState('')
   const [proxyAssignBusy, setProxyAssignBusy] = useState(false)
-  const [rebateAttrUserId, setRebateAttrUserId] = useState('')
-  /** 空字符串表示不修改该项 */
-  const [rebateAttrVip, setRebateAttrVip] = useState('')
-  const [rebateAttrLock, setRebateAttrLock] = useState('')
-  const [rebateAttrStudio, setRebateAttrStudio] = useState('')
-  const [rebateAttrBusy, setRebateAttrBusy] = useState(false)
   const { data: usageData, mutate: mutateUsage } = useSWR(
     ['admin-ai-platform-usage', usageUserId],
     () => api.getAdminAIPlatformUsage(usageUserId || undefined),
-    { refreshInterval: 30000 }
-  )
-  const { data: inviteOverview, mutate: mutateInvites } = useSWR(
-    'admin-invites-overview',
-    () => api.getAdminInvitesOverview(),
     { refreshInterval: 30000 }
   )
   const { data: rebateData, mutate: mutateRebates } = useSWR(
@@ -152,7 +171,8 @@ export function AdminDashboardPage() {
 
   const sorted = useMemo(() => {
     return [...users].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
   }, [users])
 
@@ -202,11 +222,19 @@ export function AdminDashboardPage() {
     }
     setSubmitting(true)
     try {
-      await api.postAdminWalletAdjust(adjustUserId, delta, noteInput.trim())
+      await api.postAdminWalletAdjust(
+        adjustUserId,
+        delta,
+        noteInput.trim(),
+        confirmedDeposit,
+        Number(originalDepositLedgerId) || undefined
+      )
       toast.success('已更新该用户余额')
       setAdjustUserId(null)
       setDeltaInput('')
       setNoteInput('')
+      setConfirmedDeposit(false)
+      setOriginalDepositLedgerId('')
       await mutate()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '调账失败')
@@ -215,7 +243,10 @@ export function AdminDashboardPage() {
     }
   }
 
-  const handleAdminTraderControl = async (traderId: string, action: 'start' | 'stop' | 'sync_positions') => {
+  const handleAdminTraderControl = async (
+    traderId: string,
+    action: 'start' | 'stop' | 'sync_positions'
+  ) => {
     setTraderControlBusyId(traderId)
     try {
       if (action === 'start') {
@@ -237,54 +268,13 @@ export function AdminDashboardPage() {
     }
   }
 
-  const handleRebateSetUserAttrs = async () => {
-    const uid = rebateAttrUserId.trim()
-    if (!uid) {
-      toast.error('请填写用户 ID（主站 users.id）')
-      return
-    }
-    const hasChange =
-      rebateAttrVip !== '' || rebateAttrLock !== '' || rebateAttrStudio !== ''
-    if (!hasChange) {
-      toast.error('请至少选择一项：VIP 起步档、完全冻结等级或工作室')
-      return
-    }
-    setRebateAttrBusy(true)
-    try {
-      const payload: {
-        user_id: string
-        vip_level?: number
-        vip_level_locked?: boolean
-        is_studio?: boolean
-      } = { user_id: uid }
-      if (rebateAttrVip !== '') payload.vip_level = Number(rebateAttrVip)
-      if (rebateAttrLock !== '') payload.vip_level_locked = rebateAttrLock === 'true'
-      if (rebateAttrStudio !== '') payload.is_studio = rebateAttrStudio === 'true'
-      const res = (await api.postAdminRebateSetUserAttrs(payload)) as {
-        ok?: boolean
-        detail?: string
-        error?: string
-      }
-      if (res && typeof res === 'object' && res.ok === false) {
-        toast.error(String(res.detail || res.error || '返利服务返回失败'))
-        return
-      }
-      toast.success('已提交返利侧用户属性（若服务器未配置返利地址则会失败）')
-      setRebateAttrVip('')
-      setRebateAttrLock('')
-      setRebateAttrStudio('')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '提交失败')
-    } finally {
-      setRebateAttrBusy(false)
-    }
-  }
-
   const handleFlattenFollowTraders = async () => {
     setFlattenSubmitting(true)
     try {
       const sym = flattenSymbolInput.trim()
-      const res = await api.postAdminFlattenAllComkunFollowTraders(sym || undefined)
+      const res = await api.postAdminFlattenAllComkunFollowTraders(
+        sym || undefined
+      )
       toast.success(
         `处理完成：共 ${res.trader_count} 个跟单交易员，成功 ${res.ok_count}，失败 ${res.fail_count}` +
           (res.symbol_filter ? `（仅 ${res.symbol_filter}）` : '（全部合约）')
@@ -318,7 +308,6 @@ export function AdminDashboardPage() {
               onClick={() => {
                 void mutate()
                 void mutateUsage()
-                void mutateInvites()
                 void mutateRebates()
                 void mutateProxyFaults()
               }}
@@ -357,7 +346,8 @@ export function AdminDashboardPage() {
           titleClassName={`text-lg font-bold ${proxyFaultEvents.length > 0 ? 'text-red-200' : 'text-[#d4ff33]'}`}
           subtitle={
             <>
-              CEX REST 经 SOCKS5 出口失败时记录（同交易员+代理 5 分钟内合并）。用户可能看不到持仓/余额；请检查代理池或对该交易所「强制回收」后换健康出口。
+              CEX REST 经 SOCKS5 出口失败时记录（同交易员+代理 5
+              分钟内合并）。用户可能看不到持仓/余额；请检查代理池或对该交易所「强制回收」后换健康出口。
               {proxyFaultEvents.length > 0 ? (
                 <span className="mt-1 block font-medium text-red-200/90">
                   当前有 {proxyFaultEvents.length} 条近期告警，请优先处理。
@@ -395,14 +385,21 @@ export function AdminDashboardPage() {
                   {proxyFaultEvents.map((row: AdminOutboundProxyFaultRow) => (
                     <tr key={row.id} className="hover:bg-white/[0.02]">
                       <td className="px-3 py-3 whitespace-nowrap text-[#b7bdc6]">
-                        {row.last_at ? new Date(row.last_at).toLocaleString() : '—'}
+                        {row.last_at
+                          ? new Date(row.last_at).toLocaleString()
+                          : '—'}
                       </td>
                       <td className="px-3 py-3">
                         <div className="font-medium text-[#eaecef]">
-                          {row.user_display_name || row.user_email || row.user_id || '—'}
+                          {row.user_display_name ||
+                            row.user_email ||
+                            row.user_id ||
+                            '—'}
                         </div>
                         {row.user_email ? (
-                          <div className="mt-0.5 text-[10px] text-[#5e6673]">{row.user_email}</div>
+                          <div className="mt-0.5 text-[10px] text-[#5e6673]">
+                            {row.user_email}
+                          </div>
                         ) : null}
                       </td>
                       <td className="px-3 py-3 text-[#b7bdc6]">
@@ -416,7 +413,9 @@ export function AdminDashboardPage() {
                           {proxyFaultTypeZh(row.error_type)}
                         </span>
                       </td>
-                      <td className="px-3 py-3 tabular-nums text-[#eaecef]">{row.hit_count ?? 1}</td>
+                      <td className="px-3 py-3 tabular-nums text-[#eaecef]">
+                        {row.hit_count ?? 1}
+                      </td>
                       <td className="max-w-[360px] px-3 py-3 text-[11px] text-[#848E9C]">
                         {row.last_error || '—'}
                       </td>
@@ -435,11 +434,17 @@ export function AdminDashboardPage() {
           subtitle="对库里所有绑定「市场合规跟单」策略的交易员，按顺序向交易所提交市价平仓（会先撤该合约未成交单）。用于跟单端长时间未平仓时的应急。下方可填合约名（如 SOL 或 SOLUSDT），留空则平掉全部非零持仓。"
         >
           <div className="flex flex-wrap items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-red-300" aria-hidden />
+            <AlertTriangle
+              className="mt-0.5 h-6 w-6 shrink-0 text-red-300"
+              aria-hidden
+            />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <label htmlFor="admin-flatten-symbol" className="mb-1 block text-[11px] text-[#848E9C]">
+                  <label
+                    htmlFor="admin-flatten-symbol"
+                    className="mb-1 block text-[11px] text-[#848E9C]"
+                  >
                     仅平该合约（可选）
                   </label>
                   <input
@@ -472,16 +477,22 @@ export function AdminDashboardPage() {
             aria-labelledby="flatten-modal-title"
           >
             <div className="max-w-lg rounded-xl border border-red-500/40 bg-[#1a1d24] p-6 shadow-xl">
-              <h3 id="flatten-modal-title" className="text-lg font-bold text-white">
+              <h3
+                id="flatten-modal-title"
+                className="text-lg font-bold text-white"
+              >
                 确认向交易所提交平仓？
               </h3>
               <p className="mt-3 text-sm text-[#b7bdc6]">
-                将对<strong className="text-white">所有合规跟单交易员</strong>逐个下单市价平仓。
+                将对<strong className="text-white">所有合规跟单交易员</strong>
+                逐个下单市价平仓。
                 {flattenSymbolInput.trim()
                   ? ` 仅处理合约：${flattenSymbolInput.trim().toUpperCase()}（会自动补 USDT 后缀若未写）。`
                   : ' 当前留空：将平掉每个账户里全部非零持仓。'}
               </p>
-              <p className="mt-2 text-xs text-amber-200/90">此操作不可自动撤销，请确认已无更好的处理方式。</p>
+              <p className="mt-2 text-xs text-amber-200/90">
+                此操作不可自动撤销，请确认已无更好的处理方式。
+              </p>
               <div className="mt-6 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
@@ -506,71 +517,16 @@ export function AdminDashboardPage() {
 
         <AdminCollapsibleSection
           defaultOpen
-          className="mb-8 rounded-xl border border-[#d4ff33]/25 bg-[#d4ff33]/5"
-          title="返利侧 · VIP / 工作室（agent_rebate）"
-          subtitle="填写主站用户 ID。选 VIP 会写入「起步档」：之后按名下团队累计充值（伞下业绩）自动升档，且不会低于该起步档；与本人充值无关。等级锁定仅用于「完全冻结」当前等级（一般不必开）。须配置 AGENT_REBATE_*；用户须已同步到返利库。"
+          className="mb-8 rounded-lg border border-[#d4ff33]/25 bg-[#d4ff33]/5"
+          title="合作伙伴总账"
+          subtitle="确认充值、差额返佣、身份变更、IB升级、工作室申请和TRC20提现集中管理。"
         >
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-[#848E9C]">用户 ID</label>
-              <input
-                type="text"
-                value={rebateAttrUserId}
-                onChange={(e) => setRebateAttrUserId(e.target.value)}
-                placeholder="主站 user id"
-                className="w-56 rounded-lg border border-white/15 bg-black/30 px-3 py-2 font-mono text-sm text-white placeholder:text-[#5e6673]"
-                autoComplete="off"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-[#848E9C]">VIP 起步档</label>
-              <select
-                value={rebateAttrVip}
-                onChange={(e) => setRebateAttrVip(e.target.value)}
-                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white"
-              >
-                <option value="">不改</option>
-                <option value="0">V0（清零起步档，纯按团队业绩）</option>
-                <option value="1">V1</option>
-                <option value="2">V2</option>
-                <option value="3">V3</option>
-                <option value="4">V4</option>
-                <option value="5">V5</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-[#848E9C]">完全冻结等级</label>
-              <select
-                value={rebateAttrLock}
-                onChange={(e) => setRebateAttrLock(e.target.value)}
-                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white"
-              >
-                <option value="">不改</option>
-                <option value="true">冻结（充值/团队业绩均不改 VIP）</option>
-                <option value="false">不冻结（按团队业绩 + 起步档自动升降）</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-[#848E9C]">工作室</label>
-              <select
-                value={rebateAttrStudio}
-                onChange={(e) => setRebateAttrStudio(e.target.value)}
-                className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white"
-              >
-                <option value="">不改</option>
-                <option value="true">是（名牌 + 直推 +5%）</option>
-                <option value="false">否</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              disabled={rebateAttrBusy}
-              onClick={() => void handleRebateSetUserAttrs()}
-              className="rounded-lg bg-[#d4ff33] px-4 py-2 text-sm font-bold text-black hover:brightness-105 disabled:opacity-50"
-            >
-              {rebateAttrBusy ? '提交中…' : '保存到返利库'}
-            </button>
-          </div>
+          <a
+            href="/hongzhong/dashboard"
+            className="inline-flex rounded bg-[#d4ff33] px-4 py-2 text-sm font-bold text-black hover:brightness-105"
+          >
+            打开完整总账
+          </a>
         </AdminCollapsibleSection>
 
         <AdminCollapsibleSection
@@ -587,37 +543,61 @@ export function AdminDashboardPage() {
           {runningTradersTotals.count > 0 && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">在跑人数</div>
-                <div className="mt-1 font-mono text-xl font-bold text-white">{runningTradersTotals.count}</div>
+                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">
+                  在跑人数
+                </div>
+                <div className="mt-1 font-mono text-xl font-bold text-white">
+                  {runningTradersTotals.count}
+                </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">合计总盈亏</div>
+                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">
+                  合计总盈亏
+                </div>
                 <div
                   className={`mt-1 font-mono text-xl font-bold ${runningTradersTotals.totalPnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
                 >
                   {runningTradersTotals.totalPnl >= 0 ? '+' : ''}
-                  {runningTradersTotals.totalPnl.toFixed(4)} <span className="text-sm font-normal text-[#848E9C]">USDT</span>
+                  {runningTradersTotals.totalPnl.toFixed(4)}{' '}
+                  <span className="text-sm font-normal text-[#848E9C]">
+                    USDT
+                  </span>
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">合计保证金占用</div>
+                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">
+                  合计保证金占用
+                </div>
                 <div className="mt-1 font-mono text-xl font-bold text-[#b7bdc6]">
-                  {runningTradersTotals.marginUsed.toFixed(4)} <span className="text-sm font-normal text-[#848E9C]">USDT</span>
+                  {runningTradersTotals.marginUsed.toFixed(4)}{' '}
+                  <span className="text-sm font-normal text-[#848E9C]">
+                    USDT
+                  </span>
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">合计可用余额</div>
+                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">
+                  合计可用余额
+                </div>
                 <div className="mt-1 font-mono text-xl font-bold text-[#d4ff33]">
-                  {runningTradersTotals.available.toFixed(4)} <span className="text-sm font-normal text-[#848E9C]">USDT</span>
+                  {runningTradersTotals.available.toFixed(4)}{' '}
+                  <span className="text-sm font-normal text-[#848E9C]">
+                    USDT
+                  </span>
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 sm:col-span-2 lg:col-span-1">
-                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">合计持仓浮盈亏</div>
+                <div className="text-[11px] uppercase tracking-wider text-[#848E9C]">
+                  合计持仓浮盈亏
+                </div>
                 <div
                   className={`mt-1 font-mono text-xl font-bold ${runningTradersTotals.unrealized >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
                 >
                   {runningTradersTotals.unrealized >= 0 ? '+' : ''}
-                  {runningTradersTotals.unrealized.toFixed(4)} <span className="text-sm font-normal text-[#848E9C]">USDT</span>
+                  {runningTradersTotals.unrealized.toFixed(4)}{' '}
+                  <span className="text-sm font-normal text-[#848E9C]">
+                    USDT
+                  </span>
                 </div>
               </div>
             </div>
@@ -642,7 +622,10 @@ export function AdminDashboardPage() {
               <tbody className="divide-y divide-white/5">
                 {runningTraders.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-3 py-8 text-center text-[#848E9C]">
+                    <td
+                      colSpan={11}
+                      className="px-3 py-8 text-center text-[#848E9C]"
+                    >
                       暂无交易员
                     </td>
                   </tr>
@@ -655,11 +638,17 @@ export function AdminDashboardPage() {
                     return (
                       <tr key={row.trader_id} className="hover:bg-white/[0.02]">
                         <td className="px-3 py-3">
-                          <div className="font-bold text-white">{row.trader_name}</div>
-                          <div className="font-mono text-[10px] text-[#5e6673]">{row.trader_id}</div>
+                          <div className="font-bold text-white">
+                            {row.trader_name}
+                          </div>
+                          <div className="font-mono text-[10px] text-[#5e6673]">
+                            {row.trader_id}
+                          </div>
                         </td>
                         <td className="px-3 py-3">
-                          <div className="text-white">{row.user_display_name || '—'}</div>
+                          <div className="text-white">
+                            {row.user_display_name || '—'}
+                          </div>
                           <div className="text-[#848E9C]">{row.user_email}</div>
                         </td>
                         <td className="px-3 py-3">
@@ -669,19 +658,30 @@ export function AdminDashboardPage() {
                             {on ? '运行中' : '已停止'}
                           </span>
                         </td>
-                        <td className="px-3 py-3 font-mono text-[#EAECEF]">{Number(row.total_equity ?? 0).toFixed(4)}</td>
-                        <td className="px-3 py-3 font-mono text-[#d4ff33]">{Number(row.available_balance ?? 0).toFixed(4)}</td>
-                        <td className={`px-3 py-3 font-mono font-bold ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                          {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)}
+                        <td className="px-3 py-3 font-mono text-[#EAECEF]">
+                          {Number(row.total_equity ?? 0).toFixed(4)}
+                        </td>
+                        <td className="px-3 py-3 font-mono text-[#d4ff33]">
+                          {Number(row.available_balance ?? 0).toFixed(4)}
+                        </td>
+                        <td
+                          className={`px-3 py-3 font-mono font-bold ${pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
+                        >
+                          {pnl >= 0 ? '+' : ''}
+                          {pnl.toFixed(4)}
                           <div className="text-[10px] opacity-80">
                             {Number(row.total_pnl_pct ?? 0).toFixed(2)}%
                           </div>
                         </td>
                         <td className="px-3 py-3 font-mono text-[#b7bdc6]">
-                          {Number(row.margin_used ?? 0).toFixed(4)} / {Number(row.margin_used_pct ?? 0).toFixed(2)}%
+                          {Number(row.margin_used ?? 0).toFixed(4)} /{' '}
+                          {Number(row.margin_used_pct ?? 0).toFixed(2)}%
                         </td>
-                        <td className={`px-3 py-3 font-mono font-bold ${upnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                          {upnl >= 0 ? '+' : ''}{upnl.toFixed(4)}
+                        <td
+                          className={`px-3 py-3 font-mono font-bold ${upnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
+                        >
+                          {upnl >= 0 ? '+' : ''}
+                          {upnl.toFixed(4)}
                         </td>
                         <td className="px-3 py-3 text-[#b7bdc6]">
                           {(row.positions ?? []).length === 0 ? (
@@ -691,9 +691,12 @@ export function AdminDashboardPage() {
                               {(row.positions ?? []).map((p, i) => {
                                 const entry = Number(p.entry_price ?? 0)
                                 return (
-                                  <li key={`${row.trader_id}-${p.symbol}-${i}`} className="font-mono text-[11px]">
-                                    {p.symbol} {formatAdminPositionSide(p.side)} 入场{' '}
-                                    {entry > 0 ? entry.toFixed(4) : '—'}
+                                  <li
+                                    key={`${row.trader_id}-${p.symbol}-${i}`}
+                                    className="font-mono text-[11px]"
+                                  >
+                                    {p.symbol} {formatAdminPositionSide(p.side)}{' '}
+                                    入场 {entry > 0 ? entry.toFixed(4) : '—'}
                                   </li>
                                 )
                               })}
@@ -701,13 +704,22 @@ export function AdminDashboardPage() {
                           )}
                         </td>
                         <td className="px-3 py-3 text-[#848E9C]">
-                          <div>{row.error || (row.metrics_source === 'exchange_live' ? '交易所实时' : row.metrics_source === 'equity_snapshot' ? '本机快照' : '正常')}</div>
-                          {row.metrics_source === 'exchange_live' && row.checked_at ? (
+                          <div>
+                            {row.error ||
+                              (row.metrics_source === 'exchange_live'
+                                ? '交易所实时'
+                                : row.metrics_source === 'equity_snapshot'
+                                  ? '本机快照'
+                                  : '正常')}
+                          </div>
+                          {row.metrics_source === 'exchange_live' &&
+                          row.checked_at ? (
                             <div className="mt-1 font-mono text-[10px] text-emerald-400/90">
                               实时 {new Date(row.checked_at).toLocaleString()}
                             </div>
                           ) : null}
-                          {row.metrics_source === 'equity_snapshot' && row.snapshot_at ? (
+                          {row.metrics_source === 'equity_snapshot' &&
+                          row.snapshot_at ? (
                             <div className="mt-1 font-mono text-[10px] text-[#5e6673]">
                               快照 {new Date(row.snapshot_at).toLocaleString()}
                             </div>
@@ -718,7 +730,12 @@ export function AdminDashboardPage() {
                             <button
                               type="button"
                               disabled={busy || on}
-                              onClick={() => void handleAdminTraderControl(row.trader_id, 'start')}
+                              onClick={() =>
+                                void handleAdminTraderControl(
+                                  row.trader_id,
+                                  'start'
+                                )
+                              }
                               className="rounded border border-emerald-500/40 bg-emerald-600/25 px-2 py-1 text-[11px] text-emerald-200 hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               启动
@@ -726,7 +743,12 @@ export function AdminDashboardPage() {
                             <button
                               type="button"
                               disabled={busy || !on}
-                              onClick={() => void handleAdminTraderControl(row.trader_id, 'stop')}
+                              onClick={() =>
+                                void handleAdminTraderControl(
+                                  row.trader_id,
+                                  'stop'
+                                )
+                              }
                               className="rounded border border-red-500/40 bg-red-600/25 px-2 py-1 text-[11px] text-red-200 hover:bg-red-600/40 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               停止
@@ -735,7 +757,12 @@ export function AdminDashboardPage() {
                               type="button"
                               disabled={busy}
                               title="按交易所当前持仓重写本机 OPEN 记录，消除幽灵持仓"
-                              onClick={() => void handleAdminTraderControl(row.trader_id, 'sync_positions')}
+                              onClick={() =>
+                                void handleAdminTraderControl(
+                                  row.trader_id,
+                                  'sync_positions'
+                                )
+                              }
                               className="rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-2 py-1 text-[11px] text-[#d4ff33] hover:bg-[#d4ff33]/20 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               同步持仓
@@ -759,10 +786,13 @@ export function AdminDashboardPage() {
           subtitle={
             <>
               每行一条：完整 socks5:// URL，或{' '}
-              <code className="rounded bg-black/40 px-1">host|port|user|pass|到期(可选)</code>
+              <code className="rounded bg-black/40 px-1">
+                host|port|user|pass|到期(可选)
+              </code>
               。客户新建币安账户并勾选「代理池」时自动分配，一人一出口不重复。
               <span className="mt-1 block text-[#d4ff33]/90">
-                未分配的行可点「绑定交易所」，填入下方用户列表里的 user_id 与对应币安账户的 exchange_id（UUID）。
+                未分配的行可点「绑定交易所」，填入下方用户列表里的 user_id
+                与对应币安账户的 exchange_id（UUID）。
                 要把别人的代理换给另一人：先对该行「强制回收」，再在回收后的未分配行上绑定目标账户。
               </span>
             </>
@@ -781,7 +811,9 @@ export function AdminDashboardPage() {
             <textarea
               value={proxyImportText}
               onChange={(e) => setProxyImportText(e.target.value)}
-              placeholder={'示例：\n47.1.2.3|11819|user|pass|2026-12-31 23:59:59'}
+              placeholder={
+                '示例：\n47.1.2.3|11819|user|pass|2026-12-31 23:59:59'
+              }
               rows={4}
               className="min-h-[100px] flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-[#eaecef] outline-none focus:border-[#d4ff33]/40"
             />
@@ -791,9 +823,11 @@ export function AdminDashboardPage() {
               onClick={async () => {
                 setProxyImportBusy(true)
                 try {
-                  const r = await api.postAdminOutboundProxyPoolImport(proxyImportText)
+                  const r =
+                    await api.postAdminOutboundProxyPoolImport(proxyImportText)
                   toast.success(`导入完成：新增 ${r.added}，跳过 ${r.skipped}`)
-                  if ((r.errors ?? []).length > 0) toast.info(r.errors.slice(0, 5).join('；'))
+                  if ((r.errors ?? []).length > 0)
+                    toast.info(r.errors.slice(0, 5).join('；'))
                   setProxyImportText('')
                   await mutateProxyPool()
                 } catch (e) {
@@ -822,82 +856,114 @@ export function AdminDashboardPage() {
               <tbody className="divide-y divide-white/5">
                 {(proxyPoolData?.entries ?? []).length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-[#848E9C]">
+                    <td
+                      colSpan={6}
+                      className="px-3 py-8 text-center text-[#848E9C]"
+                    >
                       暂无记录，请在上方粘贴导入。
                     </td>
                   </tr>
                 ) : (
-                  (proxyPoolData?.entries ?? []).map((row: AdminOutboundProxyPoolRow) => (
-                    <tr key={row.id} className="hover:bg-white/[0.02]">
-                      <td className="px-3 py-3 font-mono text-[#d4ff33]">{row.display_host || '—'}</td>
-                      <td className="px-3 py-3 text-[#b7bdc6]">
-                        {row.expires_at ? new Date(row.expires_at).toLocaleString() : '—'}
-                      </td>
-                      <td className="px-3 py-3 tabular-nums text-[#b7bdc6]">
-                        {row.seconds_until_expiry != null ? row.seconds_until_expiry : '—'}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="font-medium text-[#eaecef]">
-                          {row.assigned_user_display_name || row.assigned_user_email || '—'}
-                        </div>
-                        <div className="mt-0.5 text-[10px] text-[#5e6673]">{row.assigned_user_id || ''}</div>
-                      </td>
-                      <td className="px-3 py-3 text-[#b7bdc6]">{row.assigned_exchange_account_name || '—'}</td>
-                      <td className="px-3 py-3 text-right">
-                        {!row.assigned_exchange_id ? (
-                          <div className="flex flex-wrap justify-end gap-1">
+                  (proxyPoolData?.entries ?? []).map(
+                    (row: AdminOutboundProxyPoolRow) => (
+                      <tr key={row.id} className="hover:bg-white/[0.02]">
+                        <td className="px-3 py-3 font-mono text-[#d4ff33]">
+                          {row.display_host || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-[#b7bdc6]">
+                          {row.expires_at
+                            ? new Date(row.expires_at).toLocaleString()
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-[#b7bdc6]">
+                          {row.seconds_until_expiry != null
+                            ? row.seconds_until_expiry
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-medium text-[#eaecef]">
+                            {row.assigned_user_display_name ||
+                              row.assigned_user_email ||
+                              '—'}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-[#5e6673]">
+                            {row.assigned_user_id || ''}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-[#b7bdc6]">
+                          {row.assigned_exchange_account_name || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {!row.assigned_exchange_id ? (
+                            <div className="flex flex-wrap justify-end gap-1">
+                              <button
+                                type="button"
+                                className="rounded border border-[#d4ff33]/45 px-2 py-1 text-[11px] text-[#d4ff33] hover:bg-[#d4ff33]/10"
+                                onClick={() => {
+                                  setProxyAssignPoolId(row.id)
+                                  setProxyAssignHost(row.display_host || '')
+                                  setProxyAssignPick('')
+                                  setProxyAssignUserId('')
+                                  setProxyAssignExchangeId('')
+                                }}
+                              >
+                                绑定交易所
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded border border-red-500/40 px-2 py-1 text-[11px] text-red-200 hover:bg-red-500/15"
+                                onClick={async () => {
+                                  if (!confirm('删除这条未分配的代理？')) return
+                                  try {
+                                    await api.deleteAdminOutboundProxyPoolEntry(
+                                      row.id
+                                    )
+                                    toast.success('已删除')
+                                    await mutateProxyPool()
+                                  } catch (e) {
+                                    toast.error(
+                                      e instanceof Error
+                                        ? e.message
+                                        : '删除失败'
+                                    )
+                                  }
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
-                              className="rounded border border-[#d4ff33]/45 px-2 py-1 text-[11px] text-[#d4ff33] hover:bg-[#d4ff33]/10"
-                              onClick={() => {
-                                setProxyAssignPoolId(row.id)
-                                setProxyAssignHost(row.display_host || '')
-                                setProxyAssignPick('')
-                                setProxyAssignUserId('')
-                                setProxyAssignExchangeId('')
-                              }}
-                            >
-                              绑定交易所
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded border border-red-500/40 px-2 py-1 text-[11px] text-red-200 hover:bg-red-500/15"
+                              className="rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/15"
                               onClick={async () => {
-                                if (!confirm('删除这条未分配的代理？')) return
+                                if (
+                                  !confirm(
+                                    '强制回收该代理并清空用户交易所里的出口配置？'
+                                  )
+                                )
+                                  return
                                 try {
-                                  await api.deleteAdminOutboundProxyPoolEntry(row.id)
-                                  toast.success('已删除')
+                                  await api.postAdminOutboundProxyPoolRelease(
+                                    row.id
+                                  )
+                                  toast.success('已回收')
                                   await mutateProxyPool()
+                                  await mutate()
                                 } catch (e) {
-                                  toast.error(e instanceof Error ? e.message : '删除失败')
+                                  toast.error(
+                                    e instanceof Error ? e.message : '回收失败'
+                                  )
                                 }
                               }}
                             >
-                              删除
+                              强制回收
                             </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/15"
-                            onClick={async () => {
-                              if (!confirm('强制回收该代理并清空用户交易所里的出口配置？')) return
-                              try {
-                                await api.postAdminOutboundProxyPoolRelease(row.id)
-                                toast.success('已回收')
-                                await mutateProxyPool()
-                                await mutate()
-                              } catch (e) {
-                                toast.error(e instanceof Error ? e.message : '回收失败')
-                              }
-                            }}
-                          >
-                            强制回收
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )
                 )}
               </tbody>
             </table>
@@ -910,10 +976,16 @@ export function AdminDashboardPage() {
               aria-modal="true"
             >
               <div className="w-full max-w-md rounded-xl border border-white/15 bg-nofx-bg-secondary p-5 shadow-xl">
-                <h3 className="text-base font-bold text-[#eaecef]">绑定代理到交易所</h3>
-                <p className="mt-1 font-mono text-xs text-[#d4ff33]">{proxyAssignHost || proxyAssignPoolId}</p>
+                <h3 className="text-base font-bold text-[#eaecef]">
+                  绑定代理到交易所
+                </h3>
+                <p className="mt-1 font-mono text-xs text-[#d4ff33]">
+                  {proxyAssignHost || proxyAssignPoolId}
+                </p>
                 <p className="mt-2 text-xs text-[#848E9C]">
-                  下面列出所有用户的<strong className="text-[#eaecef]">币安交易员</strong>（绑定到哪张 API 密钥），选中即可，无需再抄 UUID。
+                  下面列出所有用户的
+                  <strong className="text-[#eaecef]">币安交易员</strong>
+                  （绑定到哪张 API 密钥），选中即可，无需再抄 UUID。
                 </p>
                 <label className="mt-4 block text-xs text-[#848E9C]">
                   选择要绑定出口的用户 → 交易员 → 币安账户
@@ -929,7 +1001,10 @@ export function AdminDashboardPage() {
                         return
                       }
                       try {
-                        const o = JSON.parse(v) as { user_id: string; exchange_id: string }
+                        const o = JSON.parse(v) as {
+                          user_id: string
+                          exchange_id: string
+                        }
                         setProxyAssignUserId(o.user_id)
                         setProxyAssignExchangeId(o.exchange_id)
                       } catch {
@@ -942,7 +1017,10 @@ export function AdminDashboardPage() {
                     {proxyBinancePickRows.map((r) => (
                       <option
                         key={`${r.user_id}-${r.exchange_id}`}
-                        value={JSON.stringify({ user_id: r.user_id, exchange_id: r.exchange_id })}
+                        value={JSON.stringify({
+                          user_id: r.user_id,
+                          exchange_id: r.exchange_id,
+                        })}
                       >
                         {r.label}
                       </option>
@@ -951,11 +1029,18 @@ export function AdminDashboardPage() {
                 </label>
                 {proxyBinancePickRows.length === 0 ? (
                   <p className="mt-2 text-xs text-amber-200/90">
-                    暂无币安交易员条目：请<strong className="text-[#eaecef]">刷新页面</strong>并部署含 <code className="text-[#d4ff33]">traders</code> 字段的最新后端；或展开下方手动填写。
+                    暂无币安交易员条目：请
+                    <strong className="text-[#eaecef]">
+                      刷新页面
+                    </strong>并部署含{' '}
+                    <code className="text-[#d4ff33]">traders</code>{' '}
+                    字段的最新后端；或展开下方手动填写。
                   </p>
                 ) : null}
                 <details className="mt-4 rounded-lg border border-white/10 bg-black/25 p-3">
-                  <summary className="cursor-pointer text-xs text-[#848E9C]">手动输入 user_id / exchange_id</summary>
+                  <summary className="cursor-pointer text-xs text-[#848E9C]">
+                    手动输入 user_id / exchange_id
+                  </summary>
                   <label className="mt-3 block text-xs text-[#848E9C]">
                     user_id
                     <input
@@ -991,15 +1076,22 @@ export function AdminDashboardPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={proxyAssignBusy || !proxyAssignUserId.trim() || !proxyAssignExchangeId.trim()}
+                    disabled={
+                      proxyAssignBusy ||
+                      !proxyAssignUserId.trim() ||
+                      !proxyAssignExchangeId.trim()
+                    }
                     className="rounded-lg bg-[#d4ff33] px-4 py-2 text-xs font-bold text-black hover:bg-[#e5ff66] disabled:opacity-40"
                     onClick={async () => {
                       setProxyAssignBusy(true)
                       try {
-                        await api.postAdminOutboundProxyPoolAssign(proxyAssignPoolId, {
-                          user_id: proxyAssignUserId.trim(),
-                          exchange_id: proxyAssignExchangeId.trim(),
-                        })
+                        await api.postAdminOutboundProxyPoolAssign(
+                          proxyAssignPoolId,
+                          {
+                            user_id: proxyAssignUserId.trim(),
+                            exchange_id: proxyAssignExchangeId.trim(),
+                          }
+                        )
                         toast.success('已绑定')
                         setProxyAssignPoolId(null)
                         await mutateProxyPool()
@@ -1026,81 +1118,93 @@ export function AdminDashboardPage() {
           subtitle="注册用户列表、站内余额、交易所绑定与币安未平仓摘要；右侧「调账」同财务入账逻辑（可正负）。"
         >
           <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/20">
-          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-[#848E9C]">
-                <th className="px-3 py-3">用户</th>
-                <th className="px-3 py-3">余额(站内)</th>
-                <th className="px-3 py-3">交易员</th>
-                <th className="px-3 py-3">交易所</th>
-                <th className="px-3 py-3">币安未平仓</th>
-                <th className="px-3 py-3 text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {sorted.map((u: AdminUserRow) => (
-                <tr key={u.id} className="hover:bg-white/[0.02]">
-                  <td className="px-3 py-3 align-top">
-                    <div className="font-medium">{u.display_name || '—'}</div>
-                    <div className="mt-0.5 text-xs text-[#848E9C]">{u.email}</div>
-                    <div className="mt-1 font-mono text-[10px] text-[#5e6673]">{u.id}</div>
-                  </td>
-                  <td className="px-3 py-3 align-top tabular-nums font-semibold text-[#d4ff33]">
-                    {Number(u.balance_usdt ?? 0).toFixed(2)} USDT
-                  </td>
-                  <td className="px-3 py-3 align-top tabular-nums">{u.trader_count}</td>
-                  <td className="px-3 py-3 align-top text-xs text-[#b7bdc6]">
-                    {(u.exchanges || []).length === 0 ? (
-                      '—'
-                    ) : (
-                      <ul className="max-w-[220px] space-y-1">
-                        {u.exchanges.map((ex) => (
-                          <li key={ex.id}>
-                            {ex.exchange_type} · {ex.account_name || '默认'}{' '}
-                            {ex.enabled ? '' : '(关)'}
-                            <span className="mt-0.5 block font-mono text-[10px] text-[#5e6673]" title="exchange_id">
-                              {ex.id}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top text-xs text-[#b7bdc6]">
-                    {(u.binance_open_positions || []).length === 0 ? (
-                      '—'
-                    ) : (
-                      <ul className="max-w-[280px] space-y-1">
-                        {u.binance_open_positions.map((p, i) => (
-                          <li key={`${p.trader_id}-${p.symbol}-${i}`}>
-                            {p.trader_name}: {p.symbol} {p.side} 数量 {p.size}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAdjustUserId(u.id)
-                        setDeltaInput('')
-                        setNoteInput('')
-                      }}
-                      className="rounded-lg bg-[#d4ff33]/15 px-2 py-1 text-xs font-bold text-[#d4ff33] hover:bg-[#d4ff33]/25"
-                    >
-                      调账
-                    </button>
-                  </td>
+            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-[#848E9C]">
+                  <th className="px-3 py-3">用户</th>
+                  <th className="px-3 py-3">余额(站内)</th>
+                  <th className="px-3 py-3">交易员</th>
+                  <th className="px-3 py-3">交易所</th>
+                  <th className="px-3 py-3">币安未平仓</th>
+                  <th className="px-3 py-3 text-right">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {sorted.map((u: AdminUserRow) => (
+                  <tr key={u.id} className="hover:bg-white/[0.02]">
+                    <td className="px-3 py-3 align-top">
+                      <div className="font-medium">{u.display_name || '—'}</div>
+                      <div className="mt-0.5 text-xs text-[#848E9C]">
+                        {u.email}
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] text-[#5e6673]">
+                        {u.id}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 align-top tabular-nums font-semibold text-[#d4ff33]">
+                      {Number(u.balance_usdt ?? 0).toFixed(2)} USDT
+                    </td>
+                    <td className="px-3 py-3 align-top tabular-nums">
+                      {u.trader_count}
+                    </td>
+                    <td className="px-3 py-3 align-top text-xs text-[#b7bdc6]">
+                      {(u.exchanges || []).length === 0 ? (
+                        '—'
+                      ) : (
+                        <ul className="max-w-[220px] space-y-1">
+                          {u.exchanges.map((ex) => (
+                            <li key={ex.id}>
+                              {ex.exchange_type} · {ex.account_name || '默认'}{' '}
+                              {ex.enabled ? '' : '(关)'}
+                              <span
+                                className="mt-0.5 block font-mono text-[10px] text-[#5e6673]"
+                                title="exchange_id"
+                              >
+                                {ex.id}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top text-xs text-[#b7bdc6]">
+                      {(u.binance_open_positions || []).length === 0 ? (
+                        '—'
+                      ) : (
+                        <ul className="max-w-[280px] space-y-1">
+                          {u.binance_open_positions.map((p, i) => (
+                            <li key={`${p.trader_id}-${p.symbol}-${i}`}>
+                              {p.trader_name}: {p.symbol} {p.side} 数量 {p.size}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdjustUserId(u.id)
+                          setDeltaInput('')
+                          setNoteInput('')
+                          setConfirmedDeposit(false)
+                          setOriginalDepositLedgerId('')
+                        }}
+                        className="rounded-lg bg-[#d4ff33]/15 px-2 py-1 text-xs font-bold text-[#d4ff33] hover:bg-[#d4ff33]/25"
+                      >
+                        调账
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        <p className="mt-4 text-center text-xs text-[#5e6673]">
-          数据时间：{data?.generated_at || '—'} · 币安仓位来自本系统记录的未平仓表
-        </p>
+          <p className="mt-4 text-center text-xs text-[#5e6673]">
+            数据时间：{data?.generated_at || '—'} ·
+            币安仓位来自本系统记录的未平仓表
+          </p>
         </AdminCollapsibleSection>
 
         <AdminCollapsibleSection
@@ -1125,12 +1229,19 @@ export function AdminDashboardPage() {
           ) : (
             <>
               <div className="mt-4 flex flex-wrap gap-2">
-                {Object.entries(rebateData.totals || {}).map(([asset, amount]) => (
-                  <div key={asset} className="rounded-xl border border-[#d4ff33]/20 bg-[#d4ff33]/10 px-4 py-3">
-                    <div className="text-[11px] text-[#848E9C]">{asset}</div>
-                    <div className="font-mono text-lg font-bold text-[#d4ff33]">{Number(amount).toFixed(8)}</div>
-                  </div>
-                ))}
+                {Object.entries(rebateData.totals || {}).map(
+                  ([asset, amount]) => (
+                    <div
+                      key={asset}
+                      className="rounded-xl border border-[#d4ff33]/20 bg-[#d4ff33]/10 px-4 py-3"
+                    >
+                      <div className="text-[11px] text-[#848E9C]">{asset}</div>
+                      <div className="font-mono text-lg font-bold text-[#d4ff33]">
+                        {Number(amount).toFixed(8)}
+                      </div>
+                    </div>
+                  )
+                )}
                 {Object.keys(rebateData.totals || {}).length === 0 ? (
                   <div className="text-sm text-[#848E9C]">暂无返佣记录</div>
                 ) : null}
@@ -1154,69 +1265,37 @@ export function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {(rebateData.items ?? []).slice(0, 200).map((row: AdminBinanceBrokerRebateRow, idx) => (
-                      <tr key={`${row.market}-${row.time}-${idx}`} className="hover:bg-white/[0.02]">
-                        <td className="px-3 py-3 text-[#b7bdc6]">
-                          {row.time ? new Date(row.time).toLocaleString() : '—'}
-                        </td>
-                        <td className="px-3 py-3">{row.market}</td>
-                        <td className="px-3 py-3">{row.asset || '—'}</td>
-                        <td className="px-3 py-3 font-mono font-bold text-[#d4ff33]">
-                          {Number(row.amount ?? 0).toFixed(8)}
-                        </td>
-                        <td className="px-3 py-3 font-mono text-[10px] text-[#848E9C]">
-                          {row.customer_id || row.sub_account_id || '—'}
-                        </td>
-                        <td className="px-3 py-3">{row.symbol || '—'}</td>
-                        <td className="px-3 py-3">{row.income_type || '—'}</td>
-                      </tr>
-                    ))}
+                    {(rebateData.items ?? [])
+                      .slice(0, 200)
+                      .map((row: AdminBinanceBrokerRebateRow, idx) => (
+                        <tr
+                          key={`${row.market}-${row.time}-${idx}`}
+                          className="hover:bg-white/[0.02]"
+                        >
+                          <td className="px-3 py-3 text-[#b7bdc6]">
+                            {row.time
+                              ? new Date(row.time).toLocaleString()
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-3">{row.market}</td>
+                          <td className="px-3 py-3">{row.asset || '—'}</td>
+                          <td className="px-3 py-3 font-mono font-bold text-[#d4ff33]">
+                            {Number(row.amount ?? 0).toFixed(8)}
+                          </td>
+                          <td className="px-3 py-3 font-mono text-[10px] text-[#848E9C]">
+                            {row.customer_id || row.sub_account_id || '—'}
+                          </td>
+                          <td className="px-3 py-3">{row.symbol || '—'}</td>
+                          <td className="px-3 py-3">
+                            {row.income_type || '—'}
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
             </>
           )}
-        </AdminCollapsibleSection>
-
-        <AdminCollapsibleSection
-          defaultOpen={false}
-          className="mt-10 rounded-xl border border-white/10 bg-nofx-bg-secondary"
-          title="合作人邀请总览"
-          subtitle="管理员可查看所有合作人，以及他们邀请来的客户。"
-        >
-          <div className="space-y-3">
-            {(inviteOverview?.partners ?? []).length === 0 ? (
-              <div className="rounded-lg border border-white/10 px-4 py-6 text-center text-sm text-[#848E9C]">
-                暂无邀请关系
-              </div>
-            ) : (
-              (inviteOverview?.partners ?? []).map((p: AdminInvitePartner) => (
-                <div key={p.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="font-bold text-white">{p.display_name || p.email}</div>
-                      <div className="text-xs text-[#848E9C]">{p.email}</div>
-                      <div className="mt-1 font-mono text-xs text-[#d4ff33]">{p.invite_code}</div>
-                    </div>
-                    <div className="rounded-lg bg-[#d4ff33]/10 px-3 py-2 text-sm font-bold text-[#d4ff33]">
-                      客户 {p.customer_count} 人
-                    </div>
-                  </div>
-                  <ul className="mt-3 grid gap-2 md:grid-cols-2">
-                    {p.customers.map((c) => (
-                      <li key={c.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-xs">
-                        <div className="font-medium text-white">{c.display_name || '未命名用户'}</div>
-                        <div className="text-[#848E9C]">{c.email}</div>
-                        <div className="mt-1 text-[#5e6673]">
-                          余额 {Number(c.balance_usdt ?? 0).toFixed(4)} USDT · {new Date(c.created_at).toLocaleString()}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))
-            )}
-          </div>
         </AdminCollapsibleSection>
 
         <AdminCollapsibleSection
@@ -1256,49 +1335,69 @@ export function AdminDashboardPage() {
               <tbody className="divide-y divide-white/5">
                 {(usageData?.items ?? []).length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-[#848E9C]">
+                    <td
+                      colSpan={8}
+                      className="px-3 py-8 text-center text-[#848E9C]"
+                    >
                       暂无 AI 调用流水
                     </td>
                   </tr>
                 ) : (
-                  (usageData?.items ?? []).map((row: AdminAIPlatformUsageRow) => (
-                    <tr key={row.id} className="hover:bg-white/[0.02]">
-                      <td className="px-3 py-3 text-[#b7bdc6]">{new Date(row.created_at).toLocaleString()}</td>
-                      <td className="px-3 py-3">
-                        <div className="font-medium text-white">{row.user_display_name || '—'}</div>
-                        <div className="text-[#848E9C]">{row.user_email || row.user_id}</div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="font-semibold text-white">{formatUsageModelName(row)}</div>
-                        {formatUsageProviderName(row) ? (
-                          <div className="text-[#848E9C]">{formatUsageProviderName(row)}</div>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-3 tabular-nums text-[#b2dfdb]">
-                        {Number(row.actual_cost_usdc ?? 0).toFixed(6)} USDC
-                      </td>
-                      <td className="px-3 py-3 tabular-nums font-bold text-[#d4ff33]">
-                        {Number(row.charged_usdt ?? 0).toFixed(6)} USDT
-                      </td>
-                      <td className="px-3 py-3 tabular-nums text-[#c5e1a5]">
-                        {Number(row.wallet_balance_before ?? 0).toFixed(2)} → {Number(row.wallet_balance_after ?? 0).toFixed(2)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${
-                          row.status === 'success'
-                            ? 'bg-emerald-500/15 text-emerald-300'
-                            : row.status === 'refunded'
-                              ? 'bg-amber-500/15 text-amber-300'
-                              : row.status === 'failed'
-                                ? 'bg-red-500/15 text-red-300'
-                                : 'bg-zinc-500/15 text-zinc-300'
-                        }`}>
-                          {row.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 font-mono text-[10px] text-[#848E9C]">{row.trader_id || '—'}</td>
-                    </tr>
-                  ))
+                  (usageData?.items ?? []).map(
+                    (row: AdminAIPlatformUsageRow) => (
+                      <tr key={row.id} className="hover:bg-white/[0.02]">
+                        <td className="px-3 py-3 text-[#b7bdc6]">
+                          {new Date(row.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-medium text-white">
+                            {row.user_display_name || '—'}
+                          </div>
+                          <div className="text-[#848E9C]">
+                            {row.user_email || row.user_id}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-semibold text-white">
+                            {formatUsageModelName(row)}
+                          </div>
+                          {formatUsageProviderName(row) ? (
+                            <div className="text-[#848E9C]">
+                              {formatUsageProviderName(row)}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-[#b2dfdb]">
+                          {Number(row.actual_cost_usdc ?? 0).toFixed(6)} USDC
+                        </td>
+                        <td className="px-3 py-3 tabular-nums font-bold text-[#d4ff33]">
+                          {Number(row.charged_usdt ?? 0).toFixed(6)} USDT
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-[#c5e1a5]">
+                          {Number(row.wallet_balance_before ?? 0).toFixed(2)} →{' '}
+                          {Number(row.wallet_balance_after ?? 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                              row.status === 'success'
+                                ? 'bg-emerald-500/15 text-emerald-300'
+                                : row.status === 'refunded'
+                                  ? 'bg-amber-500/15 text-amber-300'
+                                  : row.status === 'failed'
+                                    ? 'bg-red-500/15 text-red-300'
+                                    : 'bg-zinc-500/15 text-zinc-300'
+                            }`}
+                          >
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 font-mono text-[10px] text-[#848E9C]">
+                          {row.trader_id || '—'}
+                        </td>
+                      </tr>
+                    )
+                  )
                 )}
               </tbody>
             </table>
@@ -1310,7 +1409,9 @@ export function AdminDashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-nofx-bg-secondary p-6 shadow-2xl">
             <h2 className="text-lg font-bold">调整用户余额</h2>
-            <p className="mt-2 text-xs text-[#848E9C]">用户 ID：{adjustUserId}</p>
+            <p className="mt-2 text-xs text-[#848E9C]">
+              用户 ID：{adjustUserId}
+            </p>
             <label className="mt-4 block text-xs text-[#848E9C]">
               金额变动（USDT，正数增加、负数扣减）
               <input
@@ -1330,6 +1431,28 @@ export function AdminDashboardPage() {
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
               />
             </label>
+            <label className="mt-3 flex items-center gap-2 text-xs text-[#b7bdc6]">
+              <input
+                type="checkbox"
+                checked={confirmedDeposit}
+                onChange={(e) => setConfirmedDeposit(e.target.checked)}
+                disabled={Number(deltaInput) <= 0}
+                className="h-4 w-4 accent-[#d4ff33]"
+              />
+              标记为确认充值并参与新返佣
+            </label>
+            {Number(deltaInput) < 0 ? (
+              <label className="mt-3 block text-xs text-[#848E9C]">
+                原确认充值账本ID（填写后同步扣回返佣）
+                <input
+                  type="number"
+                  min="1"
+                  value={originalDepositLedgerId}
+                  onChange={(e) => setOriginalDepositLedgerId(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+            ) : null}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"

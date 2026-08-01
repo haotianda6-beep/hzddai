@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>COMKUN 合作伙伴总账</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0d0f10;--panel:#151819;--line:#293033;--text:#ecf2ef;--muted:#99a6a1;--green:#9ee640;--cyan:#4ed6ca;--red:#ff6b72;--yellow:#ffc857}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif;letter-spacing:0}
+    header{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;background:#0d0f10f2;z-index:2}
+    h1{font-size:18px;margin:0}main{padding:20px 24px 40px;max-width:1800px;margin:auto}.muted{color:var(--muted)}
+    .summary{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));border:1px solid var(--line);background:var(--panel);border-radius:6px;overflow:hidden}
+    .metric{padding:16px;border-right:1px solid var(--line)}.metric:last-child{border:0}.metric strong{display:block;font-size:21px;margin-top:5px}.metric span{color:var(--muted);font-size:12px}
+    nav{display:flex;gap:4px;margin:18px 0 10px;border-bottom:1px solid var(--line);overflow:auto}button,select,input{font:inherit;color:inherit;background:#1a1f20;border:1px solid #394245;border-radius:5px;padding:7px 10px}
+    button{cursor:pointer}button:hover{border-color:var(--green)}button.primary{background:var(--green);color:#101410;border-color:var(--green);font-weight:700}button.danger{color:var(--red)}
+    nav button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);white-space:nowrap;padding:10px 14px}nav button.active{color:var(--text);border-color:var(--green)}
+    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:10px 0}.table-wrap{border:1px solid var(--line);border-radius:6px;overflow:auto;background:var(--panel)}
+    table{width:100%;border-collapse:collapse;min-width:900px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #252b2d;white-space:nowrap}th{color:var(--muted);font-size:12px;background:#111415;position:sticky;top:0}tr:last-child td{border-bottom:0}
+    .role,.status{display:inline-flex;padding:2px 7px;border-radius:4px;background:#24302b;color:var(--green);font-size:12px}.status.rejected{color:var(--red)}.status.pending{color:var(--yellow)}
+    .actions{display:flex;gap:6px}.hidden{display:none}.empty{padding:36px;text-align:center;color:var(--muted)}.positive{color:var(--green)}.negative{color:var(--red)}
+    @media(max-width:900px){header,main{padding-left:12px;padding-right:12px}.summary{grid-template-columns:repeat(2,1fr)}.metric:nth-child(2n){border-right:0}.metric{border-bottom:1px solid var(--line)}}
+  </style>
+</head>
+<body>
+<header><h1>COMKUN 合作伙伴总账</h1><span id="updated" class="muted">正在读取...</span></header>
+<main>
+  <section id="summary" class="summary"></section>
+  <nav id="tabs"></nav>
+  <div class="toolbar"><strong id="sectionTitle">用户与身份</strong><input id="search" placeholder="搜索用户或流水" autocomplete="off"></div>
+  <section id="content" class="table-wrap"></section>
+</main>
+<script>
+const state={data:null,tab:'users',query:''};
+const labels={users:'用户与身份',deposits:'确认充值',commissions:'返佣明细',withdrawals:'提现审核',studio_requests:'工作室审核',role_audits:'身份变更'};
+const roleName={retail:'散户',ib:'IB',studio:'工作室',branch:'分公司'};
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const statusName={pending:'待审核',approved:'已批准',paid:'已付款',rejected:'已驳回'};
+function metric(label,value){return `<div class="metric"><span>${label}</span><strong>${esc(value)}</strong></div>`}
+function moneyClass(v){return Number(v)<0?'negative':'positive'}
+function filtered(rows){const q=state.query.toLowerCase();return q?rows.filter(r=>JSON.stringify(r).toLowerCase().includes(q)):rows}
+function table(headers,rows){if(!rows.length)return '<div class="empty">暂无记录</div>';return `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`}
+async function api(path,options={}){const res=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const body=await res.json();if(!res.ok)throw new Error(body.detail||'操作失败');return body}
+async function act(path,body){try{await api(path,{method:'POST',body:JSON.stringify(body)});await load()}catch(e){alert(e.message)}}
+function renderSummary(){const s=state.data.summary;document.querySelector('#summary').innerHTML=[metric('确认充值',s.confirmed_deposits_usdt+' U'),metric('已分配返佣',s.allocated_commission_usdt+' U'),metric('平台留存',s.platform_remainder_usdt+' U'),metric('可提现负债',s.available_liability_usdt+' U'),metric('冻结提现',s.frozen_liability_usdt+' U'),metric('用户 / 分公司 / 工作室 / IB',`${s.users} / ${s.roles.branch} / ${s.roles.studio} / ${s.roles.ib}`)].join('')}
+function renderUsers(){const rows=filtered(state.data.users).map(r=>`<tr><td>${esc(r.nickname||'未命名')}<div class="muted">${esc(r.platform_user_id)}</div></td><td>${esc(r.parent_platform_user_id||'顶层')}</td><td><span class="role">${roleName[r.role]}</span></td><td>${esc(r.deposit_usdt)} U</td><td>${esc(r.available_usdt)} U</td><td>${esc(r.frozen_usdt)} U</td><td><div class="actions"><select id="role-${esc(r.platform_user_id)}">${Object.entries(roleName).map(([v,l])=>`<option value="${v}" ${v===r.role?'selected':''}>${l}</option>`).join('')}</select><button onclick="setRole('${esc(r.platform_user_id)}')">更新</button></div></td></tr>`);return table(['用户','上级','身份','累计充值','可提现','冻结','身份管理'],rows)}
+function renderDeposits(){const rows=filtered(state.data.deposits).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.nickname)}<div class="muted">${esc(r.platform_user_id)}</div></td><td class="${moneyClass(r.amount_usdt)}">${esc(r.amount_usdt)} U</td><td>${r.event_type==='reversal'?'冲正':'确认充值'}</td><td>${esc(r.source)}</td><td>${esc(r.external_ref)}</td><td>${esc(r.occurred_at)}</td></tr>`);return table(['编号','用户','金额','类型','来源','幂等编号','时间'],rows)}
+function renderCommissions(){const rows=filtered(state.data.commissions).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.source_platform_user_id)}</td><td>${esc(r.recipient_platform_user_id)}</td><td>${roleName[r.recipient_role]}</td><td>${esc(r.rate_percent)}%</td><td class="${moneyClass(r.amount_usdt)}">${esc(r.amount_usdt)} U</td><td>${r.entry_type==='reversal'?'扣回':'返佣'}</td><td>${esc(r.created_at)}</td></tr>`);return table(['编号','充值用户','获佣用户','身份','比例','金额','类型','时间'],rows)}
+function renderWithdrawals(){const rows=filtered(state.data.withdrawals).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.nickname)}<div class="muted">${esc(r.platform_user_id)}</div></td><td>${esc(r.amount_usdt)} U</td><td>${esc(r.network)}</td><td>${esc(r.address)}</td><td><span class="status ${r.status}">${statusName[r.status]||r.status}</span></td><td>${esc(r.requested_at)}</td><td><div class="actions">${r.status==='pending'?`<button class="primary" onclick="withdraw(${r.id},'approve')">批准</button><button class="danger" onclick="withdraw(${r.id},'reject')">驳回</button>`:''}${r.status==='approved'?`<button class="primary" onclick="withdraw(${r.id},'paid')">标记已付款</button><button class="danger" onclick="withdraw(${r.id},'reject')">驳回</button>`:''}</div></td></tr>`);return table(['编号','用户','金额','网络','地址','状态','申请时间','操作'],rows)}
+function renderStudio(){const rows=filtered(state.data.studio_requests).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.branch_platform_user_id)}</td><td>${esc(r.candidate_nickname)}<div class="muted">${esc(r.candidate_platform_user_id)}</div></td><td>${esc(r.request_note||'')}</td><td><span class="status ${r.status}">${statusName[r.status]||r.status}</span></td><td>${esc(r.created_at)}</td><td><div class="actions">${r.status==='pending'?`<button class="primary" onclick="studio(${r.id},'approve')">通过</button><button class="danger" onclick="studio(${r.id},'reject')">拒绝</button>`:''}</div></td></tr>`);return table(['编号','提报分公司','候选用户','备注','状态','时间','操作'],rows)}
+function renderAudits(){const rows=filtered(state.data.role_audits).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.platform_user_id)}</td><td>${roleName[r.old_role]} → ${roleName[r.new_role]}</td><td>${esc(r.actor)}</td><td>${esc(r.source)}</td><td>${esc(r.note||'')}</td><td>${esc(r.created_at)}</td></tr>`);return table(['编号','用户','身份变化','操作人','来源','备注','时间'],rows)}
+function render(){if(!state.data)return;renderSummary();document.querySelector('#tabs').innerHTML=Object.entries(labels).map(([k,v])=>`<button class="${k===state.tab?'active':''}" onclick="switchTab('${k}')">${v}</button>`).join('');document.querySelector('#sectionTitle').textContent=labels[state.tab];const fn={users:renderUsers,deposits:renderDeposits,commissions:renderCommissions,withdrawals:renderWithdrawals,studio_requests:renderStudio,role_audits:renderAudits}[state.tab];document.querySelector('#content').innerHTML=fn()}
+function switchTab(tab){state.tab=tab;render()}function setRole(uid){act('/api/admin/roles',{platform_user_id:uid,role:document.querySelector(`#role-${CSS.escape(uid)}`).value,actor:'总管理员'})}function withdraw(id,action){act(`/api/admin/withdrawals/${id}/review`,{action,actor:'总管理员'})}function studio(id,action){act(`/api/admin/studio-requests/${id}/review`,{action,actor:'总管理员'})}
+async function load(){try{state.data=await api('/api/admin/dashboard?limit=500');document.querySelector('#updated').textContent='实时更新 '+new Date().toLocaleTimeString();render()}catch(e){document.querySelector('#updated').textContent=e.message}}
+document.querySelector('#search').addEventListener('input',e=>{state.query=e.target.value;render()});load();setInterval(load,10000);
+</script>
+</body>
+</html>

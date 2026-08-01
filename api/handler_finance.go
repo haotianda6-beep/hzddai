@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"nofx/store"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -24,11 +26,11 @@ func (s *Server) handleFinanceUsersLite(c *gin.Context) {
 	out := make([]gin.H, 0, len(users))
 	for _, u := range users {
 		out = append(out, gin.H{
-			"id":             u.ID,
-			"email":          u.Email,
-			"display_name":   u.DisplayName,
-			"balance_usdt":   u.BalanceUSDT,
-			"created_at":     u.CreatedAt,
+			"id":           u.ID,
+			"email":        u.Email,
+			"display_name": u.DisplayName,
+			"balance_usdt": u.BalanceUSDT,
+			"created_at":   u.CreatedAt,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -77,8 +79,14 @@ func (s *Server) handleFinanceUserWalletAdjust(c *gin.Context) {
 	if note != "" {
 		reason = "finance_adjust:" + note
 	}
+	reason = "partner_confirmed:finance"
+	rebateEvent := &store.PartnerRebateOutbox{
+		EventType: store.PartnerRebateEventDeposit,
+		Source:    "finance_confirmed",
+		Note:      note,
+	}
 
-	newBal, ledgerID, err := s.runPlatformWalletAdjust(targetID, req.DeltaUSDT, reason)
+	newBal, ledgerID, outboxID, err := s.runPlatformWalletAdjust(targetID, req.DeltaUSDT, reason, rebateEvent)
 	if err != nil {
 		if err == errMarketInsufficientBalance {
 			c.JSON(http.StatusPaymentRequired, gin.H{"error": "调账后余额不能为负"})
@@ -87,8 +95,7 @@ func (s *Server) handleFinanceUserWalletAdjust(c *gin.Context) {
 		SafeInternalError(c, "入账失败", err)
 		return
 	}
-	// 财务入账：仅增加返利侧「充值记账余额」，不触发消费返佣
-	s.NotifyAgentRebateAfterWalletRecharge(targetID, req.DeltaUSDT, ledgerID)
+	go s.dispatchPartnerRebateOutboxID(outboxID)
 
 	title := "入账通知"
 	body := fmt.Sprintf("财务已为您入账站内余额 +%.2f USDT。当前余额 %.2f USDT。", req.DeltaUSDT, newBal)
@@ -97,5 +104,5 @@ func (s *Server) handleFinanceUserWalletAdjust(c *gin.Context) {
 	}
 	_ = s.store.Notification().Add(targetID, title, body)
 
-	c.JSON(http.StatusOK, gin.H{"user_id": targetID, "balance_usdt": newBal})
+	c.JSON(http.StatusOK, gin.H{"user_id": targetID, "balance_usdt": newBal, "ledger_id": ledgerID})
 }

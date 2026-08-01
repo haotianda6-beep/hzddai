@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -390,8 +391,13 @@ func adminIntFromIface(v interface{}) int {
 	}
 }
 
-// runPlatformWalletAdjust 站内余额调账：写 wallet_ledgers，返回新余额与 ledger id（事务内完成）。
-func (s *Server) runPlatformWalletAdjust(targetID string, delta float64, reason string) (newBal float64, ledgerID uint64, err error) {
+// runPlatformWalletAdjust writes the wallet ledger and optional rebate outbox atomically.
+func (s *Server) runPlatformWalletAdjust(
+	targetID string,
+	delta float64,
+	reason string,
+	rebateEvent *store.PartnerRebateOutbox,
+) (newBal float64, ledgerID, outboxID uint64, err error) {
 	err = s.store.Transaction(func(tx *gorm.DB) error {
 		bal, ok, e := s.store.User().AddBalanceDelta(tx, targetID, delta)
 		if e != nil {
@@ -412,9 +418,22 @@ func (s *Server) runPlatformWalletAdjust(targetID string, delta float64, reason 
 			return e
 		}
 		ledgerID = row.ID
+		if rebateEvent != nil {
+			event := *rebateEvent
+			event.UserID = targetID
+			event.AmountUSDT = delta
+			if event.AmountUSDT < 0 {
+				event.AmountUSDT = -event.AmountUSDT
+			}
+			event.WalletLedgerID = ledgerID
+			if e := s.store.PartnerRebateOutbox().Enqueue(tx, &event); e != nil {
+				return e
+			}
+			outboxID = event.ID
+		}
 		return nil
 	})
-	return newBal, ledgerID, err
+	return newBal, ledgerID, outboxID, err
 }
 
 func (s *Server) handleAdminUserWalletAdjust(c *gin.Context) {
@@ -424,8 +443,10 @@ func (s *Server) handleAdminUserWalletAdjust(c *gin.Context) {
 		return
 	}
 	var req struct {
-		DeltaUSDT float64 `json:"delta_usdt" binding:"required"`
-		Note      string  `json:"note"`
+		DeltaUSDT               float64 `json:"delta_usdt" binding:"required"`
+		Note                    string  `json:"note"`
+		ConfirmedDeposit        bool    `json:"confirmed_deposit"`
+		OriginalDepositLedgerID uint64  `json:"original_deposit_ledger_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "delta_usdt 必填")
@@ -433,6 +454,14 @@ func (s *Server) handleAdminUserWalletAdjust(c *gin.Context) {
 	}
 	if req.DeltaUSDT == 0 || req.DeltaUSDT < -1_000_000 || req.DeltaUSDT > 1_000_000 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "delta_usdt 不能为 0，且绝对值不超过 1e6"})
+		return
+	}
+	if req.ConfirmedDeposit && req.DeltaUSDT < 0 {
+		SafeBadRequest(c, "负数调账不能标记为确认充值")
+		return
+	}
+	if req.OriginalDepositLedgerID > 0 && req.DeltaUSDT > 0 {
+		SafeBadRequest(c, "正数调账不能填写原确认充值流水ID")
 		return
 	}
 	if _, err := s.store.User().GetByID(targetID); err != nil {
@@ -452,19 +481,39 @@ func (s *Server) handleAdminUserWalletAdjust(c *gin.Context) {
 	if adminNote != "" {
 		reason = "admin_adjust:" + adminNote
 	}
+	var rebateEvent *store.PartnerRebateOutbox
+	if req.DeltaUSDT > 0 && req.ConfirmedDeposit {
+		reason = "partner_confirmed:admin"
+		rebateEvent = &store.PartnerRebateOutbox{
+			EventType: store.PartnerRebateEventDeposit,
+			Source:    "admin_confirmed",
+			Note:      adminNote,
+		}
+	}
+	if req.DeltaUSDT < 0 && req.OriginalDepositLedgerID > 0 {
+		rebateEvent = &store.PartnerRebateOutbox{
+			EventType:              store.PartnerRebateEventReversal,
+			OriginalWalletLedgerID: req.OriginalDepositLedgerID,
+			Source:                 "admin_reversal",
+			Note:                   adminNote,
+		}
+	}
 
-	newBal, ledgerID, err := s.runPlatformWalletAdjust(targetID, req.DeltaUSDT, reason)
+	newBal, ledgerID, outboxID, err := s.runPlatformWalletAdjust(targetID, req.DeltaUSDT, reason, rebateEvent)
 	if err != nil {
 		if err == errMarketInsufficientBalance {
 			c.JSON(http.StatusPaymentRequired, gin.H{"error": "调账后余额不能为负"})
 			return
 		}
+		if errors.Is(err, store.ErrInvalidPartnerRebateReversal) {
+			SafeBadRequest(c, err.Error())
+			return
+		}
 		SafeInternalError(c, "调账失败", err)
 		return
 	}
-	// 正数调账：与站内充值一致，仅同步返利侧充值记账余额，不触发消费返佣
-	if req.DeltaUSDT > 0 {
-		s.NotifyAgentRebateAfterWalletRecharge(targetID, req.DeltaUSDT, ledgerID)
+	if outboxID > 0 {
+		go s.dispatchPartnerRebateOutboxID(outboxID)
 	}
 
 	title := "余额变动"
@@ -477,7 +526,7 @@ func (s *Server) handleAdminUserWalletAdjust(c *gin.Context) {
 	}
 	_ = s.store.Notification().Add(targetID, title, body)
 
-	c.JSON(http.StatusOK, gin.H{"user_id": targetID, "balance_usdt": newBal})
+	c.JSON(http.StatusOK, gin.H{"user_id": targetID, "balance_usdt": newBal, "ledger_id": ledgerID})
 }
 
 func (s *Server) handleAdminAIPlatformUsage(c *gin.Context) {

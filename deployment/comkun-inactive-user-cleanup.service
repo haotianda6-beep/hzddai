@@ -1,0 +1,14 @@
+[Unit]
+Description=COMKUN inactive user cleanup
+After=network-online.target agent-rebate-backend.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/comkun/cleanup_inactive_users.py --mode scheduled --days 30 --apply
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

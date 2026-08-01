@@ -10,7 +10,7 @@ import (
 )
 
 // WalletLedger 平台余额流水（演示充值 / 策略市场扣款 / 管理员调账）。
-// reason=recharge 为站内充值；策略市场周卡体验为 market_subscription_weekly_trial（不参与消费返佣）。
+// reason=recharge 为历史站内充值；策略市场周卡体验为 market_subscription_weekly_trial。
 type WalletLedger struct {
 	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID        string    `gorm:"column:user_id;not null;index:idx_wallet_ledger_user" json:"user_id"`
@@ -275,46 +275,6 @@ func (s *BillingStore) SumRechargeByUserIDs(userIDs []string) (map[string]float6
 	}
 	for _, row := range rows {
 		out[row.UserID] = row.Total
-	}
-	return out, nil
-}
-
-// SumRebateEligibleSpendByUserIDs 统计每位用户「可参与返佣的消费」：白名单 reason 的支出（-delta）之和。
-func (s *BillingStore) SumRebateEligibleSpendByUserIDs(userIDs []string) (map[string]float64, error) {
-	out := make(map[string]float64)
-	clean := make([]string, 0, len(userIDs))
-	seen := map[string]bool{}
-	for _, id := range userIDs {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		clean = append(clean, id)
-	}
-	if len(clean) == 0 {
-		return out, nil
-	}
-	reasons := make([]string, 0, len(agentRebateSpendReasons))
-	for r := range agentRebateSpendReasons {
-		reasons = append(reasons, r)
-	}
-	var rows []struct {
-		UserID string  `gorm:"column:user_id"`
-		Total  float64 `gorm:"column:total"`
-	}
-	err := s.db.Model(&WalletLedger{}).
-		Select("user_id, COALESCE(SUM(-delta), 0) AS total").
-		Where("user_id IN ? AND delta < 0 AND reason IN ?", clean, reasons).
-		Group("user_id").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		if row.Total > 0 {
-			out[row.UserID] = row.Total
-		}
 	}
 	return out, nil
 }

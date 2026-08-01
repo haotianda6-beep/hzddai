@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理登录 · COMKUN 萤火</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --panel: #12181f;
+      --gold: #c4cf45;
+      --muted: #848e9c;
+      --border: rgba(196, 207, 69, 0.25);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: #eaecef;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      padding: 28px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.25rem;
+      letter-spacing: 0.06em;
+      color: var(--gold);
+    }
+    p.sub { margin: 0 0 20px; font-size: 0.8rem; color: var(--muted); }
+    label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.35);
+      color: #eaecef;
+      outline: none;
+    }
+    input:focus { border-color: var(--gold); }
+    button {
+      margin-top: 18px;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 5px;
+      background: var(--gold);
+      color: #0a0e14;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    .err { margin-top: 12px; font-size: 0.8rem; color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>代理返佣 · 管理后台</h1>
+    <p class="sub">请输入管理员令牌（环境变量 admin_token）</p>
+    <form method="post" action="/hongzhong/login">
+      <label for="token">令牌</label>
+      <input id="token" name="token" type="password" autocomplete="off" required />
+      <button type="submit">登录</button>
+      {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    </form>
+  </div>
+</body>
+</html>

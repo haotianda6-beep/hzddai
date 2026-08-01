@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily COMKUN inactive user cleanup
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=10m
+Unit=comkun-inactive-user-cleanup.service
+
+[Install]
+WantedBy=timers.target

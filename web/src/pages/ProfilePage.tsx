@@ -13,8 +13,6 @@ import {
   Trash2,
   Wallet,
   Gift,
-  ArrowRightLeft,
-  Headphones,
   Key,
   Copy,
   Shield,
@@ -24,7 +22,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { api } from '../lib/api'
 import { ROUTES } from '../router/paths'
-import { openLiveChatPanel } from '../lib/liveChatOpen'
 import { ExchangeConfigModal } from '../components/trader/ExchangeConfigModal'
 import { InviteRewardsSection } from '../components/profile/InviteRewardsSection'
 import type {
@@ -70,23 +67,6 @@ const usageStatusClass = (status: string) =>
       : status === 'failed'
         ? 'bg-red-500/15 text-red-300'
         : 'bg-zinc-500/15 text-zinc-300'
-
-/** 麻将「红中」牌样式装饰（运营红中账号名片角标） */
-function HongZhongMahjongTile({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={`pointer-events-none flex h-[3.25rem] w-10 flex-col items-center justify-center rounded-md border-2 border-red-800 bg-gradient-to-b from-white via-red-50 to-red-100 shadow-[0_6px_16px_rgba(130,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.9)] ring-1 ring-red-300/40 ${className}`}
-      aria-hidden
-    >
-      <span className="font-serif text-xl font-black leading-none text-red-600 drop-shadow-sm">
-        中
-      </span>
-      <span className="mt-0.5 text-[7px] font-bold uppercase tracking-wider text-red-700">
-        红中
-      </span>
-    </div>
-  )
-}
 
 export function ProfilePage() {
   const { user, logout, applyUserProfile } = useAuth()
@@ -176,20 +156,11 @@ export function ProfilePage() {
     { refreshInterval: 15000 }
   )
 
-  const { data: rebateBal, mutate: mutateRebateBal } = useSWR(
-    tab === 'profile' ? 'profile-agent-rebate' : null,
-    () => api.getAgentRebateBalance(),
+  const { data: partner } = useSWR(
+    tab === 'profile' ? 'profile-partner-rebate' : null,
+    () => api.getPartnerDashboard(),
     { refreshInterval: 30000 }
   )
-
-  const { data: rebateDividends } = useSWR(
-    tab === 'profile' ? 'profile-agent-rebate-dividends' : null,
-    () => api.getAgentRebateDividends(),
-    { refreshInterval: 60000 }
-  )
-
-  const [rebateTransferAmount, setRebateTransferAmount] = useState('')
-  const [rebateTransferLoading, setRebateTransferLoading] = useState(false)
 
   const claw = models?.find(
     (m) => m.provider === 'comkun_proxy' || m.provider === 'claw402'
@@ -206,11 +177,6 @@ export function ProfilePage() {
       maximumFractionDigits: 8,
     })
   }
-
-  const rebateExempt =
-    rebateBal?.configured === true &&
-    rebateBal.synced === true &&
-    rebateBal.rebate_exempt === true
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -437,242 +403,70 @@ export function ProfilePage() {
                   <Gift className="h-3.5 w-3.5 text-[#d4ff33]" aria-hidden />
                   邀请返佣余额
                 </div>
-                {!rebateBal || !rebateBal.configured ? (
-                  <p className="mt-2 text-xs text-zinc-500">
-                    未配置返利服务，请联系管理员配置主站与返利系统的对接。
-                  </p>
-                ) : !rebateBal.synced ? (
-                  <p className="mt-2 text-xs text-amber-200/90">
-                    {rebateBal.message ||
-                      '返利账户未同步：请稍后再试或由管理员从返利后台合并用户。'}
-                  </p>
-                ) : rebateExempt ? (
-                  <p className="mt-2 text-xs leading-relaxed text-rose-200/95">
-                    本账号为<strong className="text-white">运营展示账号</strong>
-                    ，不参与邀请返佣入账、团队业绩累计与大区/VIP5
-                    分红；下方仅作等级展示参考。
-                    {typeof rebateBal.rebate_vip_level === 'number' ? (
-                      <span className="ml-1 font-mono text-white">
-                        VIP{rebateBal.rebate_vip_level}
-                      </span>
-                    ) : null}
-                  </p>
-                ) : (
+                {partner ? (
                   <>
                     <div className="mt-1 font-['Space_Grotesk',monospace] text-2xl font-bold tabular-nums text-[#d4ff33]">
-                      {fmtRebateU(rebateBal.rebate_balance_usdt)}{' '}
+                      {fmtRebateU(partner.user.available_balance_usdt)}{' '}
                       <span className="text-sm font-semibold text-zinc-500">
                         USDT
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      返利侧充值记账（不可提现）：
+                      当前身份：
                       <span className="font-mono text-zinc-300">
-                        {fmtRebateU(rebateBal.recharge_balance_usdt)} USDT
+                        {partner.user.role.toUpperCase()} ·{' '}
+                        {partner.user.role_rate_percent}%
                       </span>
                     </p>
                   </>
+                ) : (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    正在读取合作伙伴账单...
+                  </p>
                 )}
               </div>
             </div>
-
-            {rebateBal &&
-              rebateBal.configured &&
-              rebateBal.synced &&
-              !rebateExempt && (
-                <div className="mt-4 flex flex-col gap-3 border-t border-zinc-800/80 pt-4 sm:flex-row sm:flex-wrap sm:items-end">
-                  <form
-                    className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-1 sm:flex-row sm:flex-wrap sm:items-end"
-                    onSubmit={async (e) => {
-                      e.preventDefault()
-                      const raw = rebateTransferAmount.trim()
-                      if (!raw || Number(raw) <= 0) {
-                        toast.error('请输入大于 0 的金额')
-                        return
-                      }
-                      setRebateTransferLoading(true)
-                      try {
-                        await api.postAgentRebateTransferToRecharge(raw)
-                        toast.success('已从返佣划转到返利「充值记账」')
-                        setRebateTransferAmount('')
-                        await mutateRebateBal()
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : '划转失败'
-                        )
-                      } finally {
-                        setRebateTransferLoading(false)
-                      }
-                    }}
-                  >
-                    <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-zinc-400">
-                      <span className="flex items-center gap-1">
-                        <ArrowRightLeft
-                          className="h-3.5 w-3.5 text-[#d4ff33]"
-                          aria-hidden
-                        />
-                        返佣划转到充值记账
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="金额 USDT"
-                        value={rebateTransferAmount}
-                        onChange={(e) =>
-                          setRebateTransferAmount(e.target.value)
-                        }
-                        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-[#d4ff33]/50 sm:w-40"
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      disabled={rebateTransferLoading}
-                      className="rounded-lg bg-[#d4ff33]/90 px-4 py-2 text-sm font-bold text-black hover:bg-[#d4ff33] disabled:opacity-50"
-                    >
-                      {rebateTransferLoading ? '提交中…' : '确认划转'}
-                    </button>
-                  </form>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openLiveChatPanel()
-                      toast.message(
-                        '请在客服对话中说明：返利提现、您的注册邮箱与金额',
-                        { duration: 5000 }
-                      )
-                    }}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-600 bg-zinc-900/80 px-4 py-2 text-sm font-semibold text-zinc-100 hover:border-[#d4ff33]/45 hover:text-[#d4ff33] sm:w-auto"
-                  >
-                    <Headphones className="h-4 w-4" aria-hidden />
-                    返佣提现（联系客服）
-                  </button>
-                </div>
-              )}
-
-            {rebateBal &&
-              rebateBal.configured &&
-              rebateBal.synced &&
-              !rebateExempt &&
-              rebateDividends &&
-              rebateDividends.configured &&
-              Array.isArray(rebateDividends.rows) &&
-              rebateDividends.rows.length > 0 && (
-                <div className="mt-4 rounded-lg border border-zinc-800 bg-black/25 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    VIP5 周分红记录（已并入上方返佣余额）
-                  </div>
-                  <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto text-xs text-zinc-300">
-                    {rebateDividends.rows.slice(0, 20).map((row, i) => (
-                      <li
-                        key={i}
-                        className="flex flex-wrap justify-between gap-2 border-b border-zinc-800/80 pb-2 last:border-0"
-                      >
-                        <span>
-                          结算周 {row.week_start} ~ {row.week_end}
-                        </span>
-                        <span className="font-mono text-[#d4ff33]">
-                          +{fmtRebateU(row.amount_usdt)} USDT
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
             <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-              说明：邀请返佣数据来自返利子系统；划转是把
-              <strong className="text-zinc-400">返佣余额</strong>划到同系统中的
-              <strong className="text-zinc-400">充值记账余额</strong>
-              （仍不可直接当站内 AI 余额使用）。提现请通过客服人工处理。
+              确认充值、伞下关系、差额返佣和提现审核统一在合作伙伴中心查看。
             </p>
           </div>
 
-          <form
-            onSubmit={handleSaveProfile}
-            className={
-              rebateExempt
-                ? 'relative overflow-hidden space-y-6 rounded-2xl border border-red-500/40 bg-gradient-to-br from-red-950/95 via-rose-950/90 to-red-900/95 p-6 shadow-[inset_0_1px_0_rgba(255,220,220,0.14),0_12px_40px_rgba(90,0,0,0.45)] ring-1 ring-red-400/25'
-                : 'space-y-6'
-            }
-          >
-            {rebateExempt && (
-              <>
-                <div
-                  className="pointer-events-none absolute -left-[20%] top-0 h-full w-[55%] rotate-[18deg] bg-gradient-to-r from-transparent via-white/[0.07] to-transparent"
-                  aria-hidden
-                />
-                <div
-                  className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_70%_-10%,rgba(255,160,160,0.22),transparent_55%)]"
-                  aria-hidden
-                />
-                <HongZhongMahjongTile className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6" />
-              </>
-            )}
-            <div
-              className={`flex flex-col items-center gap-3 ${rebateExempt ? 'relative z-[1]' : ''}`}
-            >
+          <form onSubmit={handleSaveProfile} className="space-y-6">
+            <div className="flex flex-col items-center gap-3">
               <img
                 src={user.avatar_url || '/icons/comkun-logo.png'}
                 alt=""
-                className={
-                  rebateExempt
-                    ? 'h-24 w-24 rounded-full border-2 border-red-400/70 bg-zinc-900 object-cover shadow-[0_0_24px_rgba(220,50,50,0.35)] ring-2 ring-red-500/30'
-                    : 'h-24 w-24 rounded-full border-2 border-zinc-700 bg-zinc-900 object-cover'
-                }
+                className="h-24 w-24 rounded-full border-2 border-zinc-700 bg-zinc-900 object-cover"
               />
-              <p
-                className={`text-xs ${rebateExempt ? 'text-red-100/75' : 'text-zinc-500'}`}
-              >
+              <p className="text-xs text-zinc-500">
                 头像由系统根据账号生成，暂不支持自定义上传
               </p>
             </div>
 
-            <div className={rebateExempt ? 'relative z-[1]' : ''}>
-              <label
-                className={`mb-1 block text-sm ${rebateExempt ? 'text-red-100/90' : 'text-zinc-400'}`}
-              >
-                用户名
-              </label>
+            <div>
+              <label className="mb-1 block text-sm text-zinc-400">用户名</label>
               <input
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 maxLength={32}
-                className={
-                  rebateExempt
-                    ? 'w-full rounded-lg border border-red-500/45 bg-red-950/50 px-3 py-2.5 text-white outline-none ring-1 ring-red-400/20 placeholder:text-red-200/50 focus:border-red-400/70'
-                    : 'w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-zinc-100 outline-none focus:border-nofx-gold/60'
-                }
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-zinc-100 outline-none focus:border-nofx-gold/60"
               />
             </div>
 
-            <div className={rebateExempt ? 'relative z-[1]' : ''}>
-              <label
-                className={`mb-1 block text-sm ${rebateExempt ? 'text-red-100/90' : 'text-zinc-400'}`}
-              >
-                邮箱
-              </label>
+            <div>
+              <label className="mb-1 block text-sm text-zinc-400">邮箱</label>
               <input
                 readOnly
                 value={user.email}
-                className={
-                  rebateExempt
-                    ? 'w-full cursor-not-allowed rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-red-100/85'
-                    : 'w-full cursor-not-allowed rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-zinc-400'
-                }
+                className="w-full cursor-not-allowed rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-zinc-400"
               />
             </div>
 
-            <div
-              className={`flex flex-col gap-3 sm:flex-row ${rebateExempt ? 'relative z-[1]' : ''}`}
-            >
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 type="submit"
                 disabled={saving}
-                className={
-                  rebateExempt
-                    ? 'w-full rounded-lg bg-gradient-to-r from-red-600 to-rose-700 px-5 py-2 text-sm font-semibold text-white shadow-md hover:from-red-500 hover:to-rose-600 disabled:opacity-50 sm:w-auto'
-                    : 'w-full rounded-lg bg-nofx-gold px-5 py-2 text-sm font-semibold text-black hover:bg-nofx-gold-highlight disabled:opacity-50 sm:w-auto'
-                }
+                className="w-full rounded-lg bg-nofx-gold px-5 py-2 text-sm font-semibold text-black hover:bg-nofx-gold-highlight disabled:opacity-50 sm:w-auto"
               >
                 {saving ? '保存中…' : '保存资料'}
               </button>
@@ -686,33 +480,22 @@ export function ProfilePage() {
             </div>
           </form>
 
-          {!rebateExempt && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-zinc-500">
-                邀请奖励可直达专页，复制链接更方便。
-              </p>
-              <Link
-                to={ROUTES.invite}
-                className="text-xs font-semibold text-[#d4ff33] underline-offset-2 hover:underline"
-              >
-                打开邀请奖励专页 →
-              </Link>
-            </div>
-          )}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-zinc-500">
+              确认充值、伞下账单与提现统一管理。
+            </p>
+            <Link
+              to={ROUTES.invite}
+              className="text-xs font-semibold text-[#d4ff33] underline-offset-2 hover:underline"
+            >
+              打开合作伙伴中心 →
+            </Link>
+          </div>
 
-          {rebateExempt ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-5 text-sm text-red-100/90">
-              <h3 className="font-bold text-white">邀请奖励</h3>
-              <p className="mt-2 text-xs leading-relaxed text-red-100/80">
-                运营展示账号不参与邀请关系与返佣统计；伞下用户已全部脱离本账号邀请链（如有疑问请联系技术）。
-              </p>
-            </div>
-          ) : (
-            <InviteRewardsSection
-              inviteData={inviteData}
-              fallbackInviteCode={user.invite_code}
-            />
-          )}
+          <InviteRewardsSection
+            inviteData={inviteData}
+            fallbackInviteCode={user.invite_code}
+          />
 
           <div className="border-t border-zinc-800 pt-8">
             <h3 className="mb-4 text-sm font-semibold text-white">修改密码</h3>

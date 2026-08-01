@@ -111,9 +111,6 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 	isWeekly := strings.EqualFold(strings.TrimSpace(req.Plan), marketSubWeeklyLabel)
 
 	var newBal float64
-	var spendLedgerID uint64
-	var spendReason string
-	var spendAmount float64
 	err = s.store.Transaction(func(tx *gorm.DB) error {
 		if isWeekly {
 			claimed, e := s.store.User().TryClaimMarketWeeklyTrial(tx, userID)
@@ -132,11 +129,10 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 			return errMarketInsufficientBalance
 		}
 		newBal = bal
-		lid, e := s.store.Billing().AppendLedger(tx, userID, -price, newBal, ledgerReason, st.ID)
+		_, e = s.store.Billing().AppendLedger(tx, userID, -price, newBal, ledgerReason, st.ID)
 		if e != nil {
 			return e
 		}
-		spendLedgerID, spendReason, spendAmount = lid, ledgerReason, price
 		return s.store.Billing().ExtendMarketSubscription(tx, userID, st.ID, price, extend)
 	})
 	if err != nil {
@@ -150,10 +146,6 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		}
 		SafeInternalError(c, "购买失败", err)
 		return
-	}
-
-	if spendLedgerID > 0 && spendAmount > 0 {
-		store.DispatchAgentRebateSpendIfEligible(userID, spendAmount, spendLedgerID, spendReason)
 	}
 
 	if u, e := s.store.User().GetByID(userID); e == nil && u != nil {
