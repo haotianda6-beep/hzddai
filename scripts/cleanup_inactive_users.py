@@ -43,6 +43,13 @@ TRADER_TABLES = (
     "trader_orders",
     "trader_positions",
 )
+EXCHANGE_TABLES = (
+    "mirror_execution_intents",
+    "outbound_proxy_fault_events",
+    "trader_fills",
+    "trader_orders",
+    "trader_positions",
+)
 
 
 def parse_args():
@@ -168,6 +175,8 @@ def apply_deletion(conn: sqlite3.Connection, rows, mode: str) -> None:
     delete_where_in(conn, "grid_instances", "config_id", config_ids)
     for table in TRADER_TABLES:
         delete_where_in(conn, table, "trader_id", trader_ids)
+    for table in EXCHANGE_TABLES:
+        delete_where_in(conn, table, "exchange_id", exchange_ids)
     for table in USER_TABLES:
         delete_where_in(conn, table, "user_id", user_ids)
     conn.execute(
@@ -202,7 +211,7 @@ def sync_authoritative(conn: sqlite3.Connection, env: dict[str, str]) -> None:
     if not base or not secret:
         raise RuntimeError("AGENT_REBATE_BASE_URL/SECRET未配置")
     parsed = urllib.parse.urlsplit(base)
-    if parsed.hostname == "host.docker.internal":
+    if parsed.hostname in {"host.docker.internal", "172.17.0.1"}:
         netloc = "127.0.0.1"
         if parsed.port:
             netloc += f":{parsed.port}"
