@@ -31,6 +31,7 @@
 </main>
 <script>
 const state={data:null,tab:'users',query:''};
+const ADMIN_API='/hongzhong/api/admin';
 const labels={users:'用户与身份',deposits:'确认充值',commissions:'返佣明细',withdrawals:'提现审核',studio_requests:'工作室审核',role_audits:'身份变更'};
 const roleName={retail:'散户',ib:'IB',studio:'工作室',branch:'分公司'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -49,8 +50,8 @@ function renderWithdrawals(){const rows=filtered(state.data.withdrawals).map(r=>
 function renderStudio(){const rows=filtered(state.data.studio_requests).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.branch_platform_user_id)}</td><td>${esc(r.candidate_nickname)}<div class="muted">${esc(r.candidate_platform_user_id)}</div></td><td>${esc(r.request_note||'')}</td><td><span class="status ${r.status}">${statusName[r.status]||r.status}</span></td><td>${esc(r.created_at)}</td><td><div class="actions">${r.status==='pending'?`<button class="primary" onclick="studio(${r.id},'approve')">通过</button><button class="danger" onclick="studio(${r.id},'reject')">拒绝</button>`:''}</div></td></tr>`);return table(['编号','提报分公司','候选用户','备注','状态','时间','操作'],rows)}
 function renderAudits(){const rows=filtered(state.data.role_audits).map(r=>`<tr><td>#${r.id}</td><td>${esc(r.platform_user_id)}</td><td>${roleName[r.old_role]} → ${roleName[r.new_role]}</td><td>${esc(r.actor)}</td><td>${esc(r.source)}</td><td>${esc(r.note||'')}</td><td>${esc(r.created_at)}</td></tr>`);return table(['编号','用户','身份变化','操作人','来源','备注','时间'],rows)}
 function render(){if(!state.data)return;renderSummary();document.querySelector('#tabs').innerHTML=Object.entries(labels).map(([k,v])=>`<button class="${k===state.tab?'active':''}" onclick="switchTab('${k}')">${v}</button>`).join('');document.querySelector('#sectionTitle').textContent=labels[state.tab];const fn={users:renderUsers,deposits:renderDeposits,commissions:renderCommissions,withdrawals:renderWithdrawals,studio_requests:renderStudio,role_audits:renderAudits}[state.tab];document.querySelector('#content').innerHTML=fn()}
-function switchTab(tab){state.tab=tab;render()}function setRole(uid){act('/api/admin/roles',{platform_user_id:uid,role:document.querySelector(`#role-${CSS.escape(uid)}`).value,actor:'总管理员'})}function withdraw(id,action){act(`/api/admin/withdrawals/${id}/review`,{action,actor:'总管理员'})}function studio(id,action){act(`/api/admin/studio-requests/${id}/review`,{action,actor:'总管理员'})}
-async function load(){try{state.data=await api('/api/admin/dashboard?limit=500');document.querySelector('#updated').textContent='实时更新 '+new Date().toLocaleTimeString();render()}catch(e){document.querySelector('#updated').textContent=e.message}}
+function switchTab(tab){state.tab=tab;render()}function setRole(uid){act(`${ADMIN_API}/roles`,{platform_user_id:uid,role:document.querySelector(`#role-${CSS.escape(uid)}`).value,actor:'总管理员'})}function withdraw(id,action){act(`${ADMIN_API}/withdrawals/${id}/review`,{action,actor:'总管理员'})}function studio(id,action){act(`${ADMIN_API}/studio-requests/${id}/review`,{action,actor:'总管理员'})}
+async function load(){try{state.data=await api(`${ADMIN_API}/dashboard?limit=500`);document.querySelector('#updated').textContent='实时更新 '+new Date().toLocaleTimeString();render()}catch(e){document.querySelector('#updated').textContent=e.message}}
 document.querySelector('#search').addEventListener('input',e=>{state.query=e.target.value;render()});load();setInterval(load,10000);
 </script>
 </body>

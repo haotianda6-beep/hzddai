@@ -16,6 +16,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app = FastAPI(title="COMKUN Partner Rebate", version="2.0.0")
 app.include_router(platform_router)
 app.include_router(admin_router)
+app.include_router(admin_router, prefix="/hongzhong", include_in_schema=False)
 
 
 @app.on_event("startup")
