@@ -103,6 +103,14 @@ def order_sync_batch(items: list[T], get_uid, get_parent_uid) -> list[T]:
 
 def prune_missing_users(session: Session, active_external_uids: set[str]) -> int:
     rows = session.scalars(select(User).where(User.external_uid.notin_(active_external_uids))).all()
+    unsettled_user_ids = set(
+        session.scalars(
+            select(WithdrawalRequest.user_id).where(
+                WithdrawalRequest.status.in_(("pending", "approved"))
+            )
+        ).all()
+    )
+    rows = [row for row in rows if row.id not in unsettled_user_ids]
     ids = [row.id for row in rows]
     if not ids:
         return 0

@@ -41,7 +41,7 @@ class UserSyncBody(BaseModel):
 
 class DepositBody(BaseModel):
     platform_user_id: str = Field(min_length=1, max_length=64)
-    amount_usdt: str
+    amount_usdt: str = Field(min_length=1, max_length=64)
     external_ref: str = Field(min_length=1, max_length=160)
     source: str = Field(default="confirmed_deposit", max_length=40)
     note: Optional[str] = Field(default=None, max_length=500)
@@ -50,14 +50,14 @@ class DepositBody(BaseModel):
 
 class ReversalBody(BaseModel):
     original_external_ref: str = Field(min_length=1, max_length=160)
-    amount_usdt: str
+    amount_usdt: str = Field(min_length=1, max_length=64)
     external_ref: str = Field(min_length=1, max_length=160)
     note: Optional[str] = Field(default=None, max_length=500)
 
 
 class WithdrawalBody(BaseModel):
     platform_user_id: str = Field(min_length=1, max_length=64)
-    amount_usdt: str
+    amount_usdt: str = Field(min_length=1, max_length=64)
     network: str = "TRC20"
     address: str = Field(min_length=20, max_length=128)
 

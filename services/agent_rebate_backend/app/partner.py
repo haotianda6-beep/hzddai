@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.commission import ancestor_chain, is_descendant, money
+from app.amounts import money
+from app.commission import ancestor_chain, is_descendant
 from app.models import (
     CommissionWalletLedger,
     PartnerRole,
@@ -18,10 +20,46 @@ from app.models import (
 
 VALID_ROLES = {role.value for role in PartnerRole}
 WITHDRAW_MIN = Decimal("100")
+BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
 def now():
     return datetime.now(timezone.utc)
+
+
+def valid_trc20_address(address: str) -> bool:
+    if len(address) != 34 or not address.startswith("T"):
+        return False
+    try:
+        number = 0
+        for char in address:
+            number = number * 58 + BASE58_ALPHABET.index(char)
+        raw = number.to_bytes(25, "big")
+    except (ValueError, OverflowError):
+        return False
+    payload, checksum = raw[:-4], raw[-4:]
+    expected = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    return payload[0] == 0x41 and checksum == expected
+
+
+def _has_studio_descendant(session: Session, user: User) -> bool:
+    studios = session.scalars(
+        select(User).where(User.role == PartnerRole.STUDIO.value, User.id != user.id)
+    ).all()
+    return any(is_descendant(session, user.id, studio) for studio in studios)
+
+
+def _validate_studio_candidate(session: Session, branch: User, candidate: User) -> None:
+    if branch.role != PartnerRole.BRANCH.value:
+        raise ValueError("提报人已不是分公司")
+    if not is_descendant(session, branch.id, candidate):
+        raise ValueError("只能提报本分公司伞下用户")
+    if candidate.role in {PartnerRole.BRANCH.value, PartnerRole.STUDIO.value}:
+        raise ValueError("该用户当前身份不可提报")
+    if any(row.role == PartnerRole.STUDIO.value for row in ancestor_chain(session, candidate)):
+        raise ValueError("工作室不能位于另一工作室伞下")
+    if _has_studio_descendant(session, candidate):
+        raise ValueError("已有工作室下级的用户不能升级为工作室")
 
 
 def assign_role(
@@ -40,6 +78,8 @@ def assign_role(
     if new_role == PartnerRole.STUDIO.value:
         if any(row.role == PartnerRole.STUDIO.value for row in ancestor_chain(session, user)):
             raise ValueError("工作室不能位于另一工作室伞下")
+        if _has_studio_descendant(session, user):
+            raise ValueError("已有工作室下级的用户不能升级为工作室")
     old_role = user.role
     if old_role == new_role:
         return
@@ -67,14 +107,7 @@ def request_studio(
     candidate: User,
     note: str | None = None,
 ) -> StudioUpgradeRequest:
-    if branch.role != PartnerRole.BRANCH.value:
-        raise ValueError("只有分公司可以提报工作室")
-    if not is_descendant(session, branch.id, candidate):
-        raise ValueError("只能提报本分公司伞下用户")
-    if candidate.role in {PartnerRole.BRANCH.value, PartnerRole.STUDIO.value}:
-        raise ValueError("该用户当前身份不可提报")
-    if any(row.role == PartnerRole.STUDIO.value for row in ancestor_chain(session, candidate)):
-        raise ValueError("工作室不能再发展工作室")
+    _validate_studio_candidate(session, branch, candidate)
     pending = session.scalar(
         select(StudioUpgradeRequest).where(
             StudioUpgradeRequest.candidate_user_id == candidate.id,
@@ -102,16 +135,17 @@ def review_studio_request(
 ) -> None:
     if row.status != "pending":
         raise ValueError("该申请已处理")
+    if approve:
+        candidate = session.get(User, row.candidate_user_id)
+        branch = session.get(User, row.requested_by_user_id)
+        if not candidate or not branch:
+            raise ValueError("申请人与候选人的伞下关系已失效")
+        _validate_studio_candidate(session, branch, candidate)
+        assign_role(session, candidate, PartnerRole.STUDIO.value, actor, "studio_approval", note)
     row.status = "approved" if approve else "rejected"
     row.reviewed_by = actor
     row.review_note = (note or "").strip() or None
     row.reviewed_at = now()
-    if approve:
-        candidate = session.get(User, row.candidate_user_id)
-        branch = session.get(User, row.requested_by_user_id)
-        if not candidate or not branch or not is_descendant(session, branch.id, candidate):
-            raise ValueError("申请人与候选人的伞下关系已失效")
-        assign_role(session, candidate, PartnerRole.STUDIO.value, actor, "studio_approval", note)
 
 
 def request_withdrawal(
@@ -128,7 +162,7 @@ def request_withdrawal(
     if amount > money(user.rebate_balance_usdt):
         raise ValueError("可提现余额不足")
     address = address.strip()
-    if len(address) < 20 or len(address) > 128:
+    if not valid_trc20_address(address):
         raise ValueError("TRC20地址格式无效")
     user.rebate_balance_usdt = money(user.rebate_balance_usdt - amount)
     user.frozen_balance_usdt = money(user.frozen_balance_usdt + amount)
@@ -172,6 +206,8 @@ def review_withdrawal(
     user = session.get(User, row.user_id)
     if not user:
         raise ValueError("提现用户不存在")
+    if action in {"paid", "reject"} and money(user.frozen_balance_usdt) < money(row.amount_usdt):
+        raise ValueError("冻结余额不足，无法处理提现")
     row.reviewed_by = actor
     row.review_note = (note or "").strip() or None
     row.reviewed_at = now()

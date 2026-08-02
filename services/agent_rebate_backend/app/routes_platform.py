@@ -7,7 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.commission import record_deposit, reverse_deposit
+from app.amounts import money
+from app.commission import (
+    record_deposit,
+    reverse_deposit,
+    validate_deposit_replay,
+    validate_reversal_replay,
+)
 from app.deps import get_db, require_platform
 from app.models import DepositEvent, User
 from app.partner import request_studio, request_withdrawal
@@ -27,7 +33,10 @@ def user_by_uid(db: Session, uid: str) -> User:
 
 def decimal_amount(raw: str) -> Decimal:
     try:
-        return Decimal(raw)
+        value = Decimal(raw)
+        if not value.is_finite():
+            raise ValueError
+        return money(value)
     except (InvalidOperation, ValueError) as exc:
         raise HTTPException(status_code=400, detail="金额格式无效") from exc
 
@@ -56,11 +65,12 @@ def sync_users(body: UserSyncBody, db: Session = Depends(get_db)):
 @router.post("/deposits")
 def confirmed_deposit(body: DepositBody, db: Session = Depends(get_db)):
     user = user_by_uid(db, body.platform_user_id)
+    amount = decimal_amount(body.amount_usdt)
     try:
         event, duplicate = record_deposit(
             db,
             user,
-            decimal_amount(body.amount_usdt),
+            amount,
             body.external_ref,
             body.source,
             body.note,
@@ -69,9 +79,15 @@ def confirmed_deposit(body: DepositBody, db: Session = Depends(get_db)):
         db.commit()
     except IntegrityError:
         db.rollback()
-        event = db.scalar(select(DepositEvent).where(DepositEvent.external_ref == body.external_ref))
+        event = db.scalar(
+            select(DepositEvent).where(DepositEvent.external_ref == body.external_ref.strip())
+        )
         if not event:
             raise
+        try:
+            validate_deposit_replay(event, user, amount)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         duplicate = True
     except ValueError as exc:
         db.rollback()
@@ -86,16 +102,23 @@ def deposit_reversal(body: ReversalBody, db: Session = Depends(get_db)):
     )
     if not original:
         raise HTTPException(status_code=404, detail="原确认充值不存在")
+    amount = decimal_amount(body.amount_usdt)
     try:
         event, duplicate = reverse_deposit(
-            db, original, decimal_amount(body.amount_usdt), body.external_ref, body.note
+            db, original, amount, body.external_ref, body.note
         )
         db.commit()
     except IntegrityError:
         db.rollback()
-        event = db.scalar(select(DepositEvent).where(DepositEvent.external_ref == body.external_ref))
+        event = db.scalar(
+            select(DepositEvent).where(DepositEvent.external_ref == body.external_ref.strip())
+        )
         if not event:
             raise
+        try:
+            validate_reversal_replay(event, original, amount)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         duplicate = True
     except ValueError as exc:
         db.rollback()

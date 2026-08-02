@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.config import settings
+from app.config import settings, validate_runtime_settings
 from app.db import init_db
 from app.deps import require_admin
 from app.routes_admin import router as admin_router
@@ -13,7 +13,7 @@ from app.routes_platform import router as platform_router
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-app = FastAPI(title="COMKUN Partner Rebate", version="2.0.0")
+app = FastAPI(title="COMKUN Partner Rebate", version="2.0.1")
 app.include_router(platform_router)
 app.include_router(admin_router)
 app.include_router(admin_router, prefix="/hongzhong", include_in_schema=False)
@@ -21,12 +21,13 @@ app.include_router(admin_router, prefix="/hongzhong", include_in_schema=False)
 
 @app.on_event("startup")
 def startup():
+    validate_runtime_settings()
     init_db()
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": "2.0.0"}
+    return {"ok": True, "version": "2.0.1"}
 
 
 @app.get("/")

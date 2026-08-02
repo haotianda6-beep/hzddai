@@ -33,3 +33,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_runtime_settings() -> None:
+    if settings.admin_token.strip() in {"", "change-me-in-production"}:
+        raise RuntimeError("ADMIN_TOKEN未配置安全值")
+    if not settings.platform_sync_secret.strip():
+        raise RuntimeError("PLATFORM_SYNC_SECRET未配置")
