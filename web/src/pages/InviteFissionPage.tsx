@@ -11,8 +11,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
+import { getAccountBadgeName } from '../lib/accountBadge'
 import type { PartnerDashboard, PartnerRole } from '../lib/api/walletAdmin'
 import { ROUTES } from '../router/paths'
+import { useAuth } from '../contexts/AuthContext'
 
 const roleName: Record<PartnerRole, string> = {
   retail: '散户',
@@ -58,6 +60,7 @@ function Metric({
 }
 
 export function InviteFissionPage() {
+  const { user } = useAuth()
   const [tab, setTab] = useState<
     'network' | 'deposits' | 'commissions' | 'withdrawals'
   >('network')
@@ -148,7 +151,8 @@ export function InviteFissionPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-white">合作伙伴中心</h1>
             <span className="rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-2 py-0.5 text-xs font-bold text-[#d4ff33]">
-              {roleName[data.user.role]} · {data.user.role_rate_percent}%
+              {getAccountBadgeName(Boolean(user?.is_admin), data.user.role)}
+              {!user?.is_admin ? ` · ${data.user.role_rate_percent}%` : ''}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
@@ -163,10 +167,11 @@ export function InviteFissionPage() {
                 await navigator.clipboard.writeText(invite.invite_link)
                 toast.success('邀请链接已复制')
               }}
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-700 text-zinc-300 hover:border-[#d4ff33] hover:text-[#d4ff33]"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-zinc-700 px-2.5 text-zinc-300 hover:border-[#d4ff33] hover:text-[#d4ff33]"
               title="复制邀请链接"
             >
               <Clipboard className="h-3.5 w-3.5" />
+              <span>复制邀请链接</span>
             </button>
           </div>
         </div>

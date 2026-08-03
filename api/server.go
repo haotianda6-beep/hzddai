@@ -412,13 +412,11 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 				s.route(admin, "GET", "/users-overview", "Admin: list users with balance and Binance positions", s.handleAdminUsersOverview)
 				s.route(admin, "GET", "/partner/dashboard", "Admin: complete partner deposit and commission ledger", s.handleAdminPartnerDashboard)
 				s.route(admin, "GET", "/ai-platform-usage", "Admin: AI platform usage billing ledger", s.handleAdminAIPlatformUsage)
-				s.route(admin, "GET", "/binance-broker-rebates", "Admin: Binance broker rebate records", s.handleAdminBinanceBrokerRebates)
 				s.route(admin, "GET", "/users/:id", "Admin: user detail and wallet ledger", s.handleAdminUserDetail)
 				s.route(admin, "POST", "/users/:id/wallet-adjust", "Admin: adjust user platform balance", s.handleAdminUserWalletAdjust)
 				s.route(admin, "POST", "/traders/:id/start", "Admin: start trader on behalf of owner", s.handleAdminStartTrader)
 				s.route(admin, "POST", "/traders/:id/stop", "Admin: stop trader on behalf of owner", s.handleAdminStopTrader)
 				s.route(admin, "POST", "/traders/:id/sync-positions-from-exchange", "Admin: rebuild OPEN positions from exchange (fix stale DB)", s.handleAdminSyncTraderPositionsFromExchange)
-				s.route(admin, "POST", "/comkun/flatten-all-follow-traders", "Admin: market-close positions for all comkun market-follow traders", s.handleAdminFlattenAllComkunFollowTraders)
 				s.route(admin, "POST", "/comkun/master-broadcast", "Admin: publish master analysis+decisions for comkun follow subscribers", s.handleAdminComkunMasterBroadcast)
 				s.route(admin, "POST", "/comkun/trader-token-credit", "Admin: credit comkun virtual follow tokens to a trader", s.handleAdminComkunTraderTokenCredit)
 				s.route(admin, "POST", "/notifications/broadcast", "Admin: publish in-app broadcast visible to all logged-in users", s.handleAdminBroadcastNotification)
@@ -431,7 +429,6 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 				s.route(admin, "DELETE", "/outbound-proxy-pool/:id", "Admin: delete unassigned pool entry", s.handleAdminOutboundProxyPoolDelete)
 				s.route(admin, "POST", "/outbound-proxy-pool/:id/release", "Admin: force release pool assignment and clear exchange proxy", s.handleAdminOutboundProxyPoolRelease)
 				s.route(admin, "POST", "/outbound-proxy-pool/:id/assign", "Admin: bind unassigned pool entry to exchange + set outbound proxy", s.handleAdminOutboundProxyPoolAssign)
-				s.route(admin, "GET", "/outbound-proxy-faults", "Admin: recent outbound proxy REST failures", s.handleAdminOutboundProxyFaults)
 			}
 
 			finance := protected.Group("/finance", s.financeMiddleware())

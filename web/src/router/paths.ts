@@ -36,6 +36,11 @@ export const ROUTES = {
   wallet: '/wallet',
   /** 主站管理后台（仅白名单邮箱；邀请用户列表等）。邀请「返佣」独立服务见 agent_rebate_backend。 */
   admin: '/admin',
+  adminPartners: '/admin/partners',
+  adminTraders: '/admin/traders',
+  adminProxies: '/admin/proxies',
+  adminUsers: '/admin/users',
+  adminAIBilling: '/admin/ai-billing',
   /** 财务台：为客户正数入账（COMKUN_FINANCE_EMAILS 白名单） */
   finance: '/finance',
   /** 站内余额充值说明（人工客服） */

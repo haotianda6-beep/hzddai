@@ -5,6 +5,7 @@ import useSWR from 'swr'
 import { Menu, X, ChevronDown, Gift, Wallet as WalletIcon } from 'lucide-react'
 import { AiTradeNotificationDropdown } from './AiTradeNotificationDropdown'
 import { api } from '../../lib/api'
+import { getAccountBadgeName } from '../../lib/accountBadge'
 import { t, type Language } from '../../i18n/translations'
 import {
   getCurrentPageForPath,
@@ -60,12 +61,10 @@ export default function HeaderBar({
     () => api.getPartnerDashboard(),
     { refreshInterval: 120_000, revalidateOnFocus: true }
   )
-  const partnerRole = partner?.user.role
-  const partnerRoleName = partnerRole
-    ? { retail: '散户', ib: 'IB', studio: '工作室', branch: '分公司' }[
-        partnerRole
-      ]
-    : undefined
+  const accountBadgeName = getAccountBadgeName(
+    Boolean(user?.is_admin),
+    partner?.user.role
+  )
 
   const userDisplayName =
     (user?.display_name && user.display_name.trim()) ||
@@ -326,17 +325,17 @@ export default function HeaderBar({
                   <span className="truncate text-sm text-[#d4ff33]/90">
                     {userDisplayName || user.email}
                   </span>
-                  {partnerRoleName ? (
+                  {accountBadgeName ? (
                     <span className="shrink-0 rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#d4ff33]">
-                      {partnerRoleName}
+                      {accountBadgeName}
                     </span>
                   ) : null}
                 </div>
                 {/* 窄屏不显示昵称时：仅在头像与箭头之间保留徽章 */}
                 <div className="hidden shrink-0 items-center gap-1.5 sm:hidden">
-                  {partnerRoleName ? (
+                  {accountBadgeName ? (
                     <span className="shrink-0 rounded border border-[#d4ff33]/35 bg-[#d4ff33]/10 px-1 py-0.5 text-[9px] font-bold text-[#d4ff33]">
-                      {partnerRoleName}
+                      {accountBadgeName}
                     </span>
                   ) : null}
                 </div>

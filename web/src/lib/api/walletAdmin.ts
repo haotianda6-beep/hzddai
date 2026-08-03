@@ -183,6 +183,112 @@ export async function postPartnerStudioRequest(
   }>(res)
 }
 
+export type AdminPartnerDashboard = {
+  ok: boolean
+  summary: {
+    users: number
+    roles: Record<PartnerRole, number>
+    confirmed_deposits_usdt: string
+    allocated_commission_usdt: string
+    platform_remainder_usdt: string
+    available_liability_usdt: string
+    frozen_liability_usdt: string
+  }
+  users: Array<{
+    platform_user_id: string
+    nickname: string
+    parent_platform_user_id?: string | null
+    role: PartnerRole
+    deposit_usdt: string
+    available_usdt: string
+    frozen_usdt: string
+  }>
+  deposits: Array<{
+    id: number
+    platform_user_id: string
+    nickname: string
+    amount_usdt: string
+    event_type: string
+    source: string
+    external_ref: string
+    occurred_at: string
+  }>
+  commissions: Array<{
+    id: number
+    source_platform_user_id: string
+    recipient_platform_user_id: string
+    amount_usdt: string
+    rate_percent: string
+    recipient_role: PartnerRole
+    entry_type: string
+    created_at: string
+  }>
+  withdrawals: Array<{
+    id: number
+    platform_user_id: string
+    nickname: string
+    amount_usdt: string
+    network: string
+    address: string
+    status: string
+    requested_at: string
+  }>
+  studio_requests: Array<{
+    id: number
+    branch_platform_user_id: string
+    candidate_platform_user_id: string
+    candidate_nickname: string
+    status: string
+    request_note?: string | null
+    review_note?: string | null
+    created_at: string
+  }>
+  role_audits: Array<{
+    id: number
+    platform_user_id: string
+    old_role: PartnerRole
+    new_role: PartnerRole
+    actor: string
+    source: string
+    note?: string | null
+    created_at: string
+  }>
+}
+
+export async function getAdminPartnerDashboard(): Promise<AdminPartnerDashboard> {
+  const res = await fetch(`${API_BASE}/admin/partner/dashboard`, {
+    headers: getAuthHeaders(),
+  })
+  return handleJSONResponse(res)
+}
+
+export async function postAdminPartnerRole(
+  userId: string,
+  role: PartnerRole,
+  note = ''
+) {
+  const res = await fetch(`${API_BASE}/admin/partner/roles`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ user_id: userId, role, note }),
+  })
+  return handleJSONResponse<{ ok: boolean; role: PartnerRole }>(res)
+}
+
+export async function postAdminPartnerReview(
+  kind: 'studio-requests' | 'withdrawals',
+  id: number,
+  action: 'approve' | 'reject' | 'paid',
+  note = ''
+) {
+  const res = await fetch(`${API_BASE}/admin/partner/${kind}/${id}/review`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ action, note }),
+  })
+  return handleJSONResponse<{ ok: boolean; status: string }>(res)
+}
+
 export async function getUserNotifications(): Promise<{
   notifications: UserNotificationRow[]
 }> {
@@ -398,32 +504,6 @@ export type AdminAIPlatformUsageRow = {
   created_at: string
 }
 
-export type AdminBinanceBrokerRebateRow = {
-  market: string
-  asset: string
-  amount: number
-  customer_id?: string
-  sub_account_id?: string
-  symbol?: string
-  income_type?: string
-  time?: number
-  raw?: Record<string, unknown>
-}
-
-export async function getAdminBinanceBrokerRebates(): Promise<{
-  configured: boolean
-  message?: string
-  items: AdminBinanceBrokerRebateRow[]
-  totals: Record<string, number>
-  errors?: string[]
-  generated_at?: string
-}> {
-  const res = await fetch(`${API_BASE}/admin/binance-broker-rebates`, {
-    headers: getAuthHeaders(),
-  })
-  return handleJSONResponse(res)
-}
-
 export async function getAdminUsersOverview(): Promise<{
   users: AdminUserRow[]
   running_traders: AdminRunningTraderRow[]
@@ -480,7 +560,6 @@ export async function postAdminWalletAdjust(
   return handleJSONResponse(res)
 }
 
-/** 管理员：对全部「市场合规跟单」交易员在交易所市价平仓（可选仅某一合约） */
 /** 管理员：代用户启动交易员 */
 export async function postAdminTraderStart(
   traderId: string
@@ -523,43 +602,6 @@ export async function postAdminTraderSyncPositionsFromExchange(
   return handleJSONResponse(res)
 }
 
-export async function postAdminFlattenAllComkunFollowTraders(
-  symbol?: string
-): Promise<{
-  message: string
-  symbol_filter: string
-  trader_count: number
-  ok_count: number
-  fail_count: number
-  results: Array<{
-    trader_id: string
-    trader_name?: string
-    user_id: string
-    exchange_type?: string
-    ok: boolean
-    error?: string
-    closed?: Array<{
-      symbol?: string
-      side?: string
-      ok?: boolean
-      error?: string
-    }>
-  }>
-}> {
-  const body: { symbol?: string } = {}
-  const s = symbol?.trim()
-  if (s) body.symbol = s
-  const res = await fetch(
-    `${API_BASE}/admin/comkun/flatten-all-follow-traders`,
-    {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(body),
-    }
-  )
-  return handleJSONResponse(res)
-}
-
 /** 管理员：SOCKS5 代理池条目 */
 export type AdminOutboundProxyPoolRow = {
   id: string
@@ -581,36 +623,6 @@ export async function getAdminOutboundProxyPool(): Promise<{
   const res = await fetch(`${API_BASE}/admin/outbound-proxy-pool`, {
     headers: getAuthHeaders(),
   })
-  return handleJSONResponse(res)
-}
-
-/** 管理员：出口代理 REST 失败告警 */
-export type AdminOutboundProxyFaultRow = {
-  id: number
-  user_id: string
-  trader_id: string
-  exchange_id: string
-  proxy_redacted: string
-  display_host: string
-  error_type: string
-  last_error: string
-  hit_count: number
-  first_at: string
-  last_at: string
-  user_email: string
-  user_display_name: string
-  trader_name: string
-}
-
-export async function getAdminOutboundProxyFaults(limit = 50): Promise<{
-  events: AdminOutboundProxyFaultRow[]
-}> {
-  const res = await fetch(
-    `${API_BASE}/admin/outbound-proxy-faults?limit=${limit}`,
-    {
-      headers: getAuthHeaders(),
-    }
-  )
   return handleJSONResponse(res)
 }
 

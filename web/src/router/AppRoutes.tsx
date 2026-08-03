@@ -1,4 +1,11 @@
-import { Suspense, lazy, type ReactNode, useEffect, useMemo, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import useSWR from 'swr'
 import {
@@ -44,10 +51,14 @@ const ThemePreviewPage = lazy(() =>
   }))
 )
 const CompetitionPage = lazy(() =>
-  import('../components/trader/CompetitionPage').then((mod) => ({ default: mod.CompetitionPage }))
+  import('../components/trader/CompetitionPage').then((mod) => ({
+    default: mod.CompetitionPage,
+  }))
 )
 const TraderDeployWizardPage = lazy(() =>
-  import('../pages/TraderDeployWizardPage').then((mod) => ({ default: mod.TraderDeployWizardPage }))
+  import('../pages/TraderDeployWizardPage').then((mod) => ({
+    default: mod.TraderDeployWizardPage,
+  }))
 )
 const FAQPage = lazy(() =>
   import('../pages/FAQPage').then((mod) => ({ default: mod.FAQPage }))
@@ -56,7 +67,9 @@ const DataPage = lazy(() =>
   import('../pages/DataPage').then((mod) => ({ default: mod.DataPage }))
 )
 const CryptoNewsPage = lazy(() =>
-  import('../pages/CryptoNewsPage').then((mod) => ({ default: mod.CryptoNewsPage }))
+  import('../pages/CryptoNewsPage').then((mod) => ({
+    default: mod.CryptoNewsPage,
+  }))
 )
 const SettingsPage = lazy(() =>
   import('../pages/SettingsPage').then((mod) => ({ default: mod.SettingsPage }))
@@ -65,19 +78,52 @@ const ProfilePage = lazy(() =>
   import('../pages/ProfilePage').then((mod) => ({ default: mod.ProfilePage }))
 )
 const InviteFissionPage = lazy(() =>
-  import('../pages/InviteFissionPage').then((mod) => ({ default: mod.InviteFissionPage }))
+  import('../pages/InviteFissionPage').then((mod) => ({
+    default: mod.InviteFissionPage,
+  }))
 )
 const StrategyMarketPage = lazy(() =>
-  import('../pages/StrategyMarketPage').then((mod) => ({ default: mod.StrategyMarketPage }))
+  import('../pages/StrategyMarketPage').then((mod) => ({
+    default: mod.StrategyMarketPage,
+  }))
 )
 const StrategyMarketDetailPage = lazy(() =>
-  import('../pages/StrategyMarketDetailPage').then((mod) => ({ default: mod.StrategyMarketDetailPage }))
+  import('../pages/StrategyMarketDetailPage').then((mod) => ({
+    default: mod.StrategyMarketDetailPage,
+  }))
 )
-const AdminDashboardPage = lazy(() =>
-  import('../pages/AdminDashboardPage').then((mod) => ({ default: mod.AdminDashboardPage }))
+const AdminHubPage = lazy(() =>
+  import('../pages/AdminHubPage').then((mod) => ({ default: mod.AdminHubPage }))
+)
+const AdminPartnerLedgerPage = lazy(() =>
+  import('../pages/AdminPartnerLedgerPage').then((mod) => ({
+    default: mod.AdminPartnerLedgerPage,
+  }))
+)
+const AdminTradersPage = lazy(() =>
+  import('../pages/AdminTradersPage').then((mod) => ({
+    default: mod.AdminTradersPage,
+  }))
+)
+const AdminProxyPoolPage = lazy(() =>
+  import('../pages/AdminProxyPoolPage').then((mod) => ({
+    default: mod.AdminProxyPoolPage,
+  }))
+)
+const AdminUsersPage = lazy(() =>
+  import('../pages/AdminUsersPage').then((mod) => ({
+    default: mod.AdminUsersPage,
+  }))
+)
+const AdminAIBillingPage = lazy(() =>
+  import('../pages/AdminAIBillingPage').then((mod) => ({
+    default: mod.AdminAIBillingPage,
+  }))
 )
 const FinanceDashboardPage = lazy(() =>
-  import('../pages/FinanceDashboardPage').then((mod) => ({ default: mod.FinanceDashboardPage }))
+  import('../pages/FinanceDashboardPage').then((mod) => ({
+    default: mod.FinanceDashboardPage,
+  }))
 )
 const RechargePage = lazy(() =>
   import('../pages/RechargePage').then((mod) => ({ default: mod.RechargePage }))
@@ -86,13 +132,19 @@ const WalletPage = lazy(() =>
   import('../pages/WalletPage').then((mod) => ({ default: mod.WalletPage }))
 )
 const StrategyStudioPage = lazy(() =>
-  import('../pages/StrategyStudioPage').then((mod) => ({ default: mod.StrategyStudioPage }))
+  import('../pages/StrategyStudioPage').then((mod) => ({
+    default: mod.StrategyStudioPage,
+  }))
 )
 const TraderDashboardPage = lazy(() =>
-  import('../pages/TraderDashboardPage').then((mod) => ({ default: mod.TraderDashboardPage }))
+  import('../pages/TraderDashboardPage').then((mod) => ({
+    default: mod.TraderDashboardPage,
+  }))
 )
 const AutoArbitragePage = lazy(() =>
-  import('../pages/AutoArbitragePage').then((mod) => ({ default: mod.AutoArbitragePage }))
+  import('../pages/AutoArbitragePage').then((mod) => ({
+    default: mod.AutoArbitragePage,
+  }))
 )
 
 function getTraderSlug(trader: TraderInfo) {
@@ -285,7 +337,10 @@ function DashboardRoute() {
       const by = findTraderBySlug(selectedTraderSlug, traders)
       return (by ?? traders[0]).trader_id
     }
-    if (selectedTraderId && traders.some((t) => t.trader_id === selectedTraderId)) {
+    if (
+      selectedTraderId &&
+      traders.some((t) => t.trader_id === selectedTraderId)
+    ) {
       return selectedTraderId
     }
     return traders[0].trader_id
@@ -377,7 +432,12 @@ function DashboardRoute() {
     stableSelectedId
       ? `decisions/latest-${stableSelectedId}-${DASHBOARD_DECISIONS_LIMIT}`
       : null,
-    () => api.getLatestDecisions(stableSelectedId!, DASHBOARD_DECISIONS_LIMIT, true),
+    () =>
+      api.getLatestDecisions(
+        stableSelectedId!,
+        DASHBOARD_DECISIONS_LIMIT,
+        true
+      ),
     {
       refreshInterval: decisionsPollOff ? 0 : 10000,
       revalidateOnFocus: false,
@@ -407,7 +467,9 @@ function DashboardRoute() {
     }
   )
 
-  const selectedTrader = traders?.find((trader) => trader.trader_id === stableSelectedId)
+  const selectedTrader = traders?.find(
+    (trader) => trader.trader_id === stableSelectedId
+  )
 
   useEffect(() => {
     if (!stableSelectedId) return
@@ -470,6 +532,19 @@ export function AppRoutes() {
   if (systemConfig && !systemConfig.initialized && !user) {
     return <SetupPage />
   }
+
+  const adminElement = (page: ReactNode) =>
+    isAuthenticated ? (
+      user?.is_admin ? (
+        <AppChrome showFooter={false} wrapInMain={false}>
+          <PageLoader>{page}</PageLoader>
+        </AppChrome>
+      ) : (
+        <Navigate to={ROUTES.profile} replace />
+      )
+    ) : (
+      <Navigate to={ROUTES.login} replace />
+    )
 
   return (
     <>
@@ -655,25 +730,33 @@ export function AppRoutes() {
         />
         <Route
           path={ROUTES.comkunOfficialToken}
-          element={<Navigate to={isAuthenticated ? ROUTES.recharge : ROUTES.login} replace />}
+          element={
+            <Navigate
+              to={isAuthenticated ? ROUTES.recharge : ROUTES.login}
+              replace
+            />
+          }
+        />
+        <Route path={ROUTES.admin} element={adminElement(<AdminHubPage />)} />
+        <Route
+          path={ROUTES.adminPartners}
+          element={adminElement(<AdminPartnerLedgerPage />)}
         />
         <Route
-          path={ROUTES.admin}
-          element={
-            isAuthenticated ? (
-              user?.is_admin ? (
-                <AppChrome showFooter={false} wrapInMain={false}>
-                  <PageLoader>
-                    <AdminDashboardPage />
-                  </PageLoader>
-                </AppChrome>
-              ) : (
-                <Navigate to={ROUTES.profile} replace />
-              )
-            ) : (
-              <Navigate to={ROUTES.login} replace />
-            )
-          }
+          path={ROUTES.adminTraders}
+          element={adminElement(<AdminTradersPage />)}
+        />
+        <Route
+          path={ROUTES.adminProxies}
+          element={adminElement(<AdminProxyPoolPage />)}
+        />
+        <Route
+          path={ROUTES.adminUsers}
+          element={adminElement(<AdminUsersPage />)}
+        />
+        <Route
+          path={ROUTES.adminAIBilling}
+          element={adminElement(<AdminAIBillingPage />)}
         />
         <Route
           path={ROUTES.finance}
@@ -709,7 +792,11 @@ export function AppRoutes() {
           path={ROUTES.strategy}
           element={
             isAuthenticated ? (
-              <AppChrome currentPage="strategy" animateContent showFooter={false}>
+              <AppChrome
+                currentPage="strategy"
+                animateContent
+                showFooter={false}
+              >
                 <PageLoader>
                   <StrategyStudioPage />
                 </PageLoader>
@@ -723,7 +810,11 @@ export function AppRoutes() {
           path={ROUTES.autoArbitrage}
           element={
             isAuthenticated ? (
-              <AppChrome currentPage="auto-arbitrage" animateContent showFooter={false}>
+              <AppChrome
+                currentPage="auto-arbitrage"
+                animateContent
+                showFooter={false}
+              >
                 <PageLoader>
                   <AutoArbitragePage />
                 </PageLoader>
