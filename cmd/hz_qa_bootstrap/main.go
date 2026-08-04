@@ -11,6 +11,8 @@ import (
 	"nofx/auth"
 	"nofx/crypto"
 	"nofx/store"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -65,6 +67,27 @@ func bootstrap(opts bootstrapOptions) error {
 			AvatarURL: store.DefaultAvatarURL(qaAdminID),
 		}
 		if err := st.User().Create(&admin); err != nil {
+			return err
+		}
+	}
+	for _, ratio := range []int{20, 40, 60, 80, 100} {
+		id := fmt.Sprintf("hz-qa-follower-%03d", ratio)
+		var count int64
+		if err := st.GormDB().Model(&store.User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			continue
+		}
+		hash, err := auth.HashPassword("disabled-" + uuid.NewString())
+		if err != nil {
+			return err
+		}
+		if err := st.User().Create(&store.User{
+			ID: id, Email: fmt.Sprintf("hz-qa-follower-%03d@comkun.invalid", ratio), PasswordHash: hash,
+			DisplayName: fmt.Sprintf("HZ QA %d%%", ratio), ProfileNamed: true, BalanceUSDT: 10_000,
+			AvatarURL: store.DefaultAvatarURL(id),
+		}); err != nil {
 			return err
 		}
 	}

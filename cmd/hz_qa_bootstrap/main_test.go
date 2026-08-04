@@ -14,7 +14,7 @@ import (
 	"nofx/store"
 )
 
-func TestBootstrapCreatesOnlyQAAdminAndPublicStrategyIdempotently(t *testing.T) {
+func TestBootstrapCreatesQAUsersAndPublicStrategyIdempotently(t *testing.T) {
 	key := make([]byte, 32)
 	for i := range key {
 		key[i] = byte(i + 1)
@@ -45,7 +45,7 @@ func TestBootstrapCreatesOnlyQAAdminAndPublicStrategyIdempotently(t *testing.T) 
 	if err := st.GormDB().Model(&store.Strategy{}).Where("id = ? AND name = ? AND is_public = ?", qaStrategyID, "HZ 主控联动 QA", true).Count(&strategies).Error; err != nil {
 		t.Fatal(err)
 	}
-	if users != 1 || strategies != 1 {
+	if users != 6 || strategies != 1 {
 		t.Fatalf("users=%d public_strategies=%d", users, strategies)
 	}
 }
