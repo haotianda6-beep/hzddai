@@ -12,6 +12,7 @@ import (
 	appcrypto "nofx/crypto"
 	"nofx/store"
 	"nofx/trader/hz"
+	"nofx/trader/types"
 )
 
 func main() {
@@ -43,6 +44,13 @@ func main() {
 	if snapshot.MasterAccountID != masterAccount {
 		panic("master snapshot mismatch")
 	}
+	evidenceSince := optionalEvidenceSince()
+	masterTrader, err := hz.NewTrader(apiURL, masterKey, masterSecret, true)
+	must(err)
+	masterTrades, err := masterTrader.GetClosedPnL(evidenceSince, 100)
+	masterTrader.Close()
+	must(err)
+	fmt.Printf("master %s\n", tradeEvidence(masterTrades))
 	for i := range raw {
 		raw[i] = 0
 	}
@@ -69,9 +77,11 @@ func main() {
 			follower, traderErr := hz.NewTrader(exchange.APIURL, string(exchange.APIKey), string(exchange.SecretKey), true)
 			must(traderErr)
 			positions, positionsErr := follower.GetPositions()
+			trades, tradesErr := follower.GetClosedPnL(evidenceSince, 100)
 			follower.Close()
 			must(positionsErr)
-			fmt.Printf("follower=%s positions=%d protected=%d totals=%s\n", userID, len(positions), protectedPositions(positions), positionTotals(positions))
+			must(tradesErr)
+			fmt.Printf("follower=%s positions=%d protected=%d totals=%s %s\n", userID, len(positions), protectedPositions(positions), positionTotals(positions), tradeEvidence(trades))
 			followers++
 		}
 	}
@@ -80,6 +90,27 @@ func main() {
 	}
 	fmt.Printf("capabilities=6/6 master_snapshot=true followers=%d sequence=%s positions=%d\n",
 		followers, snapshot.LastSequence, len(snapshot.Positions))
+}
+
+func optionalEvidenceSince() time.Time {
+	raw := strings.TrimSpace(os.Getenv("HZ_QA_EVIDENCE_SINCE"))
+	if raw == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	must(err)
+	return parsed
+}
+
+func tradeEvidence(records []types.ClosedPnLRecord) string {
+	orders := make(map[string]struct{}, len(records))
+	quantity, realized := 0.0, 0.0
+	for _, record := range records {
+		orders[record.OrderID] = struct{}{}
+		quantity += record.Quantity
+		realized += record.RealizedPnL
+	}
+	return fmt.Sprintf("trades=%d orders=%d quantity=%.6f realized_pnl=%.6f", len(records), len(orders), quantity, realized)
 }
 
 func protectedPositions(positions []map[string]interface{}) int {
