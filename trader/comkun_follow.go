@@ -1325,7 +1325,7 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		if at.comkunFollowSourceIsBnScreenMirror() {
 			schemeASkipTPSL = true
 		}
-		err := at.reconcileComkunFollowMasterStateV2(ctx, br, record, schemeASkipTPSL, closeOnly || stateWire.PollingReconcile)
+		err := at.reconcileComkunFollowMasterStateV2(ctx, br, record, schemeASkipTPSL, hzMirrorEventCloseOnly(closeOnly, &stateWire))
 		if err != nil {
 			if mt4Follow && errors.Is(err, errMT4BroadcastSuperseded) {
 				if persistErr := at.persistComkunConsumptionSuccess(br.ID); persistErr != nil {

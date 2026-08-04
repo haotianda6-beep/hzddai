@@ -50,6 +50,17 @@ func TestHZExternalOpenTTLAndCloseOnlyPolicy(t *testing.T) {
 	}
 }
 
+func TestHZFreshPollingReconcileCanRepairMissedOpen(t *testing.T) {
+	now := time.Now()
+	wire := &comkunMasterStateWire{PollingReconcile: true, OccurredAt: now.Add(-30 * time.Second)}
+	if !hzMirrorDeltaAllowed(1, wire.OccurredAt, now, hzMirrorEventCloseOnly(false, wire)) {
+		t.Fatal("fresh polling reconcile must repair a missed OPEN within the two-minute TTL")
+	}
+	if hzMirrorDeltaAllowed(1, wire.OccurredAt, now, hzMirrorEventCloseOnly(true, wire)) {
+		t.Fatal("insufficient platform balance must remain close-only")
+	}
+}
+
 func TestHZMasterLotsUseDynamicContractAndEquityRatio(t *testing.T) {
 	position := kernel.PositionInfo{Symbol: "BTC-PERP", Side: "long", Lots: 2, Quantity: 0}
 	got, err := hzScaledPositionQuantity(position, 1000, 250, func(_ string, lots float64) (float64, error) {

@@ -71,6 +71,32 @@ func TestIntegrationMasterEventReplayGapAndPollingRecovery(t *testing.T) {
 	}
 }
 
+func TestPollingReconcileDoesNotConsumeRealHZSequence(t *testing.T) {
+	st := newIntegrationTestStore(t)
+	reconcile := integrationInput("reconcile-1", "poll-1", 1)
+	reconcile.Provider = "hz-reconcile"
+	polled, err := st.IntegrationMasterEvent().Accept(reconcile, true)
+	if err != nil || !polled.Accepted {
+		t.Fatalf("polled=%+v err=%v", polled, err)
+	}
+	real := integrationInput("event-1", "push-1", 1)
+	real.EventType = "OPEN"
+	pushed, err := st.IntegrationMasterEvent().Accept(real, false)
+	if err != nil || !pushed.Accepted || pushed.Duplicate || pushed.BroadcastID != polled.BroadcastID {
+		t.Fatalf("pushed=%+v polled=%+v err=%v", pushed, polled, err)
+	}
+	replay := integrationInput("event-1", "push-1-replay", 1)
+	replay.EventType = "OPEN"
+	replayed, err := st.IntegrationMasterEvent().Accept(replay, false)
+	if err != nil || !replayed.Duplicate || replayed.Accepted || replayed.BroadcastID != polled.BroadcastID {
+		t.Fatalf("replayed=%+v err=%v", replayed, err)
+	}
+	var broadcasts int64
+	if err := st.GormDB().Model(&ComkunMasterBroadcast{}).Count(&broadcasts).Error; err != nil || broadcasts != 1 {
+		t.Fatalf("broadcasts=%d err=%v", broadcasts, err)
+	}
+}
+
 func TestIntegrationMasterEventFanoutThirtyFollowers(t *testing.T) {
 	st := newIntegrationTestStore(t)
 	const followers = 30

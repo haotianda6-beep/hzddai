@@ -644,6 +644,10 @@ func hzMirrorDeltaAllowed(delta float64, occurredAt, now time.Time, closeOnly bo
 	return !occurredAt.Before(now.Add(-2 * time.Minute))
 }
 
+func hzMirrorEventCloseOnly(balanceCloseOnly bool, _ *comkunMasterStateWire) bool {
+	return balanceCloseOnly
+}
+
 func hzMirrorRiskIncreaseExpired(wire *comkunMasterStateWire, now time.Time) bool {
 	if wire == nil {
 		return false

@@ -68,9 +68,17 @@ func (s *Server) startHZMasterEventPoller() {
 }
 
 func (s *Server) pollHZMasterEventsOnce(ctx context.Context, config hzMasterPollConfig) error {
-	latest, err := s.store.IntegrationMasterEvent().GetLatestSequence("hz", config.MasterAccountID)
+	latestPush, err := s.store.IntegrationMasterEvent().GetLatestSequence("hz", config.MasterAccountID)
 	if err != nil {
 		return err
+	}
+	latestReconcile, err := s.store.IntegrationMasterEvent().GetLatestSequence("hz-reconcile", config.MasterAccountID)
+	if err != nil {
+		return err
+	}
+	latest := latestPush
+	if latestReconcile > latest {
+		latest = latestReconcile
 	}
 	raw, err := hz.FetchMasterSnapshot(ctx, config.APIURL, config.APIKey, config.Secret)
 	if err != nil {
