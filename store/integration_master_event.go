@@ -135,6 +135,38 @@ func (s *IntegrationMasterEventStore) Accept(input IntegrationMasterEventInput, 
 		}
 
 		now := time.Now().UTC()
+		if input.Provider == "hz" {
+			var reconciled IntegrationMasterEvent
+			reconcileErr := tx.Where("provider = ? AND master_account_id = ? AND producer_sequence = ?",
+				"hz-reconcile", input.MasterAccountID, input.Sequence).First(&reconciled).Error
+			if reconcileErr == nil {
+				if err := tx.Model(&ComkunMasterBroadcast{}).Where("id = ?", reconciled.BroadcastID).Updates(map[string]any{
+					"master_account_equity": input.MasterEquity,
+					"master_state_json":     input.MasterStateJSON,
+				}).Error; err != nil {
+					return err
+				}
+				row := &IntegrationMasterEvent{
+					ID: uuid.New().String(), Provider: input.Provider, MasterAccountID: input.MasterAccountID,
+					ProducerEventID: input.EventID, ProducerSequence: input.Sequence, EventType: input.EventType,
+					OccurredAt: input.OccurredAt.UTC(), ReceivedAt: now, PayloadVersion: input.PayloadVersion,
+					PayloadSHA256: input.PayloadSHA256, PayloadJSON: input.PayloadJSON, AuthNonce: input.AuthNonce,
+					IngestStatus: "promoted_reconcile", BroadcastID: reconciled.BroadcastID, SourceStrategyID: sourceID,
+					CreatedAt: now, UpdatedAt: now,
+				}
+				if err := tx.Create(row).Error; err != nil {
+					return err
+				}
+				accepted = true
+				result.Accepted = true
+				result.BroadcastID = reconciled.BroadcastID
+				result.ExpectedNextSequence = input.Sequence + 1
+				return nil
+			}
+			if !errors.Is(reconcileErr, gorm.ErrRecordNotFound) {
+				return reconcileErr
+			}
+		}
 		broadcast := &ComkunMasterBroadcast{
 			SourceStrategyID: sourceID, MasterAccountEquity: input.MasterEquity,
 			AnalysisText: "AI策略执行", DecisionJSON: "[]",

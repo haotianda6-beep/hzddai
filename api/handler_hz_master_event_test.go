@@ -118,9 +118,13 @@ func TestHZMasterEventPollingRepairsPushGap(t *testing.T) {
 	if err := server.pollHZMasterEventsOnce(t.Context(), config); err != nil {
 		t.Fatal(err)
 	}
-	latest, err := st.IntegrationMasterEvent().GetLatestSequence("hz", "master-human-account")
-	if err != nil || latest != 3 {
-		t.Fatalf("latest=%d err=%v", latest, err)
+	latestPush, err := st.IntegrationMasterEvent().GetLatestSequence("hz", "master-human-account")
+	if err != nil || latestPush != 1 {
+		t.Fatalf("latest push=%d err=%v", latestPush, err)
+	}
+	latestReconcile, err := st.IntegrationMasterEvent().GetLatestSequence("hz-reconcile", "master-human-account")
+	if err != nil || latestReconcile != 3 {
+		t.Fatalf("latest reconcile=%d err=%v", latestReconcile, err)
 	}
 	var count int64
 	if err := st.GormDB().Model(&store.ComkunMasterBroadcast{}).Count(&count).Error; err != nil || count != 2 {
@@ -129,7 +133,7 @@ func TestHZMasterEventPollingRepairsPushGap(t *testing.T) {
 	var latestBroadcast store.ComkunMasterBroadcast
 	if err := st.GormDB().Order("id DESC").First(&latestBroadcast).Error; err != nil ||
 		!bytes.Contains([]byte(latestBroadcast.MasterStateJSON), []byte(`"polling_reconcile":true`)) {
-		t.Fatalf("poll reconciliation must be close-only: state=%s err=%v", latestBroadcast.MasterStateJSON, err)
+		t.Fatalf("poll reconciliation metadata missing: state=%s err=%v", latestBroadcast.MasterStateJSON, err)
 	}
 }
 

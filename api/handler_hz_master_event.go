@@ -148,8 +148,12 @@ func (s *Server) acceptHZMasterEvent(request hzMasterEventRequest, raw []byte, n
 	sequence, _ := strconv.ParseInt(request.Sequence, 10, 64)
 	equity, _ := parseHZDecimal(request.Account.Equity)
 	payloadHash := sha256.Sum256(raw)
+	provider := "hz"
+	if pollingReconcile {
+		provider = "hz-reconcile"
+	}
 	return s.store.IntegrationMasterEvent().Accept(store.IntegrationMasterEventInput{
-		Provider: "hz", MasterAccountID: request.MasterAccountID, EventID: request.EventID,
+		Provider: provider, MasterAccountID: request.MasterAccountID, EventID: request.EventID,
 		Sequence: sequence, EventType: request.EventType, OccurredAt: request.OccurredAt,
 		PayloadVersion: 1, PayloadSHA256: hex.EncodeToString(payloadHash[:]),
 		PayloadJSON: string(raw), AuthNonce: nonce, MasterEquity: equity, MasterStateJSON: stateJSON,
