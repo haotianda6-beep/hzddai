@@ -287,6 +287,14 @@ func floorHZMirrorTarget(formatter mirrorQuantityFormatter, symbol string, targe
 	return floored, nil
 }
 
+func mirrorFollowerTargetEquity(hzExternal bool, cfg *store.StrategyConfig, sourceID string, initialBalance, currentEquity, masterEquity float64) float64 {
+	followerEquity := mirrorFollowerSizingEquity(sourceID, initialBalance, currentEquity)
+	if hzExternal && cfg != nil && cfg.ComkunMirrorFollowerEquityRatio > 0 {
+		return masterEquity * cfg.ComkunMirrorFollowerEquityRatio
+	}
+	return followerEquity
+}
+
 func mirrorQuantitiesAligned(formatter mirrorQuantityFormatter, key string, target, follower float64) bool {
 	if formatter != nil {
 		if sym, _, ok := splitPosKey(key); ok {
@@ -359,7 +367,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 
 	masterEq := br.MasterAccountEquity
 	sourceID := store.ResolveComkunFollowSourceStrategyID(at.config.StrategyConfig)
-	followerEq := mirrorFollowerSizingEquity(sourceID, at.initialBalance, ctx.Account.TotalEquity)
+	followerEq := mirrorFollowerTargetEquity(hzExternal, at.config.StrategyConfig, sourceID, at.initialBalance, ctx.Account.TotalEquity, masterEq)
 	if followerEq < 0 {
 		followerEq = 0
 	}

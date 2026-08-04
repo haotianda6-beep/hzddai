@@ -168,6 +168,13 @@ func (c *client) doOnce(
 	return nil
 }
 
+func canonicalSigningPath(requestPath string) string {
+	if strings.HasPrefix(requestPath, "/qa-api/") {
+		return "/api/" + strings.TrimPrefix(requestPath, "/qa-api/")
+	}
+	return requestPath
+}
+
 func (c *client) signedHeaders(method, path, query string, body []byte, idempotency string) http.Header {
 	timestamp := strconv.FormatInt(c.now().UnixMilli()+c.offset.Load(), 10)
 	nonce := c.nonce()
@@ -175,7 +182,7 @@ func (c *client) signedHeaders(method, path, query string, body []byte, idempote
 		"X-HZ-API-KEY":   []string{c.apiKey},
 		"X-HZ-TIMESTAMP": []string{timestamp},
 		"X-HZ-NONCE":     []string{nonce},
-		"X-HZ-SIGNATURE": []string{sign(c.secret, canonicalPayload(timestamp, nonce, method, path, query, body))},
+		"X-HZ-SIGNATURE": []string{sign(c.secret, canonicalPayload(timestamp, nonce, method, canonicalSigningPath(path), query, body))},
 	}
 	if idempotency != "" {
 		headers.Set("X-HZ-IDEMPOTENCY-KEY", idempotency)
