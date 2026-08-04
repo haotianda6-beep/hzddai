@@ -96,6 +96,14 @@ func main() {
 		must(trader.SetTakeProfit(symbol, side, 0, tp))
 		must(trader.SetStopLoss(symbol, side, 0, sl))
 		fmt.Printf("action=%s symbol=%s protection=updated\n", action, symbol)
+	case "protect-id":
+		requireArgs(5)
+		sl, parseErr := strconv.ParseFloat(os.Args[3], 64)
+		must(parseErr)
+		tp, parseErr := strconv.ParseFloat(os.Args[4], 64)
+		must(parseErr)
+		must(trader.SetPositionProtectionByID(os.Args[2], sl, tp))
+		fmt.Printf("action=%s protection=updated\n", action)
 	case "clear-protection":
 		requireArgs(3)
 		must(trader.CancelStopOrders(strings.ToUpper(os.Args[2])))
