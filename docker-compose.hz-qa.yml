@@ -34,6 +34,8 @@ services:
     image: nofx-frontend:${HZ_QA_IMAGE_TAG:-hz-qa}
     container_name: nofx-hz-qa-frontend
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${HZ_QA_LISTEN_ADDRESS:-0.0.0.0}:${HZ_QA_FRONTEND_PORT:-13000}:80"
     networks:
