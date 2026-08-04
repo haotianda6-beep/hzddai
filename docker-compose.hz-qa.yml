@@ -18,6 +18,10 @@ services:
       DB_TYPE: sqlite
       DB_PATH: /app/data/data.db
       EXPERIENCE_IMPROVEMENT: "false"
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,nofx,nofx-frontend}
     networks:
       - hz-qa
     healthcheck:
