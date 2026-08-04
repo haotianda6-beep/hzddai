@@ -24,6 +24,12 @@ func main() {
 		positions, statusErr := trader.GetPositions()
 		must(statusErr)
 		fmt.Printf("ready=%t positions=%d\n", trader.IsReady(), len(positions))
+	case "positions":
+		positions, statusErr := trader.GetPositions()
+		must(statusErr)
+		for _, item := range positions {
+			fmt.Printf("position=%v symbol=%v side=%v quantity=%v\n", item["positionId"], item["symbol"], item["side"], item["positionAmt"])
+		}
 	case "price":
 		requireArgs(3)
 		price, priceErr := trader.GetMarketPrice(os.Args[2])
@@ -59,6 +65,13 @@ func main() {
 				return trader.CloseLong(symbol, quantity)
 			}
 			return trader.CloseShort(symbol, quantity)
+		})
+		must(err)
+		printResult(action, result)
+	case "close-id":
+		requireArgs(4)
+		result, err := trader.ExecuteWithIntent(os.Args[3], func() (map[string]interface{}, error) {
+			return trader.ClosePositionByID(os.Args[2], 0)
 		})
 		must(err)
 		printResult(action, result)

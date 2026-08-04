@@ -196,6 +196,35 @@ func TestPartialCloseConvertsQuantityAndRejectsOverClose(t *testing.T) {
 	}
 }
 
+func TestClosePositionByIDSelectsExactPosition(t *testing.T) {
+	var closedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/instruments":
+			writeInstruments(w)
+		case r.URL.Path == "/api/v1/positions":
+			_ = json.NewEncoder(w).Encode([]position{
+				{PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", Lots: "0.010"},
+				{PositionID: "pos-2", Instrument: "XAUUSD", Side: "LONG", Lots: "0.005"},
+			})
+		case strings.HasSuffix(r.URL.Path, "/close"):
+			closedPath = r.URL.Path
+			_ = json.NewEncoder(w).Encode(positionAction{ClosedPosition: position{PositionID: "pos-2", CurrentPrice: "2400"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	trader := newTestTrader(t, server.URL+"/api/v1", true)
+	trader.SetNextIntent("comkun-close-exact")
+	if _, err := trader.ClosePositionByID("pos-2", 0); err != nil {
+		t.Fatal(err)
+	}
+	if closedPath != "/api/v1/positions/pos-2/close" {
+		t.Fatalf("closed path=%q", closedPath)
+	}
+}
+
 func TestReadModelsExposeCommodityQuantity(t *testing.T) {
 	var instrumentCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

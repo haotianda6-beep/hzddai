@@ -180,10 +180,35 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 	if len(positions) != 1 {
 		return nil, fmt.Errorf("ambiguous HZ %s %s positions: exact position ID is required", symbol, strings.ToLower(side))
 	}
+	return t.closePositionItem(positions[0], quantity)
+}
+
+// ClosePositionByID closes only the server-verified AI position identified by positionID.
+func (t *Trader) ClosePositionByID(positionID string, quantity float64) (map[string]interface{}, error) {
+	if !t.scopeVerified.Load() {
+		return nil, fmt.Errorf("HZ AI account scope is not verified")
+	}
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return nil, fmt.Errorf("HZ position ID is required")
+	}
+	positions, err := t.positions()
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range positions {
+		if item.PositionID == positionID {
+			return t.closePositionItem(item, quantity)
+		}
+	}
+	return nil, fmt.Errorf("HZ position not found")
+}
+
+func (t *Trader) closePositionItem(item position, quantity float64) (map[string]interface{}, error) {
 	remainingLots := 0.0
 	lotPrecision := 0
 	if quantity > 0 {
-		spec, err := t.instrument(symbol)
+		spec, err := t.instrument(item.Instrument)
 		if err != nil {
 			return nil, err
 		}
@@ -193,12 +218,11 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		}
 		remainingLots = number(lots)
 		lotPrecision = spec.LotPrecision
-		totalLots := number(positions[0].Lots)
+		totalLots := number(item.Lots)
 		if remainingLots > totalLots+1e-9 {
-			return nil, fmt.Errorf("close quantity exceeds %s %s position", symbol, strings.ToLower(side))
+			return nil, fmt.Errorf("close quantity exceeds HZ position")
 		}
 	}
-	item := positions[0]
 	closeLots := item.Lots
 	if quantity > 0 {
 		closeLots = strconv.FormatFloat(remainingLots, 'f', lotPrecision, 64)
@@ -214,7 +238,7 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		return nil, err
 	}
 	return map[string]interface{}{
-		"orderId": last.ClosedPosition.PositionID, "symbol": strings.ToUpper(symbol),
+		"orderId": last.ClosedPosition.PositionID, "symbol": strings.ToUpper(item.Instrument),
 		"status": "FILLED", "fillPrice": number(last.ClosedPosition.CurrentPrice),
 		"avgPrice": number(last.ClosedPosition.CurrentPrice),
 	}, nil
