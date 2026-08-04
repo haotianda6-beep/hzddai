@@ -186,7 +186,7 @@ func TestHZFirstSubscriptionSeedsCurrentSequenceWithoutChasingPosition(t *testin
 	}
 }
 
-func TestHZProtectionEventUpdatesEveryExactFollowerPosition(t *testing.T) {
+func TestHZPollingReconcileUpdatesEveryExactFollowerPositionProtection(t *testing.T) {
 	underlying := &recoveringHZIntentTrader{balance: 1000, contractSize: 1, positions: []map[string]interface{}{
 		{"positionId": "follower-a", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.010},
 		{"positionId": "follower-b", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.005},
@@ -199,7 +199,7 @@ func TestHZProtectionEventUpdatesEveryExactFollowerPosition(t *testing.T) {
 		}},
 	}
 	wire := comkunMasterStateWire{
-		V: 1, SourceEventID: "event-protection", SourceSequence: 3, OccurredAt: time.Now(), EventType: "PROTECTION",
+		V: 1, SourceEventID: "event-reconcile", SourceSequence: 3, OccurredAt: time.Now(), EventType: "RECONCILE", PollingReconcile: true,
 		Positions:     []kernel.PositionInfo{{PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.015, Leverage: 10, StopLoss: 50000, TakeProfit: 76000}},
 		PendingOrders: []kernel.PendingOrder{},
 	}

@@ -1015,7 +1015,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		if mirrorMarketNeedRetry || mirrorCloseNeedRetry {
 			return fmt.Errorf("mirror_transient: v2 网页镜像市价同步未完成（加仓/全平/部分平仓重试中）")
 		}
-		if hzExternal && strings.EqualFold(wire.EventType, "PROTECTION") {
+		if hzExternal && (strings.EqualFold(wire.EventType, "PROTECTION") || wire.PollingReconcile) {
 			if err := at.syncHZMirrorProtections(&wire, positions); err != nil {
 				return fmt.Errorf("mirror_transient: HZ protection sync: %w", err)
 			}
