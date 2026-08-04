@@ -18,10 +18,13 @@ services:
       DB_TYPE: sqlite
       DB_PATH: /app/data/data.db
       EXPERIENCE_IMPROVEMENT: "false"
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      ALL_PROXY: ${ALL_PROXY:-}
+      HTTP_PROXY: http://172.19.0.1:17898
+      HTTPS_PROXY: http://172.19.0.1:17898
+      ALL_PROXY: http://172.19.0.1:17898
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,nofx,nofx-frontend}
+    depends_on:
+      hz-egress-relay:
+        condition: service_started
     networks:
       - hz-qa
     healthcheck:
@@ -53,6 +56,15 @@ services:
       timeout: 5s
       retries: 4
       start_period: 5s
+
+  hz-egress-relay:
+    image: alpine/socat:latest
+    container_name: nofx-hz-qa-egress-relay
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - TCP-LISTEN:17898,bind=172.19.0.1,fork,reuseaddr
+      - TCP:127.0.0.1:17897
 
 networks:
   hz-qa:
