@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -65,6 +66,12 @@ func main() {
 				verified.PositionBookFingerprint != exchange.HZPositionBookFingerprint {
 				panic("follower scope fingerprint mismatch")
 			}
+			follower, traderErr := hz.NewTrader(exchange.APIURL, string(exchange.APIKey), string(exchange.SecretKey), true)
+			must(traderErr)
+			positions, positionsErr := follower.GetPositions()
+			follower.Close()
+			must(positionsErr)
+			fmt.Printf("follower=%s positions=%d totals=%s\n", userID, len(positions), positionTotals(positions))
 			followers++
 		}
 	}
@@ -73,6 +80,26 @@ func main() {
 	}
 	fmt.Printf("capabilities=6/6 master_snapshot=true followers=%d sequence=%s positions=%d\n",
 		followers, snapshot.LastSequence, len(snapshot.Positions))
+}
+
+func positionTotals(positions []map[string]interface{}) string {
+	totals := make(map[string]float64)
+	for _, position := range positions {
+		symbol, _ := position["symbol"].(string)
+		side, _ := position["side"].(string)
+		quantity, _ := position["positionAmt"].(float64)
+		totals[strings.ToUpper(symbol)+"_"+strings.ToLower(side)] += quantity
+	}
+	keys := make([]string, 0, len(totals))
+	for key := range totals {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, len(keys))
+	for _, key := range keys {
+		values = append(values, fmt.Sprintf("%s=%.6f", key, totals[key]))
+	}
+	return strings.Join(values, ",")
 }
 
 func requiredEnv(name string) string {
