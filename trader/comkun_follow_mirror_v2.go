@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -49,11 +50,23 @@ type hzMirrorTrader interface {
 	LookupOrderByClientID(clientOrderID string) (map[string]interface{}, error)
 }
 
+type hzPositionIDCloser interface {
+	ClosePositionByID(positionID string, quantity float64) (map[string]interface{}, error)
+}
+
 func hzMirrorIntentIDs(masterEventID, userID, traderID, instrument, side, action string) (string, string) {
-	canonical := strings.Join([]string{
+	return hzMirrorIntentIDsScoped(masterEventID, userID, traderID, instrument, side, action, "")
+}
+
+func hzMirrorIntentIDsScoped(masterEventID, userID, traderID, instrument, side, action, scope string) (string, string) {
+	parts := []string{
 		strings.TrimSpace(masterEventID), strings.TrimSpace(userID), strings.TrimSpace(traderID),
 		strings.ToUpper(strings.TrimSpace(instrument)), strings.ToLower(strings.TrimSpace(side)), strings.TrimSpace(action),
-	}, "|")
+	}
+	if scope = strings.TrimSpace(scope); scope != "" {
+		parts = append(parts, scope)
+	}
+	canonical := strings.Join(parts, "|")
 	sum := sha256.Sum256([]byte(canonical))
 	key := fmt.Sprintf("%x", sum[:])
 	return key, "comkun-" + key[:32]
@@ -71,24 +84,51 @@ func mirrorResultOrderID(result map[string]interface{}) string {
 	return ""
 }
 
-func followerRemotePositionID(positions []map[string]interface{}, key string) string {
+type hzCloseLeg struct {
+	positionID string
+	quantity   float64
+}
+
+func followerRemotePositionsForClose(positions []map[string]interface{}, key string, closeQuantity float64) []hzCloseLeg {
+	matching := make([]hzCloseLeg, 0, len(positions))
 	for _, position := range positions {
 		symbol, _ := position["symbol"].(string)
 		side, _ := position["side"].(string)
-		if posKey(symbol, side) != key {
+		quantity, _ := position["positionAmt"].(float64)
+		quantity = math.Abs(quantity)
+		if posKey(symbol, side) != key || quantity <= 0 {
 			continue
 		}
-		if value, ok := position["positionId"].(string); ok {
-			return value
+		if value, ok := position["positionId"].(string); ok && strings.TrimSpace(value) != "" {
+			matching = append(matching, hzCloseLeg{positionID: strings.TrimSpace(value), quantity: quantity})
 		}
 	}
-	return ""
+	for _, leg := range matching {
+		if math.Abs(leg.quantity-closeQuantity) <= qtyEps(math.Max(leg.quantity, closeQuantity)) {
+			return []hzCloseLeg{{positionID: leg.positionID, quantity: closeQuantity}}
+		}
+	}
+	sort.Slice(matching, func(i, j int) bool { return matching[i].positionID < matching[j].positionID })
+	remaining := closeQuantity
+	result := make([]hzCloseLeg, 0, len(matching))
+	for _, leg := range matching {
+		if remaining <= qtyEps(closeQuantity) {
+			break
+		}
+		leg.quantity = math.Min(leg.quantity, remaining)
+		result = append(result, leg)
+		remaining -= leg.quantity
+	}
+	if remaining > qtyEps(closeQuantity) {
+		return nil
+	}
+	return result
 }
 
 func (at *AutoTrader) executeHZMirrorIntent(
 	br *store.ComkunMasterBroadcast,
 	wire *comkunMasterStateWire,
-	instrument, side, action, remotePositionID string,
+	instrument, side, action, remotePositionID, intentScope string,
 	targetQuantity, deltaQuantity float64,
 	execute func() (map[string]interface{}, error),
 ) (map[string]interface{}, error) {
@@ -96,7 +136,7 @@ func (at *AutoTrader) executeHZMirrorIntent(
 	if !ok || at.store == nil || wire == nil || strings.TrimSpace(wire.SourceEventID) == "" {
 		return nil, fmt.Errorf("HZ mirror execution intent metadata is incomplete")
 	}
-	intentKey, clientOrderID := hzMirrorIntentIDs(wire.SourceEventID, at.userID, at.id, instrument, side, action)
+	intentKey, clientOrderID := hzMirrorIntentIDsScoped(wire.SourceEventID, at.userID, at.id, instrument, side, action, intentScope)
 	requestRaw := fmt.Sprintf("%s|%s|%s|%.12g|%.12g", instrument, side, remotePositionID, targetQuantity, deltaQuantity)
 	requestHash := fmt.Sprintf("%x", sha256.Sum256([]byte(requestRaw)))
 	intent, err := at.store.MirrorExecutionIntent().Ensure(store.MirrorExecutionIntentInput{
@@ -132,6 +172,39 @@ func (at *AutoTrader) executeHZMirrorIntent(
 	}
 	if err := at.store.MirrorExecutionIntent().MarkConfirmed(intent.IntentKey, mirrorResultOrderID(result)); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+func (at *AutoTrader) executeHZMirrorCloseIntents(
+	br *store.ComkunMasterBroadcast,
+	wire *comkunMasterStateWire,
+	positions []map[string]interface{},
+	key, instrument, side, action string,
+	targetQuantity, closeQuantity float64,
+) (map[string]interface{}, error) {
+	hzTrader, ok := at.trader.(hzPositionIDCloser)
+	if !ok {
+		return nil, fmt.Errorf("HZ trader does not support exact position close")
+	}
+	legs := followerRemotePositionsForClose(positions, key, closeQuantity)
+	if len(legs) == 0 {
+		return nil, fmt.Errorf("mirror_transient: exact HZ position IDs for %s are unavailable", action)
+	}
+	var result map[string]interface{}
+	multiLeg := len(legs) > 1
+	for _, leg := range legs {
+		intentScope := ""
+		if multiLeg {
+			intentScope = leg.positionID
+		}
+		var err error
+		result, err = at.executeHZMirrorIntent(br, wire, instrument, side, action, leg.positionID, intentScope, targetQuantity, -leg.quantity, func() (map[string]interface{}, error) {
+			return hzTrader.ClosePositionByID(leg.positionID, leg.quantity)
+		})
+		if err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -553,14 +626,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 				}
 			}
 		} else if hzExternal {
-			action := "close"
-			remotePositionID := followerRemotePositionID(positions, k)
-			closeResult, closeErr = at.executeHZMirrorIntent(br, &wire, sym, side, action, remotePositionID, 0, -foll[k], func() (map[string]interface{}, error) {
-				if side == "long" {
-					return at.trader.CloseLong(sym, 0)
-				}
-				return at.trader.CloseShort(sym, 0)
-			})
+			closeResult, closeErr = at.executeHZMirrorCloseIntents(br, &wire, positions, k, sym, side, "close", 0, foll[k])
 		} else {
 			if side == "long" {
 				closeResult, closeErr = at.trader.CloseLong(sym, 0)
@@ -760,7 +826,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 				if fq <= qtyEps(mq) {
 					action = "open"
 				}
-				openResult, openErr = at.executeHZMirrorIntent(br, &wire, sym, side, action, "", mq, addQty, func() (map[string]interface{}, error) {
+				openResult, openErr = at.executeHZMirrorIntent(br, &wire, sym, side, action, "", "", mq, addQty, func() (map[string]interface{}, error) {
 					if side == "long" {
 						return at.trader.OpenLong(sym, addQty, posLev)
 					}
@@ -845,13 +911,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 					}
 				}
 			} else if hzExternal {
-				remotePositionID := followerRemotePositionID(positions, k)
-				closeResult, closeErr = at.executeHZMirrorIntent(br, &wire, sym, side, "reduce", remotePositionID, mq, -closeQty, func() (map[string]interface{}, error) {
-					if side == "long" {
-						return at.trader.CloseLong(sym, closeQty)
-					}
-					return at.trader.CloseShort(sym, closeQty)
-				})
+				closeResult, closeErr = at.executeHZMirrorCloseIntents(br, &wire, positions, k, sym, side, "reduce", mq, closeQty)
 			} else {
 				if side == "long" {
 					closeResult, closeErr = at.trader.CloseLong(sym, closeQty)

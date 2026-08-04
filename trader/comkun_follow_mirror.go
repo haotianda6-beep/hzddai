@@ -1213,7 +1213,7 @@ func mapFollowerPositionQuantities(positions []map[string]interface{}) map[strin
 		if math.Abs(q) < 1e-12 {
 			continue
 		}
-		out[posKey(sym, side)] = q
+		out[posKey(sym, side)] += q
 	}
 	return out
 }

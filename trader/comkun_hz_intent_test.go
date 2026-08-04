@@ -80,6 +80,25 @@ func (trader *recoveringHZIntentTrader) CloseShort(string, float64) (map[string]
 	return map[string]interface{}{"orderId": "close-short"}, nil
 }
 
+func (trader *recoveringHZIntentTrader) ClosePositionByID(positionID string, quantity float64) (map[string]interface{}, error) {
+	for i, position := range trader.positions {
+		if position["positionId"] != positionID {
+			continue
+		}
+		current, _ := position["positionAmt"].(float64)
+		if quantity == 0 || quantity+qtyEps(quantity) >= math.Abs(current) {
+			trader.positions = append(trader.positions[:i], trader.positions[i+1:]...)
+		} else if current < 0 {
+			trader.positions[i]["positionAmt"] = current + quantity
+		} else {
+			trader.positions[i]["positionAmt"] = current - quantity
+		}
+		trader.closes++
+		return map[string]interface{}{"orderId": "close-" + positionID}, nil
+	}
+	return nil, fmt.Errorf("position not found")
+}
+
 func (trader *recoveringHZIntentTrader) ExecuteWithIntent(clientOrderID string, execute func() (map[string]interface{}, error)) (map[string]interface{}, error) {
 	trader.next = clientOrderID
 	defer func() { trader.next = "" }()
@@ -115,9 +134,10 @@ func TestHZMirrorCloseOnlyBlocksOpenButAlwaysCloses(t *testing.T) {
 		t.Fatalf("close-only opened %d positions", underlying.opens)
 	}
 
-	underlying.positions = []map[string]interface{}{{
-		"positionId": "follower-position", "symbol": "BTC-PERP", "side": "long", "positionAmt": 0.25,
-	}}
+	underlying.positions = []map[string]interface{}{
+		{"positionId": "follower-position-a", "symbol": "BTC-PERP", "side": "long", "positionAmt": 0.10},
+		{"positionId": "follower-position-b", "symbol": "BTC-PERP", "side": "long", "positionAmt": 0.15},
+	}
 	closeWire := comkunMasterStateWire{
 		V: 1, SourceEventID: "event-close", SourceSequence: 2, OccurredAt: time.Now(), EventType: "CLOSE",
 		Positions: []kernel.PositionInfo{}, PendingOrders: []kernel.PendingOrder{},
@@ -128,8 +148,8 @@ func TestHZMirrorCloseOnlyBlocksOpenButAlwaysCloses(t *testing.T) {
 	}, &store.DecisionRecord{ExecutionLog: []string{}}, false, true); err != nil {
 		t.Fatal(err)
 	}
-	if underlying.closes != 1 {
-		t.Fatalf("close-only must close existing risk, closes=%d", underlying.closes)
+	if underlying.closes != 2 || len(underlying.positions) != 0 {
+		t.Fatalf("close-only must close every exact position, closes=%d positions=%v", underlying.closes, underlying.positions)
 	}
 }
 
@@ -193,7 +213,7 @@ func TestHZMirrorIntentRecoversAcceptedOrderAcrossRestart(t *testing.T) {
 	}
 	executions := 0
 	result, err := restarted.executeHZMirrorIntent(
-		&store.ComkunMasterBroadcast{ID: 9}, wire, "BTC-PERP", "long", "open", "", 1, 1,
+		&store.ComkunMasterBroadcast{ID: 9}, wire, "BTC-PERP", "long", "open", "", "", 1, 1,
 		func() (map[string]interface{}, error) {
 			executions++
 			return map[string]interface{}{"orderId": "duplicate"}, nil

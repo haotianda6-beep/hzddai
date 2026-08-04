@@ -70,3 +70,22 @@ func TestHZMasterLotsUseDynamicContractAndEquityRatio(t *testing.T) {
 		t.Fatalf("got=%v err=%v", got, err)
 	}
 }
+
+func TestHZFollowerPositionsAreSummedAndExactCloseLegSelected(t *testing.T) {
+	positions := []map[string]interface{}{
+		{"positionId": "old", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.010},
+		{"positionId": "increase", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.005},
+	}
+	got := mapFollowerPositionQuantities(positions)
+	if got[posKey("BTCUSDT", "long")] != 0.015 {
+		t.Fatalf("aggregate=%v, want 0.015", got)
+	}
+	legs := followerRemotePositionsForClose(positions, posKey("BTCUSDT", "long"), 0.005)
+	if len(legs) != 1 || legs[0].positionID != "increase" || legs[0].quantity != 0.005 {
+		t.Fatalf("legs=%+v", legs)
+	}
+	legs = followerRemotePositionsForClose(positions, posKey("BTCUSDT", "long"), 0.015)
+	if len(legs) != 2 || legs[0].quantity+legs[1].quantity != 0.015 {
+		t.Fatalf("full-close legs=%+v", legs)
+	}
+}
