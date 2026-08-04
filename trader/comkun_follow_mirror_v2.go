@@ -54,6 +54,10 @@ type hzPositionIDCloser interface {
 	ClosePositionByID(positionID string, quantity float64) (map[string]interface{}, error)
 }
 
+type hzPositionProtectionSetter interface {
+	SetPositionProtectionByID(positionID string, stopLoss, takeProfit float64) error
+}
+
 func hzMirrorIntentIDs(masterEventID, userID, traderID, instrument, side, action string) (string, string) {
 	return hzMirrorIntentIDsScoped(masterEventID, userID, traderID, instrument, side, action, "")
 }
@@ -207,6 +211,38 @@ func (at *AutoTrader) executeHZMirrorCloseIntents(
 		}
 	}
 	return result, nil
+}
+
+func (at *AutoTrader) syncHZMirrorProtections(wire *comkunMasterStateWire, positions []map[string]interface{}) error {
+	setter, ok := at.trader.(hzPositionProtectionSetter)
+	if !ok {
+		return fmt.Errorf("HZ trader does not support exact position protection")
+	}
+	targets := make(map[string][2]float64)
+	for _, position := range wire.Positions {
+		key := posKey(position.Symbol, position.Side)
+		value := [2]float64{position.StopLoss, position.TakeProfit}
+		if existing, found := targets[key]; found && (existing != value) {
+			return fmt.Errorf("conflicting HZ protection for %s", key)
+		}
+		targets[key] = value
+	}
+	for _, position := range positions {
+		symbol, _ := position["symbol"].(string)
+		side, _ := position["side"].(string)
+		value, found := targets[posKey(symbol, side)]
+		if !found {
+			continue
+		}
+		positionID, _ := position["positionId"].(string)
+		if strings.TrimSpace(positionID) == "" {
+			return fmt.Errorf("HZ position ID is required for protection")
+		}
+		if err := setter.SetPositionProtectionByID(positionID, value[0], value[1]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mirrorInvalidatePositionsCache(t tradertypes.Trader) {
@@ -978,6 +1014,11 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		}
 		if mirrorMarketNeedRetry || mirrorCloseNeedRetry {
 			return fmt.Errorf("mirror_transient: v2 网页镜像市价同步未完成（加仓/全平/部分平仓重试中）")
+		}
+		if hzExternal && strings.EqualFold(wire.EventType, "PROTECTION") {
+			if err := at.syncHZMirrorProtections(&wire, positions); err != nil {
+				return fmt.Errorf("mirror_transient: HZ protection sync: %w", err)
+			}
 		}
 		if record != nil {
 			record.ExecutionLog = append(record.ExecutionLog,

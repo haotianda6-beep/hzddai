@@ -71,7 +71,7 @@ func main() {
 			positions, positionsErr := follower.GetPositions()
 			follower.Close()
 			must(positionsErr)
-			fmt.Printf("follower=%s positions=%d totals=%s\n", userID, len(positions), positionTotals(positions))
+			fmt.Printf("follower=%s positions=%d protected=%d totals=%s\n", userID, len(positions), protectedPositions(positions), positionTotals(positions))
 			followers++
 		}
 	}
@@ -80,6 +80,18 @@ func main() {
 	}
 	fmt.Printf("capabilities=6/6 master_snapshot=true followers=%d sequence=%s positions=%d\n",
 		followers, snapshot.LastSequence, len(snapshot.Positions))
+}
+
+func protectedPositions(positions []map[string]interface{}) int {
+	count := 0
+	for _, position := range positions {
+		takeProfit, _ := position["takeProfit"].(float64)
+		stopLoss, _ := position["stopLoss"].(float64)
+		if takeProfit > 0 || stopLoss > 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func positionTotals(positions []map[string]interface{}) string {

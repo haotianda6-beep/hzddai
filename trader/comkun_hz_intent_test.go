@@ -7,6 +7,7 @@ import (
 	"math"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ type recoveringHZIntentTrader struct {
 	balanceCalls  int
 	positionCalls int
 	orderCalls    int
+	protections   []string
 }
 
 func (trader *recoveringHZIntentTrader) QuantityForLots(_ string, lots float64) (float64, error) {
@@ -97,6 +99,11 @@ func (trader *recoveringHZIntentTrader) ClosePositionByID(positionID string, qua
 		return map[string]interface{}{"orderId": "close-" + positionID}, nil
 	}
 	return nil, fmt.Errorf("position not found")
+}
+
+func (trader *recoveringHZIntentTrader) SetPositionProtectionByID(positionID string, stopLoss, takeProfit float64) error {
+	trader.protections = append(trader.protections, fmt.Sprintf("%s:%.0f:%.0f", positionID, stopLoss, takeProfit))
+	return nil
 }
 
 func (trader *recoveringHZIntentTrader) ExecuteWithIntent(clientOrderID string, execute func() (map[string]interface{}, error)) (map[string]interface{}, error) {
@@ -176,6 +183,34 @@ func TestHZFirstSubscriptionSeedsCurrentSequenceWithoutChasingPosition(t *testin
 	}
 	if target, _ := at.mirrorSeedAdjustedTarget(key, 0.005); target != 0 {
 		t.Fatalf("first subscription chased historical master position: target=%v", target)
+	}
+}
+
+func TestHZProtectionEventUpdatesEveryExactFollowerPosition(t *testing.T) {
+	underlying := &recoveringHZIntentTrader{balance: 1000, contractSize: 1, positions: []map[string]interface{}{
+		{"positionId": "follower-a", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.010},
+		{"positionId": "follower-b", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.005},
+	}}
+	at := &AutoTrader{
+		id: "trader-1", userID: "user-1", exchangeID: "exchange-1", exchange: "hz",
+		initialBalance: 1000, trader: underlying,
+		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
+			ComkunMarketFollow: true, ComkunMarketSourceStrategyID: store.HZMasterSourceStrategyID("master-1"),
+		}},
+	}
+	wire := comkunMasterStateWire{
+		V: 1, SourceEventID: "event-protection", SourceSequence: 3, OccurredAt: time.Now(), EventType: "PROTECTION",
+		Positions:     []kernel.PositionInfo{{PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.015, Leverage: 10, StopLoss: 50000, TakeProfit: 76000}},
+		PendingOrders: []kernel.PendingOrder{},
+	}
+	raw, _ := json.Marshal(wire)
+	if err := at.reconcileComkunFollowMasterStateV2(&kernel.Context{Account: kernel.AccountInfo{TotalEquity: 1000}}, &store.ComkunMasterBroadcast{
+		ID: 3, MasterAccountEquity: 1000, MasterStateJSON: string(raw),
+	}, &store.DecisionRecord{ExecutionLog: []string{}}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(underlying.protections, ","); got != "follower-a:50000:76000,follower-b:50000:76000" {
+		t.Fatalf("protections=%s", got)
 	}
 }
 

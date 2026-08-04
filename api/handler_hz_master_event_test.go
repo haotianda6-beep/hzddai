@@ -87,6 +87,27 @@ func TestHZMasterEventEndpointRejectsExpiredSignature(t *testing.T) {
 	}
 }
 
+func TestHZMasterStatePreservesPositionProtection(t *testing.T) {
+	tp, sl := "76000", "50000"
+	request := hzMasterEventRequest{
+		EventID: "protection-1", Sequence: "1", EventType: "PROTECTION", OccurredAt: time.Now().UTC(),
+		MasterAccountID: "master-human-account", Account: hzMasterTestAccount(), Positions: hzMasterTestPositions(),
+	}
+	request.Positions[0].TakeProfit = &tp
+	request.Positions[0].StopLoss = &sl
+	raw, err := request.masterStateJSON(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state hzMasterState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Positions) != 1 || state.Positions[0].TakeProfit != 76000 || state.Positions[0].StopLoss != 50000 {
+		t.Fatalf("positions=%+v", state.Positions)
+	}
+}
+
 func TestHZMasterEventPollingRepairsPushGap(t *testing.T) {
 	server, st := newHZMasterEventTestServer(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)

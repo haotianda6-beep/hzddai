@@ -62,6 +62,7 @@ func TestOpenIsBlockedWhileStreamIsDisconnected(t *testing.T) {
 }
 
 func TestGetPositionsMapsHZSnapshot(t *testing.T) {
+	tp, sl := "2600", "2200"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/instruments" {
 			writeInstruments(w)
@@ -71,7 +72,7 @@ func TestGetPositionsMapsHZSnapshot(t *testing.T) {
 			{
 				PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", MarginMode: "CROSS",
 				Leverage: 500, Lots: "0.010", EntryPrice: "2400.10", CurrentPrice: "2401.20",
-				UnrealizedPnL: "1.10", OpenedAt: "2026-07-25T00:00:00Z",
+				UnrealizedPnL: "1.10", TakeProfit: &tp, StopLoss: &sl, OpenedAt: "2026-07-25T00:00:00Z",
 			},
 			{
 				PositionID: "pos-2", Instrument: "XAGUSD", Side: "SHORT", MarginMode: "ISOLATED",
@@ -88,7 +89,7 @@ func TestGetPositionsMapsHZSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(positions) != 2 || positions[0]["side"] != "long" || positions[0]["positionAmt"] != 1.0 ||
-		positions[0]["leverage"] != float64(500) || positions[0]["liquidationPrice"] != 0.0 ||
+		positions[0]["leverage"] != float64(500) || positions[0]["takeProfit"] != 2600.0 || positions[0]["stopLoss"] != 2200.0 || positions[0]["liquidationPrice"] != 0.0 ||
 		positions[1]["side"] != "short" || positions[1]["positionAmt"] != -10.0 {
 		t.Fatalf("wrong positions: %#v", positions)
 	}
@@ -222,6 +223,38 @@ func TestClosePositionByIDSelectsExactPosition(t *testing.T) {
 	}
 	if closedPath != "/api/v1/positions/pos-2/close" {
 		t.Fatalf("closed path=%q", closedPath)
+	}
+}
+
+func TestSetPositionProtectionByIDSelectsExactAIPosition(t *testing.T) {
+	var patchedPath string
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/instruments":
+			writeInstruments(w)
+		case r.URL.Path == "/api/v1/positions":
+			_ = json.NewEncoder(w).Encode([]position{
+				{PositionID: "pos-1", Instrument: "XAUUSD", Side: "LONG", Lots: "0.010"},
+				{PositionID: "pos-2", Instrument: "XAUUSD", Side: "LONG", Lots: "0.005"},
+			})
+		case strings.HasSuffix(r.URL.Path, "/protection"):
+			patchedPath = r.URL.Path
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(position{PositionID: "pos-2"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	trader := newTestTrader(t, server.URL+"/api/v1", true)
+	if err := trader.SetPositionProtectionByID("pos-2", 50000, 76000); err != nil {
+		t.Fatal(err)
+	}
+	if patchedPath != "/api/v1/positions/pos-2/protection" || body["stopLoss"] != "50000" || body["takeProfit"] != "76000" {
+		t.Fatalf("path=%q body=%v", patchedPath, body)
 	}
 }
 

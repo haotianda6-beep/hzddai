@@ -162,6 +162,41 @@ func (t *Trader) positionsFor(symbol, side string) ([]position, error) {
 	return result, nil
 }
 
+// SetPositionProtectionByID updates only the server-verified AI position.
+func (t *Trader) SetPositionProtectionByID(positionID string, stopLoss, takeProfit float64) error {
+	if !t.scopeVerified.Load() {
+		return fmt.Errorf("HZ AI account scope is not verified")
+	}
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("HZ position ID is required")
+	}
+	positions, err := t.positions()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, item := range positions {
+		if item.PositionID == positionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("HZ position not found")
+	}
+	body := map[string]any{"stopLoss": nil, "takeProfit": nil}
+	if stopLoss > 0 {
+		body["stopLoss"] = decimal(stopLoss)
+	}
+	if takeProfit > 0 {
+		body["takeProfit"] = decimal(takeProfit)
+	}
+	var updated position
+	return t.client.doJSON(context.Background(), http.MethodPatch,
+		"/positions/"+url.PathEscape(positionID)+"/protection", body, &updated, randomToken())
+}
+
 func (t *Trader) setProtection(symbol, side, field, value string) error {
 	if !t.scopeVerified.Load() {
 		return fmt.Errorf("HZ AI account scope is not verified")

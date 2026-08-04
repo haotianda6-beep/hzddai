@@ -69,9 +69,16 @@ func main() {
 		must(err)
 		printResult(action, result)
 	case "close-id":
-		requireArgs(4)
-		result, err := trader.ExecuteWithIntent(os.Args[3], func() (map[string]interface{}, error) {
-			return trader.ClosePositionByID(os.Args[2], 0)
+		if len(os.Args) != 4 && len(os.Args) != 6 {
+			panic("invalid arguments")
+		}
+		quantity, intent := 0.0, os.Args[3]
+		if len(os.Args) == 6 {
+			_, quantity = lotQuantity(trader, os.Args[3], os.Args[4])
+			intent = os.Args[5]
+		}
+		result, err := trader.ExecuteWithIntent(intent, func() (map[string]interface{}, error) {
+			return trader.ClosePositionByID(os.Args[2], quantity)
 		})
 		must(err)
 		printResult(action, result)

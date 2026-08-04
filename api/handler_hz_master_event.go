@@ -241,7 +241,19 @@ func (position hzMasterPosition) validate() error {
 		valueErr != nil || positionValue < 0 {
 		return fmt.Errorf("invalid master position")
 	}
+	for _, value := range []*string{position.TakeProfit, position.StopLoss} {
+		if price, err := parseHZOptionalDecimal(value); err != nil || price < 0 {
+			return fmt.Errorf("invalid position protection")
+		}
+	}
 	return nil
+}
+
+func parseHZOptionalDecimal(value *string) (float64, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return 0, nil
+	}
+	return parseHZDecimal(*value)
 }
 
 func parseHZDecimal(value string) (float64, error) {
@@ -258,10 +270,18 @@ func (request hzMasterEventRequest) masterStateJSON(pollingReconcile bool) (stri
 	for _, item := range request.Positions {
 		lots, _ := parseHZDecimal(item.Lots)
 		positionValue, _ := parseHZDecimal(item.PositionValue)
+		takeProfit, err := parseHZOptionalDecimal(item.TakeProfit)
+		if err != nil {
+			return "", err
+		}
+		stopLoss, err := parseHZOptionalDecimal(item.StopLoss)
+		if err != nil {
+			return "", err
+		}
 		positions = append(positions, kernel.PositionInfo{
 			PositionID: strings.TrimSpace(item.PositionID), Symbol: strings.ToUpper(strings.TrimSpace(item.Instrument)),
 			Side: strings.ToLower(strings.TrimSpace(item.Side)), Lots: lots,
-			Leverage: item.Leverage, PositionValue: positionValue,
+			Leverage: item.Leverage, PositionValue: positionValue, TakeProfit: takeProfit, StopLoss: stopLoss,
 		})
 	}
 	raw, err := json.Marshal(hzMasterState{

@@ -115,6 +115,8 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 			"markPrice":        number(item.CurrentPrice),
 			"unRealizedProfit": number(item.UnrealizedPnL),
 			"leverage":         float64(item.Leverage),
+			"takeProfit":       pointerNumber(item.TakeProfit),
+			"stopLoss":         pointerNumber(item.StopLoss),
 			"liquidationPrice": 0.0,
 			"side":             strings.ToLower(item.Side),
 			"mgnMode":          strings.ToLower(item.MarginMode),

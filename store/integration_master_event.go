@@ -109,6 +109,20 @@ func (s *IntegrationMasterEventStore) Accept(input IntegrationMasterEventInput, 
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		if input.Provider == "hz-reconcile" {
+			var pushed IntegrationMasterEvent
+			pushErr := tx.Where("provider = ? AND master_account_id = ? AND producer_sequence = ?",
+				"hz", input.MasterAccountID, input.Sequence).First(&pushed).Error
+			if pushErr == nil {
+				result.Duplicate = true
+				result.BroadcastID = pushed.BroadcastID
+				result.ExpectedNextSequence = pushed.ProducerSequence + 1
+				return nil
+			}
+			if !errors.Is(pushErr, gorm.ErrRecordNotFound) {
+				return pushErr
+			}
+		}
 		var nonceCount int64
 		if err := tx.Model(&IntegrationMasterEvent{}).Where("auth_nonce = ?", input.AuthNonce).Count(&nonceCount).Error; err != nil {
 			return err
