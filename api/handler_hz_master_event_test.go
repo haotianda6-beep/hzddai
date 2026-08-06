@@ -162,6 +162,61 @@ func TestHZMasterEventPollingAcceptsEmptySequenceZero(t *testing.T) {
 	}
 }
 
+func TestHZMasterSwitchKeepsGlobalSequenceWithoutSyntheticZero(t *testing.T) {
+	server, st := newHZMasterEventTestServer(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	accept := func(master, eventID string, sequence int64) {
+		t.Helper()
+		request := hzMasterEventRequest{
+			EventID: eventID, Sequence: strconv.FormatInt(sequence, 10), EventType: "RECONCILE",
+			OccurredAt: now, MasterAccountID: master,
+			Account: hzMasterTestAccount(), Positions: []hzMasterPosition{},
+		}
+		raw, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := server.acceptHZMasterEvent(request, raw, fmt.Sprintf("%s-%d", master, sequence), false, false)
+		if err != nil || !result.Accepted {
+			t.Fatalf("master=%s sequence=%d result=%+v err=%v", master, sequence, result, err)
+		}
+	}
+	for sequence := int64(1); sequence <= 9; sequence++ {
+		accept("old-master", fmt.Sprintf("old-event-%d", sequence), sequence)
+	}
+
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(hzMasterSnapshotResponse{
+			LastSequence: "0", CapturedAt: now, MasterAccountID: "new-master",
+			Account: hzMasterTestAccount(), Positions: []hzMasterPosition{},
+		})
+	}))
+	defer remote.Close()
+	config := hzMasterPollConfig{
+		APIURL: remote.URL + "/api/v1", APIKey: "poll-key", Secret: "poll-secret",
+		MasterAccountID: "new-master", Interval: time.Minute,
+	}
+	if err := server.pollHZMasterEventsOnce(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	var before int64
+	if err := st.GormDB().Model(&store.IntegrationMasterEvent{}).Count(&before).Error; err != nil || before != 9 {
+		t.Fatalf("events before switch=%d err=%v", before, err)
+	}
+	accept("new-master", "new-event-10", 10)
+	oldLatest, err := st.IntegrationMasterEvent().GetLatestSequence("hz", "old-master")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newLatest, err := st.IntegrationMasterEvent().GetLatestSequence("hz", "new-master")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldLatest != 9 || newLatest != 10 {
+		t.Fatalf("old latest=%d new latest=%d", oldLatest, newLatest)
+	}
+}
+
 func hzMasterEventBody(t *testing.T, occurredAt time.Time, eventID string, sequence int64) []byte {
 	t.Helper()
 	value := hzMasterEventRequest{
