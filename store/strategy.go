@@ -171,6 +171,8 @@ type StrategyConfig struct {
 	ComkunMirrorMasterMarginLeverage int `json:"comkun_mirror_master_margin_leverage,omitempty"`
 	// 被控镜像还原名义时使用的杠杆（SetLeverage 与数量公式）；默认 20。跟单子策略可在 JSON 中单独改。
 	ComkunMirrorFollowerMarginLeverage int `json:"comkun_mirror_follower_margin_leverage,omitempty"`
+	// HZ 固定跟单比例；0 表示继续按 follower/master 实时权益比例计算。
+	ComkunMirrorFollowerEquityRatio float64 `json:"comkun_mirror_follower_equity_ratio,omitempty"`
 }
 
 // MartingaleProgramConfig 程序化马丁：大趋势开仓 + 1～N 层按权益比例补仓（非网格）。
