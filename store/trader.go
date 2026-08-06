@@ -125,7 +125,19 @@ func (s *TraderStore) CountTradersLinkedToMarketSource(userID, marketSourceStrat
 
 // Create creates trader
 func (s *TraderStore) Create(trader *Trader) error {
-	return s.db.Create(trader).Error
+	isCrossMargin := trader.IsCrossMargin
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(trader).Error; err != nil {
+			return err
+		}
+		if !isCrossMargin {
+			if err := tx.Model(&Trader{}).Where("id = ?", trader.ID).UpdateColumn("is_cross_margin", false).Error; err != nil {
+				return err
+			}
+			trader.IsCrossMargin = false
+		}
+		return nil
+	})
 }
 
 // List gets user's trader list

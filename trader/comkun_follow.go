@@ -1220,14 +1220,14 @@ func (at *AutoTrader) runComkunFollowCycle(ctx *kernel.Context, record *store.De
 		}); err != nil {
 			category := store.StoreErrorCategory(err)
 			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing intent failed:"+category)
-			logger.Warnf("[%s] HZ billing intent failed broadcast_id=%d category=%s", at.name, br.ID, category)
+			logger.Warnf("[%s] HZ billing intent failed broadcast_id=%d category=%s detail=%v", at.name, br.ID, category, err)
 			return nil
 		}
 		reservation, err := at.store.MirrorExecutionIntent().ReserveBilling(billingIntentKey, scanFeeUSDT)
 		if err != nil {
 			category := store.StoreErrorCategory(err)
 			_ = at.store.ComkunFollow().MarkConsumptionFailed(at.id, br.ID, "HZ billing reservation failed:"+category)
-			logger.Warnf("[%s] HZ billing reservation failed broadcast_id=%d category=%s", at.name, br.ID, category)
+			logger.Warnf("[%s] HZ billing reservation failed broadcast_id=%d category=%s detail=%v", at.name, br.ID, category, err)
 			return nil
 		}
 		platformBalanceAfter = reservation.BalanceAfter
