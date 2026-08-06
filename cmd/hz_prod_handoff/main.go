@@ -74,6 +74,11 @@ func main() {
 			panic("usage: hz_prod_handoff baseline STATE DB")
 		}
 		err = baseline(os.Args[2], os.Args[3])
+	case "recover":
+		if len(os.Args) != 6 {
+			panic("usage: hz_prod_handoff recover STATE DB BILLING_BROADCAST SNAPSHOT_BROADCAST")
+		}
+		err = recover(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
 	default:
 		panic("unknown command")
 	}
