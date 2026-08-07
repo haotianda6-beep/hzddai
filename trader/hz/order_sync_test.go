@@ -1,6 +1,7 @@
 package hz
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -90,17 +91,21 @@ func TestSyncOrdersFromHZProjectsCloseHistoryIdempotently(t *testing.T) {
 		return recorder.Result(), nil
 	})}
 	baseURL, _ := url.Parse("https://hz.test/api/v1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	hzTrader := &Trader{
-		client: &client{baseURL: baseURL, http: httpClient, now: time.Now, nonce: randomToken},
+		client: &client{baseURL: baseURL, http: httpClient, now: time.Now, nonce: randomToken}, ctx: ctx,
 		instrumentCache: map[string]instrument{
 			"XAUUSD": {Instrument: "XAUUSD", ContractSize: "100", LotStep: "0.001", LotPrecision: 3},
 		},
 	}
 
-	for run := 1; run <= 2; run++ {
-		if err := hzTrader.SyncOrdersFromHZ("trader-1", "exchange-1", "hz", st); err != nil {
-			t.Fatalf("sync run %d: %v", run, err)
-		}
+	// StartOrderSync must recover history immediately; the explicit second pass
+	// simulates the 3-second poll replaying the same remote trades.
+	hzTrader.StartOrderSync("trader-1", "exchange-1", "hz", st, time.Hour)
+	cancel()
+	if err := hzTrader.SyncOrdersFromHZ("trader-1", "exchange-1", "hz", st); err != nil {
+		t.Fatalf("duplicate sync: %v", err)
 	}
 
 	var orders, fills int64

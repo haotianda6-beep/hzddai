@@ -676,8 +676,8 @@ func (at *AutoTrader) Run() error {
 	// orders, fills and closed-position history.
 	if at.exchange == "hz" {
 		if hzTrader, ok := at.trader.(*hz.Trader); ok && at.store != nil {
-			hzTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("🔄 [%s] HZ order+position sync enabled (every 30s)", at.name)
+			hzTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 3*time.Second)
+			logger.Infof("🔄 [%s] HZ order+position sync enabled (every 3s)", at.name)
 		}
 	}
 
