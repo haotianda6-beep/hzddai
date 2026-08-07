@@ -46,8 +46,8 @@ func (t *Trader) Reconcile() (err error) {
 	if err != nil {
 		return err
 	}
-	if len(positions) > 0 && t.markPrices != nil {
-		t.markPrices.start()
+	for _, position := range positions {
+		t.watchMarket(position.Instrument)
 	}
 	_, err = t.GetOpenOrders("")
 	return err

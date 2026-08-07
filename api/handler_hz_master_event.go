@@ -152,12 +152,25 @@ func (s *Server) acceptHZMasterEvent(request hzMasterEventRequest, raw []byte, n
 	if pollingReconcile {
 		provider = "hz-reconcile"
 	}
-	return s.store.IntegrationMasterEvent().Accept(store.IntegrationMasterEventInput{
+	result, err := s.store.IntegrationMasterEvent().Accept(store.IntegrationMasterEventInput{
 		Provider: provider, MasterAccountID: request.MasterAccountID, EventID: request.EventID,
 		Sequence: sequence, EventType: request.EventType, OccurredAt: request.OccurredAt,
 		PayloadVersion: 1, PayloadSHA256: hex.EncodeToString(payloadHash[:]),
 		PayloadJSON: string(raw), AuthNonce: nonce, MasterEquity: equity, MasterStateJSON: stateJSON,
 	}, allowGap)
+	if err == nil && !result.Gap && (result.Accepted || result.Duplicate) && s.watchHZMarket != nil {
+		s.watchHZMasterPositions(request.Positions)
+	}
+	return result, err
+}
+
+func (s *Server) watchHZMasterPositions(positions []hzMasterPosition) {
+	if s.watchHZMarket == nil {
+		return
+	}
+	for _, position := range positions {
+		s.watchHZMarket(position.Instrument)
+	}
 }
 
 func verifyHZMasterEventAuth(secret, timestamp, nonce, signature string, body []byte, now time.Time) error {

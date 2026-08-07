@@ -92,11 +92,13 @@ func (s *Server) pollHZMasterEventsOnce(ctx context.Context, config hzMasterPoll
 	if err != nil || sequence < 0 {
 		return fmt.Errorf("invalid HZ master snapshot sequence")
 	}
-	if sequence <= latest {
-		return nil
-	}
 	if strings.TrimSpace(snapshot.MasterAccountID) != config.MasterAccountID {
 		return fmt.Errorf("polled HZ snapshot master account mismatch")
+	}
+	if sequence <= latest {
+		// No new event will be accepted, so renew the open-position market lease here.
+		s.watchHZMasterPositions(snapshot.Positions)
+		return nil
 	}
 	request := hzMasterEventRequest{
 		EventID:  fmt.Sprintf("reconcile-%x", sha256.Sum256([]byte(snapshot.MasterAccountID+"|"+snapshot.LastSequence))),

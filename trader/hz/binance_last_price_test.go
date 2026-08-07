@@ -106,7 +106,10 @@ func TestBinanceAggTradeFeedReconnects(t *testing.T) {
 	go feed.run(ctx, "NXPCUSDT")
 
 	deadline := time.Now().Add(4 * time.Second)
-	for connections.Load() < 2 && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		if snapshot, ok := feed.latest("NXPCUSDT"); ok && snapshot.price == 0.232 {
+			break
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	if got := connections.Load(); got < 2 {
@@ -114,5 +117,39 @@ func TestBinanceAggTradeFeedReconnects(t *testing.T) {
 	}
 	if snapshot, ok := feed.latest("NXPCUSDT"); !ok || snapshot.price != 0.232 {
 		t.Fatalf("snapshot=%#v ok=%v, want reconnected price 0.232", snapshot, ok)
+	}
+}
+
+func TestBinanceAggTradeWatchRenewsThenExpires(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.Close()
+		if _, _, err := socket.ReadMessage(); err != nil {
+			closed <- struct{}{}
+		}
+	}))
+	defer server.Close()
+
+	feed := newBinanceLastPriceFeed("ws"+strings.TrimPrefix(server.URL, "http")+"/%s", "")
+	feed.watchTTL = 80 * time.Millisecond
+	feed.watch("NXPCUSDT")
+	time.Sleep(50 * time.Millisecond)
+	feed.watch("NXPCUSDT")
+	time.Sleep(50 * time.Millisecond)
+	if !feed.isWatched("NXPCUSDT", time.Now()) {
+		t.Fatal("renewal must keep an active position stream past its original TTL")
+	}
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("expired aggTrade stream was not disconnected")
+	}
+	if feed.isWatched("NXPCUSDT", time.Now()) {
+		t.Fatal("expired symbol remained watched")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"nofx/manager"
 	"nofx/store"
 	"nofx/trader/binance"
+	"nofx/trader/hz"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type Server struct {
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
 	hzMasterPollCancel        context.CancelFunc
+	watchHZMarket             func(string)
 	partnerRebateCancel       context.CancelFunc
 }
 
@@ -51,6 +53,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		store:                     st,
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
+		watchHZMarket:             hz.WatchBinanceMarket,
 		port:                      port,
 	}
 

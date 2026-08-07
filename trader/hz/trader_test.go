@@ -38,6 +38,10 @@ func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
 	defer server.Close()
 
 	trader := newTestTrader(t, server.URL+"/api/v1", true)
+	lastPrices := newBinanceLastPriceFeed("ws://127.0.0.1:1/%s", "")
+	lastPrices.watchTTL = time.Minute
+	trader.lastPrices = lastPrices
+	trader.markPrices = newBinanceMarkPriceFeed("")
 	trader.client.http.Timeout = 10 * time.Millisecond
 	trader.streamReady.Store(true)
 	trader.reconcileHealthy.Store(true)
@@ -48,6 +52,9 @@ func TestOpenLongUsesLotsAndReconcilesTimeout(t *testing.T) {
 	}
 	if result["status"] != "FILLED" || result["orderId"] == "" {
 		t.Fatalf("wrong result: %#v", result)
+	}
+	if !lastPrices.isWatched("XAUUSD", time.Now()) {
+		t.Fatal("market order must watch its symbol before a position query")
 	}
 }
 

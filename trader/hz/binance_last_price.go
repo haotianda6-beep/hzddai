@@ -18,6 +18,7 @@ import (
 const (
 	binanceAggTradeStreamURL = "wss://fstream.binance.com/market/ws/%s@aggTrade"
 	binanceLastPriceRESTURL  = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=%s"
+	binanceMarketWatchTTL    = 90 * time.Second
 )
 
 type binanceAggTradeEvent struct {
@@ -71,7 +72,14 @@ type binanceLastPriceFeed struct {
 	httpClient      *http.Client
 	mu              sync.RWMutex
 	prices          map[string]binanceLastPriceSnapshot
-	watched         map[string]struct{}
+	watched         map[string]*binanceMarketWatch
+	watchTTL        time.Duration
+}
+
+type binanceMarketWatch struct {
+	expires time.Time
+	timer   *time.Timer
+	cancel  context.CancelFunc
 }
 
 var sharedBinanceLastPrices = newBinanceLastPriceFeed(binanceAggTradeStreamURL, binanceLastPriceRESTURL)
@@ -80,7 +88,8 @@ func newBinanceLastPriceFeed(wsURLTemplate, restURLTemplate string) *binanceLast
 	return &binanceLastPriceFeed{
 		wsURLTemplate: wsURLTemplate, restURLTemplate: restURLTemplate,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
-		prices:     make(map[string]binanceLastPriceSnapshot), watched: make(map[string]struct{}),
+		prices:     make(map[string]binanceLastPriceSnapshot), watched: make(map[string]*binanceMarketWatch),
+		watchTTL: binanceMarketWatchTTL,
 	}
 }
 
@@ -92,14 +101,23 @@ func (f *binanceLastPriceFeed) watch(symbol string) {
 	if symbol == "" {
 		return
 	}
+	expires := time.Now().Add(f.watchTTL)
 	f.mu.Lock()
-	if _, ok := f.watched[symbol]; ok {
-		f.mu.Unlock()
-		return
+	if current := f.watched[symbol]; current != nil {
+		if current.timer.Reset(f.watchTTL) {
+			current.expires = expires
+			f.mu.Unlock()
+			return
+		}
+		current.cancel()
 	}
-	f.watched[symbol] = struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	watch := &binanceMarketWatch{expires: expires, cancel: cancel}
+	watch.timer = time.AfterFunc(f.watchTTL, func() { f.release(symbol, watch) })
+	f.watched[symbol] = watch
 	f.mu.Unlock()
-	go f.run(context.Background(), symbol)
+	logger.Infof("[HZ] Binance market detail watch started for %s (ttl=%s)", symbol, f.watchTTL)
+	go f.run(ctx, symbol)
 }
 
 func (f *binanceLastPriceFeed) run(ctx context.Context, symbol string) {
@@ -160,6 +178,27 @@ func (f *binanceLastPriceFeed) session(ctx context.Context, symbol string) (bool
 			return true, err
 		}
 		f.apply(event, time.Now(), "binance_agg_trade_ws")
+	}
+}
+
+func (f *binanceLastPriceFeed) isWatched(symbol string, now time.Time) bool {
+	f.mu.RLock()
+	watch := f.watched[strings.ToUpper(symbol)]
+	f.mu.RUnlock()
+	return watch != nil && now.Before(watch.expires)
+}
+
+func (f *binanceLastPriceFeed) release(symbol string, expired *binanceMarketWatch) {
+	f.mu.Lock()
+	if f.watched[symbol] == expired {
+		delete(f.watched, symbol)
+	} else {
+		expired = nil
+	}
+	f.mu.Unlock()
+	if expired != nil {
+		expired.cancel()
+		logger.Infof("[HZ] Binance market detail watch released for %s", symbol)
 	}
 }
 

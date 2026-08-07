@@ -106,11 +106,9 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if t.markPrices != nil {
-		t.markPrices.start()
-	}
 	result := make([]map[string]interface{}, 0, len(positions))
 	for _, item := range positions {
+		t.watchMarket(item.Instrument)
 		quantity, err := quantityForLots(instruments[item.Instrument], item.Lots)
 		if err != nil {
 			return nil, fmt.Errorf("invalid HZ position %s: %w", item.PositionID, err)
@@ -144,7 +142,6 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 			"createdTime":        unixMillis(item.OpenedAt),
 		}
 		if t.lastPrices != nil {
-			t.lastPrices.watch(item.Instrument)
 			if snapshot, ok := t.lastPrices.latest(item.Instrument); ok {
 				row["lastPrice"] = snapshot.price
 				row["lastPriceTime"] = snapshot.eventTime.UnixMilli()
@@ -183,12 +180,28 @@ func (t *Trader) open(symbol, side string, quantity float64, leverage int) (map[
 	if request.ClientOrderID == "" {
 		return nil, fmt.Errorf("HZ opening requires a fixed execution intent")
 	}
+	t.watchMarket(request.Instrument)
 	placed, err := t.placeOrder(request)
 	if err != nil {
 		return nil, err
 	}
 	t.invalidatePositionCache()
 	return orderResult(placed, quantity), nil
+}
+
+// WatchBinanceMarket warms the shared settlement mark and the symbol's exact last-trade stream.
+func WatchBinanceMarket(symbol string) {
+	sharedBinanceMarkPrices.start()
+	sharedBinanceLastPrices.watch(symbol)
+}
+
+func (t *Trader) watchMarket(symbol string) {
+	if t.markPrices != nil {
+		t.markPrices.start()
+	}
+	if t.lastPrices != nil {
+		t.lastPrices.watch(symbol)
+	}
 }
 
 func (t *Trader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
@@ -232,6 +245,7 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		}
 	}
 	item := positions[0]
+	t.watchMarket(item.Instrument)
 	closeLots := item.Lots
 	if quantity > 0 {
 		closeLots = strconv.FormatFloat(remainingLots, 'f', lotPrecision, 64)

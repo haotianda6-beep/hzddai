@@ -74,6 +74,26 @@ func TestHZMasterEventEndpointReplayAndSequenceGap(t *testing.T) {
 	}
 }
 
+func TestAcceptedHZMasterPositionStartsMarketWatch(t *testing.T) {
+	server, _ := newHZMasterEventTestServer(t)
+	var watched []string
+	server.watchHZMarket = func(symbol string) { watched = append(watched, symbol) }
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	raw := hzMasterEventBody(t, now, "event-watch", 1)
+	var request hzMasterEventRequest
+	if err := json.Unmarshal(raw, &request); err != nil {
+		t.Fatal(err)
+	}
+	result, err := server.acceptHZMasterEvent(request, raw, "watch-1", false, false)
+	if err != nil || !result.Accepted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(watched) != 1 || watched[0] != "BTC-PERP" {
+		t.Fatalf("watched=%v, want accepted master position symbol", watched)
+	}
+}
+
 func TestHZMasterEventEndpointRejectsExpiredSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv(hzMasterEventSecretEnv, "test-secret")
@@ -163,6 +183,39 @@ func TestHZMasterEventPollingAcceptsEmptySequenceZero(t *testing.T) {
 	}
 	if events != 0 || broadcasts != 0 {
 		t.Fatalf("events=%d broadcasts=%d", events, broadcasts)
+	}
+}
+
+func TestHZMasterPollingRenewsUnchangedPositionWatch(t *testing.T) {
+	server, _ := newHZMasterEventTestServer(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	raw := hzMasterEventBody(t, now, "event-existing", 1)
+	var existing hzMasterEventRequest
+	if err := json.Unmarshal(raw, &existing); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := server.acceptHZMasterEvent(existing, raw, "existing-1", false, false); err != nil || !result.Accepted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+
+	var watched []string
+	server.watchHZMarket = func(symbol string) { watched = append(watched, symbol) }
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(hzMasterSnapshotResponse{
+			LastSequence: "1", CapturedAt: now, MasterAccountID: "master-human-account",
+			Account: hzMasterTestAccount(), Positions: hzMasterTestPositions(),
+		})
+	}))
+	defer remote.Close()
+	config := hzMasterPollConfig{
+		APIURL: remote.URL + "/api/v1", APIKey: "poll-key", Secret: "poll-secret",
+		MasterAccountID: "master-human-account", Interval: time.Minute,
+	}
+	if err := server.pollHZMasterEventsOnce(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	if len(watched) != 1 || watched[0] != "BTC-PERP" {
+		t.Fatalf("watched=%v, want unchanged open position lease renewed", watched)
 	}
 }
 
