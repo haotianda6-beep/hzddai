@@ -46,6 +46,20 @@ func TestBinanceMarkPriceNamedEventUsesTransactionTime(t *testing.T) {
 	}
 }
 
+func TestBinanceMarkPriceEventUsesExactCaseSensitiveFields(t *testing.T) {
+	var events []binanceMarkPriceEvent
+	payload := `[{"e":"markPriceUpdate","E":1786088785000,"s":"NXPCUSDT","p":"0.23790000","P":"0.23888838","T":1786089600000}]`
+	if err := json.Unmarshal([]byte(payload), &events); err != nil {
+		t.Fatal(err)
+	}
+	if got := int64(events[0].EventTime); got != 1786088785000 {
+		t.Fatalf("event time=%d, want exact uppercase E", got)
+	}
+	if got := events[0].MarkPrice; got != "0.23790000" {
+		t.Fatalf("mark price=%s, want exact lowercase p", got)
+	}
+}
+
 func TestBinanceMarkPriceFeedReconnects(t *testing.T) {
 	var connections atomic.Int32
 	upgrader := websocket.Upgrader{}

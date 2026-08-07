@@ -26,25 +26,27 @@ type binanceMarkPriceEvent struct {
 type unixMillisValue int64
 
 func (event *binanceMarkPriceEvent) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		EventTime       json.RawMessage `json:"E"`
-		TransactionTime json.RawMessage `json:"T"`
-		Symbol          string          `json:"s"`
-		MarkPrice       string          `json:"p"`
-	}
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	eventTime, err := parseUnixMillis(raw.EventTime)
+	eventTime, err := parseUnixMillis(raw["E"])
 	if err != nil {
-		eventTime, err = parseUnixMillis(raw.TransactionTime)
+		eventTime, err = parseUnixMillis(raw["T"])
 	}
 	if err != nil {
 		return err
 	}
+	var symbol, markPrice string
+	if err := json.Unmarshal(raw["s"], &symbol); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw["p"], &markPrice); err != nil {
+		return err
+	}
 	event.EventTime = eventTime
-	event.Symbol = raw.Symbol
-	event.MarkPrice = raw.MarkPrice
+	event.Symbol = symbol
+	event.MarkPrice = markPrice
 	return nil
 }
 
