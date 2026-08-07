@@ -19,6 +19,48 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
+func TestHZTradeOrderSideUsesIntentAction(t *testing.T) {
+	tests := []struct {
+		action, positionSide, want string
+	}{
+		{"open", "long", "BUY"},
+		{"increase", "long", "BUY"},
+		{"reduce", "long", "SELL"},
+		{"close", "long", "SELL"},
+		{"open", "short", "SELL"},
+		{"close", "short", "BUY"},
+	}
+	for _, test := range tests {
+		got, err := hzTradeOrderSide(test.action, test.positionSide)
+		if err != nil {
+			t.Fatalf("%s %s: %v", test.action, test.positionSide, err)
+		}
+		if got != test.want {
+			t.Fatalf("%s %s side=%s, want %s", test.action, test.positionSide, got, test.want)
+		}
+	}
+}
+
+func TestHZIntentByRemoteClientOrderIDRejectsAmbiguousSuffix(t *testing.T) {
+	intents := map[string]store.MirrorExecutionIntent{
+		"close-1":       {IntentKey: "short"},
+		"scope:close-1": {IntentKey: "long"},
+	}
+	if _, ok := hzIntentByRemoteClientOrderID(intents, "api:key:scope:close-1"); ok {
+		t.Fatal("ambiguous remote clientOrderId must not select an intent")
+	}
+}
+
+func TestHZOpeningIntentDoesNotFabricateMissingOpen(t *testing.T) {
+	closeIntent := store.MirrorExecutionIntent{
+		TraderID: "trader-1", Instrument: "XAUUSD", PositionSide: "long", Action: "close",
+		CreatedAt: time.Unix(2, 0),
+	}
+	if _, _, ok := hzOpeningIntent([]store.MirrorExecutionIntent{closeIntent}, closeIntent); ok {
+		t.Fatal("close without a confirmed opening intent must not synthesize a position")
+	}
+}
+
 func TestSyncOrdersFromHZProjectsCloseHistoryIdempotently(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:hz-order-sync?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
@@ -66,20 +108,15 @@ func TestSyncOrdersFromHZProjectsCloseHistoryIdempotently(t *testing.T) {
 		case "/api/v1/trades":
 			_ = json.NewEncoder(w).Encode(tradePage{Items: []trade{
 				{
-					TradeID: "trade-close", OrderID: "order-close", Instrument: "XAUUSD", Side: "SELL",
+					TradeID: "trade-close", OrderID: "order-close", Instrument: "XAUUSD", Side: "LONG",
 					Lots: "0.010", Price: "2410", Fee: "0.10", RealizedPnL: "10",
 					ExecutedAt: "2026-08-07T03:42:00Z",
 				},
-				{
-					TradeID: "trade-open", OrderID: "order-open", Instrument: "XAUUSD", Side: "BUY",
-					Lots: "0.010", Price: "2400", Fee: "0.10", RealizedPnL: "0",
-					ExecutedAt: "2026-08-07T03:41:00Z",
-				},
 			}})
-		case "/api/v1/orders/by-client-id/client-close":
+		case "/api/v1/orders/order-close":
 			_ = json.NewEncoder(w).Encode(order{
-				OrderID: "order-close", ClientOrderID: "client-close", Instrument: "XAUUSD",
-				Side: "SELL", OrderType: "MARKET", Leverage: 1000, Lots: "0.010", Status: "FILLED",
+				OrderID: "order-close", ClientOrderID: "api:api-key-1:client-close", Instrument: "XAUUSD",
+				Side: "LONG", OrderType: "MARKET", Leverage: 1000, Lots: "0.010", Status: "FILLED",
 			})
 		default:
 			http.NotFound(w, r)
@@ -115,8 +152,8 @@ func TestSyncOrdersFromHZProjectsCloseHistoryIdempotently(t *testing.T) {
 	if err := db.Model(&store.TraderFill{}).Count(&fills).Error; err != nil {
 		t.Fatal(err)
 	}
-	if orders != 2 || fills != 2 {
-		t.Fatalf("orders=%d fills=%d, want 2/2 after duplicate sync", orders, fills)
+	if orders != 1 || fills != 1 {
+		t.Fatalf("orders=%d fills=%d, want 1/1 after duplicate sync", orders, fills)
 	}
 	positions, err := st.Position().GetClosedPositions("trader-1", 10)
 	if err != nil {

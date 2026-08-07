@@ -39,40 +39,60 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 		return fmt.Errorf("list HZ execution intents: %w", err)
 	}
 
-	tradeOrderIDs := make(map[string]struct{}, len(page.Items))
+	tradeIDs := make([]string, 0, len(page.Items))
 	for _, item := range page.Items {
-		tradeOrderIDs[item.OrderID] = struct{}{}
+		tradeIDs = append(tradeIDs, item.TradeID)
+	}
+	projectedTradeIDs := make(map[string]struct{}, len(tradeIDs))
+	if len(tradeIDs) > 0 {
+		var values []string
+		if err := st.GormDB().Model(&store.TraderFill{}).
+			Where("exchange_id = ? AND exchange_trade_id IN ?", exchangeID, tradeIDs).
+			Pluck("exchange_trade_id", &values).Error; err != nil {
+			return fmt.Errorf("list projected HZ trades: %w", err)
+		}
+		for _, value := range values {
+			projectedTradeIDs[value] = struct{}{}
+		}
 	}
 	intentsByOrderID := make(map[string]store.MirrorExecutionIntent, len(intents))
+	intentsByClientID := make(map[string]store.MirrorExecutionIntent, len(intents))
 	ordersByOrderID := make(map[string]order, len(intents))
 	for _, intent := range intents {
-		if _, ok := tradeOrderIDs[intent.ExchangeOrderID]; ok {
+		intentsByClientID[intent.ClientOrderID] = intent
+		if strings.TrimSpace(intent.ExchangeOrderID) != "" {
 			intentsByOrderID[intent.ExchangeOrderID] = intent
-			continue
-		}
-		legacyCloseID := strings.TrimSpace(intent.ExchangeOrderID) == "" ||
-			(strings.EqualFold(intent.ExchangeOrderID, intent.RemotePositionID) && strings.TrimSpace(intent.RemotePositionID) != "")
-		if !legacyCloseID || (!strings.EqualFold(intent.Action, "close") && !strings.EqualFold(intent.Action, "reduce")) {
-			continue
-		}
-		remoteOrder, lookupErr := t.orderByClientID(intent.ClientOrderID)
-		if lookupErr != nil || remoteOrder.OrderID == "" {
-			continue
-		}
-		intentsByOrderID[remoteOrder.OrderID] = intent
-		ordersByOrderID[remoteOrder.OrderID] = remoteOrder
-		if remoteOrder.OrderID != intent.ExchangeOrderID {
-			if err := st.MirrorExecutionIntent().SetExchangeOrderID(intent.IntentKey, remoteOrder.OrderID); err != nil {
-				return fmt.Errorf("repair HZ exchange order id: %w", err)
-			}
 		}
 	}
 
 	projections := make([]hzTradeProjection, 0, len(page.Items))
+	alreadyProjected := 0
+	orderLookupFailed := 0
+	unmatchedIntent := 0
 	for _, item := range page.Items {
+		if _, ok := projectedTradeIDs[item.TradeID]; ok {
+			alreadyProjected++
+			continue
+		}
 		intent, ok := intentsByOrderID[item.OrderID]
 		if !ok {
-			continue
+			var remoteOrder order
+			if err := t.client.do(context.Background(), http.MethodGet,
+				"/orders/"+url.PathEscape(item.OrderID), nil, "", &remoteOrder); err != nil {
+				orderLookupFailed++
+				continue
+			}
+			intent, ok = hzIntentByRemoteClientOrderID(intentsByClientID, remoteOrder.ClientOrderID)
+			if !ok {
+				unmatchedIntent++
+				continue
+			}
+			ordersByOrderID[item.OrderID] = remoteOrder
+			if item.OrderID != intent.ExchangeOrderID {
+				if err := st.MirrorExecutionIntent().SetExchangeOrderID(intent.IntentKey, item.OrderID); err != nil {
+					return fmt.Errorf("repair HZ exchange order id: %w", err)
+				}
+			}
 		}
 		spec, err := t.instrument(item.Instrument)
 		if err != nil {
@@ -94,12 +114,14 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 
 	orderStore := st.Order()
 	created := 0
+	missingOpeningIntent := 0
 	for _, projection := range projections {
 		existingFill, err := orderStore.GetFillByExchangeTradeID(exchangeID, projection.TradeID)
 		if err != nil {
 			return err
 		}
 		if existingFill != nil {
+			alreadyProjected++
 			continue
 		}
 		positionSide := strings.ToUpper(projection.intent.PositionSide)
@@ -114,14 +136,29 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 		}
 		symbol := strings.ToUpper(strings.TrimSpace(projection.Instrument))
 		isClose := strings.HasPrefix(orderAction, "close_")
+		orderSide, err := hzTradeOrderSide(projection.intent.Action, positionSide)
+		if err != nil {
+			return err
+		}
+		entryTime, entryOrderID, hasOpeningIntent := hzOpeningIntent(intents, projection.intent)
+		if isClose {
+			openPosition, err := st.Position().GetOpenPositionBySymbol(traderID, symbol, positionSide)
+			if err != nil {
+				return err
+			}
+			if openPosition == nil && !hasOpeningIntent {
+				missingOpeningIntent++
+				continue
+			}
+		}
 		orderRecord := &store.TraderOrder{
 			TraderID: traderID, ExchangeID: exchangeID, ExchangeType: exchangeType,
 			ExchangeOrderID: projection.OrderID, ClientOrderID: projection.intent.ClientOrderID,
-			Symbol: symbol, Side: strings.ToUpper(projection.Side), PositionSide: positionSide,
+			Symbol: symbol, Side: orderSide, PositionSide: positionSide,
 			Type: "MARKET", Quantity: projection.quantity, Price: number(projection.Price),
 			Status: "FILLED", FilledQuantity: projection.quantity, AvgFillPrice: number(projection.Price),
 			Commission: number(projection.Fee), CommissionAsset: "USDT", Leverage: leverage,
-			ReduceOnly: isClose, ClosePosition: projection.intent.Action == "close", OrderAction: orderAction,
+			ReduceOnly: isClose, ClosePosition: strings.EqualFold(projection.intent.Action, "close"), OrderAction: orderAction,
 			CreatedAt: tradeTime, UpdatedAt: tradeTime, FilledAt: tradeTime,
 		}
 		if err := orderStore.CreateOrder(orderRecord); err != nil {
@@ -130,7 +167,7 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 		fill := &store.TraderFill{
 			TraderID: traderID, ExchangeID: exchangeID, ExchangeType: exchangeType,
 			OrderID: orderRecord.ID, ExchangeOrderID: projection.OrderID, ExchangeTradeID: projection.TradeID,
-			Symbol: symbol, Side: strings.ToUpper(projection.Side), Price: number(projection.Price),
+			Symbol: symbol, Side: orderSide, Price: number(projection.Price),
 			Quantity: projection.quantity, QuoteQuantity: number(projection.Price) * projection.quantity,
 			Commission: number(projection.Fee), CommissionAsset: "USDT", RealizedPnL: number(projection.RealizedPnL),
 			CreatedAt: tradeTime,
@@ -149,7 +186,25 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 			if err := tx.Create(fill).Error; err != nil {
 				return err
 			}
-			positionBuilder := store.NewPositionBuilder(store.NewPositionStore(tx))
+			positionStore := store.NewPositionStore(tx)
+			positionBuilder := store.NewPositionBuilder(positionStore)
+			if isClose {
+				openPosition, err := positionStore.GetOpenPositionBySymbol(traderID, symbol, positionSide)
+				if err != nil {
+					return err
+				}
+				if openPosition == nil {
+					entryQuantity := projection.intent.TargetQuantity - projection.intent.DeltaQuantity
+					if entryQuantity <= 0 {
+						entryQuantity = projection.quantity
+					}
+					entryPrice := hzEntryPriceFromClose(positionSide, number(projection.Price), projection.quantity, number(projection.RealizedPnL))
+					if err := positionBuilder.ProcessTrade(traderID, exchangeID, exchangeType, symbol, positionSide,
+						"open_"+strings.ToLower(positionSide), entryQuantity, entryPrice, 0, 0, entryTime, entryOrderID); err != nil {
+						return err
+					}
+				}
+			}
 			if err := positionBuilder.ProcessTrade(traderID, exchangeID, exchangeType, symbol, positionSide, orderAction,
 				projection.quantity, number(projection.Price), number(projection.Fee), number(projection.RealizedPnL),
 				tradeTime, projection.OrderID); err != nil {
@@ -162,14 +217,91 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 			return fmt.Errorf("project HZ fill and position from trade %s: %w", projection.TradeID, err)
 		}
 		if !projected {
+			alreadyProjected++
 			continue
 		}
 		created++
 	}
-	if created > 0 {
-		logger.Infof("✅ HZ order+position sync: trader=%s new_trades=%d", traderID, created)
+	if created > 0 || orderLookupFailed > 0 || unmatchedIntent > 0 || missingOpeningIntent > 0 {
+		logger.Infof("HZ order+position sync: trader=%s received=%d new=%d existing=%d order_lookup_failed=%d unmatched_intent=%d missing_open_intent=%d",
+			traderID, len(page.Items), created, alreadyProjected, orderLookupFailed, unmatchedIntent, missingOpeningIntent)
 	}
 	return nil
+}
+
+func hzIntentByRemoteClientOrderID(intents map[string]store.MirrorExecutionIntent, remoteClientOrderID string) (store.MirrorExecutionIntent, bool) {
+	remoteClientOrderID = strings.TrimSpace(remoteClientOrderID)
+	if intent, ok := intents[remoteClientOrderID]; ok {
+		return intent, true
+	}
+	var matched store.MirrorExecutionIntent
+	found := false
+	for clientOrderID, intent := range intents {
+		if clientOrderID != "" && strings.HasSuffix(remoteClientOrderID, ":"+clientOrderID) {
+			if found {
+				return store.MirrorExecutionIntent{}, false
+			}
+			matched, found = intent, true
+		}
+	}
+	return matched, found
+}
+
+func hzTradeOrderSide(action, positionSide string) (string, error) {
+	positionSide = strings.ToLower(strings.TrimSpace(positionSide))
+	isClose := strings.EqualFold(action, "reduce") || strings.EqualFold(action, "close")
+	if !isClose && !strings.EqualFold(action, "open") && !strings.EqualFold(action, "increase") {
+		return "", fmt.Errorf("invalid HZ mirror action %q", action)
+	}
+	switch positionSide {
+	case "long":
+		if isClose {
+			return "SELL", nil
+		}
+		return "BUY", nil
+	case "short":
+		if isClose {
+			return "BUY", nil
+		}
+		return "SELL", nil
+	default:
+		return "", fmt.Errorf("invalid HZ position side %q", positionSide)
+	}
+}
+
+func hzEntryPriceFromClose(positionSide string, exitPrice, quantity, realizedPnL float64) float64 {
+	if exitPrice <= 0 || quantity <= 0 {
+		return exitPrice
+	}
+	entryPrice := exitPrice - realizedPnL/quantity
+	if strings.EqualFold(positionSide, "short") {
+		entryPrice = exitPrice + realizedPnL/quantity
+	}
+	if entryPrice <= 0 {
+		return exitPrice
+	}
+	return entryPrice
+}
+
+func hzOpeningIntent(intents []store.MirrorExecutionIntent, closeIntent store.MirrorExecutionIntent) (int64, string, bool) {
+	var best *store.MirrorExecutionIntent
+	for idx := range intents {
+		candidate := &intents[idx]
+		if candidate.TraderID != closeIntent.TraderID ||
+			!strings.EqualFold(candidate.Instrument, closeIntent.Instrument) ||
+			!strings.EqualFold(candidate.PositionSide, closeIntent.PositionSide) ||
+			candidate.CreatedAt.After(closeIntent.CreatedAt) ||
+			!strings.EqualFold(candidate.Action, "open") {
+			continue
+		}
+		if best == nil || candidate.CreatedAt.After(best.CreatedAt) {
+			best = candidate
+		}
+	}
+	if best == nil || strings.TrimSpace(best.ExchangeOrderID) == "" {
+		return 0, "", false
+	}
+	return best.CreatedAt.UTC().UnixMilli(), best.ExchangeOrderID, true
 }
 
 func hzOrderAction(action, positionSide string) (string, error) {
