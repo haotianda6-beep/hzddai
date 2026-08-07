@@ -256,8 +256,14 @@ func hzManualCloseIntent(remoteOrder order, traderID, exchangeID string, execute
 	if _, err := uuid.Parse(strings.TrimPrefix(clientOrderID, prefix)); err != nil {
 		return store.MirrorExecutionIntent{}, false
 	}
-	positionSide := strings.ToLower(strings.TrimSpace(remoteOrder.Side))
-	if positionSide != "long" && positionSide != "short" {
+	executionSide := strings.ToLower(strings.TrimSpace(remoteOrder.Side))
+	var positionSide string
+	switch executionSide {
+	case "long":
+		positionSide = "short"
+	case "short":
+		positionSide = "long"
+	default:
 		return store.MirrorExecutionIntent{}, false
 	}
 	instrument := strings.ToUpper(strings.TrimSpace(remoteOrder.Instrument))

@@ -64,7 +64,7 @@ func TestHZOpeningIntentDoesNotFabricateMissingOpen(t *testing.T) {
 func TestHZManualCloseIntentAcceptsOnlyAPICloseOrders(t *testing.T) {
 	remoteOrder := order{
 		OrderID: "order-close", ClientOrderID: "api:key-hint:api-close-550e8400-e29b-41d4-a716-446655440000",
-		Instrument: "NXPCUSDT", Side: "LONG", Status: "FILLED",
+		Instrument: "NXPCUSDT", Side: "SHORT", Status: "FILLED",
 	}
 	intent, ok := hzManualCloseIntent(remoteOrder, "trader-1", "exchange-1", time.Unix(2, 0))
 	if !ok {
