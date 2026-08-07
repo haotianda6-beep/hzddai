@@ -61,6 +61,31 @@ func TestHZOpeningIntentDoesNotFabricateMissingOpen(t *testing.T) {
 	}
 }
 
+func TestHZManualCloseIntentAcceptsOnlyAPICloseOrders(t *testing.T) {
+	remoteOrder := order{
+		OrderID: "order-close", ClientOrderID: "api:key-hint:api-close-550e8400-e29b-41d4-a716-446655440000",
+		Instrument: "NXPCUSDT", Side: "LONG", Status: "FILLED",
+	}
+	intent, ok := hzManualCloseIntent(remoteOrder, "trader-1", "exchange-1", time.Unix(2, 0))
+	if !ok {
+		t.Fatal("system API close order must be recoverable")
+	}
+	if intent.Action != "close" || intent.PositionSide != "long" || intent.ClientOrderID != "api-close-550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("intent=%+v", intent)
+	}
+
+	for _, clientOrderID := range []string{
+		"api:key-hint:close-550e8400-e29b-41d4-a716-446655440000",
+		"api:key-hint:xapi-close-550e8400-e29b-41d4-a716-446655440000",
+		"api:key-hint:api-close-not-a-uuid",
+	} {
+		remoteOrder.ClientOrderID = clientOrderID
+		if _, ok := hzManualCloseIntent(remoteOrder, "trader-1", "exchange-1", time.Unix(2, 0)); ok {
+			t.Fatalf("untrusted clientOrderId %q must not be recovered", clientOrderID)
+		}
+	}
+}
+
 func TestSyncOrdersFromHZProjectsCloseHistoryIdempotently(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:hz-order-sync?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"nofx/logger"
 	"nofx/store"
 
@@ -69,10 +70,15 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 	alreadyProjected := 0
 	orderLookupFailed := 0
 	unmatchedIntent := 0
+	recoveredManualClose := 0
 	for _, item := range page.Items {
 		if _, ok := projectedTradeIDs[item.TradeID]; ok {
 			alreadyProjected++
 			continue
+		}
+		executedAt, err := time.Parse(time.RFC3339Nano, item.ExecutedAt)
+		if err != nil {
+			return fmt.Errorf("parse HZ trade %s time: %w", item.TradeID, err)
 		}
 		intent, ok := intentsByOrderID[item.OrderID]
 		if !ok {
@@ -84,11 +90,15 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 			}
 			intent, ok = hzIntentByRemoteClientOrderID(intentsByClientID, remoteOrder.ClientOrderID)
 			if !ok {
-				unmatchedIntent++
-				continue
+				intent, ok = hzManualCloseIntent(remoteOrder, traderID, exchangeID, executedAt)
+				if !ok {
+					unmatchedIntent++
+					continue
+				}
+				recoveredManualClose++
 			}
 			ordersByOrderID[item.OrderID] = remoteOrder
-			if item.OrderID != intent.ExchangeOrderID {
+			if intent.IntentKey != "" && item.OrderID != intent.ExchangeOrderID {
 				if err := st.MirrorExecutionIntent().SetExchangeOrderID(intent.IntentKey, item.OrderID); err != nil {
 					return fmt.Errorf("repair HZ exchange order id: %w", err)
 				}
@@ -101,10 +111,6 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 		quantity, err := quantityForLots(spec, item.Lots)
 		if err != nil {
 			return fmt.Errorf("convert HZ trade %s quantity: %w", item.TradeID, err)
-		}
-		executedAt, err := time.Parse(time.RFC3339Nano, item.ExecutedAt)
-		if err != nil {
-			return fmt.Errorf("parse HZ trade %s time: %w", item.TradeID, err)
 		}
 		projections = append(projections, hzTradeProjection{
 			trade: item, quantity: quantity, executedAt: executedAt, intent: intent, order: ordersByOrderID[item.OrderID],
@@ -222,11 +228,39 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 		}
 		created++
 	}
-	if created > 0 || orderLookupFailed > 0 || unmatchedIntent > 0 || missingOpeningIntent > 0 {
-		logger.Infof("HZ order+position sync: trader=%s received=%d new=%d existing=%d order_lookup_failed=%d unmatched_intent=%d missing_open_intent=%d",
-			traderID, len(page.Items), created, alreadyProjected, orderLookupFailed, unmatchedIntent, missingOpeningIntent)
+	if created > 0 || orderLookupFailed > 0 || unmatchedIntent > 0 || missingOpeningIntent > 0 || recoveredManualClose > 0 {
+		logger.Infof("HZ order+position sync: trader=%s received=%d new=%d existing=%d order_lookup_failed=%d unmatched_intent=%d missing_open_intent=%d recovered_manual_close=%d",
+			traderID, len(page.Items), created, alreadyProjected, orderLookupFailed, unmatchedIntent, missingOpeningIntent, recoveredManualClose)
 	}
 	return nil
+}
+
+func hzManualCloseIntent(remoteOrder order, traderID, exchangeID string, executedAt time.Time) (store.MirrorExecutionIntent, bool) {
+	if !strings.EqualFold(remoteOrder.Status, "FILLED") {
+		return store.MirrorExecutionIntent{}, false
+	}
+	parts := strings.Split(strings.TrimSpace(remoteOrder.ClientOrderID), ":")
+	clientOrderID := parts[len(parts)-1]
+	const prefix = "api-close-"
+	if !strings.HasPrefix(clientOrderID, prefix) {
+		return store.MirrorExecutionIntent{}, false
+	}
+	if _, err := uuid.Parse(strings.TrimPrefix(clientOrderID, prefix)); err != nil {
+		return store.MirrorExecutionIntent{}, false
+	}
+	positionSide := strings.ToLower(strings.TrimSpace(remoteOrder.Side))
+	if positionSide != "long" && positionSide != "short" {
+		return store.MirrorExecutionIntent{}, false
+	}
+	instrument := strings.ToUpper(strings.TrimSpace(remoteOrder.Instrument))
+	if instrument == "" || strings.TrimSpace(remoteOrder.OrderID) == "" {
+		return store.MirrorExecutionIntent{}, false
+	}
+	return store.MirrorExecutionIntent{
+		TraderID: traderID, ExchangeID: exchangeID, Instrument: instrument,
+		PositionSide: positionSide, Action: "close", ClientOrderID: clientOrderID,
+		ExchangeOrderID: remoteOrder.OrderID, CreatedAt: executedAt,
+	}, true
 }
 
 func hzIntentByRemoteClientOrderID(intents map[string]store.MirrorExecutionIntent, remoteClientOrderID string) (store.MirrorExecutionIntent, bool) {
