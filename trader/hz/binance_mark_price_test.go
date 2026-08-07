@@ -35,6 +35,17 @@ func TestBinanceMarkPriceEventAcceptsStringTimestamp(t *testing.T) {
 	}
 }
 
+func TestBinanceMarkPriceNamedEventUsesTransactionTime(t *testing.T) {
+	var events []binanceMarkPriceEvent
+	payload := `[{"E":"markPriceUpdate","T":1786089000456,"s":"NXPCUSDT","p":"0.2385"}]`
+	if err := json.Unmarshal([]byte(payload), &events); err != nil {
+		t.Fatalf("decode Binance named event: %v", err)
+	}
+	if got := int64(events[0].EventTime); got != 1786089000456 {
+		t.Fatalf("event time=%d, want transaction time", got)
+	}
+}
+
 func TestBinanceMarkPriceFeedReconnects(t *testing.T) {
 	var connections atomic.Int32
 	upgrader := websocket.Upgrader{}

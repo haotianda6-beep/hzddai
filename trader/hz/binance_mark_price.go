@@ -2,6 +2,7 @@ package hz
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,13 +25,32 @@ type binanceMarkPriceEvent struct {
 
 type unixMillisValue int64
 
-func (value *unixMillisValue) UnmarshalJSON(data []byte) error {
-	milliseconds, err := strconv.ParseInt(strings.Trim(string(data), `"`), 10, 64)
+func (event *binanceMarkPriceEvent) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		EventTime       json.RawMessage `json:"E"`
+		TransactionTime json.RawMessage `json:"T"`
+		Symbol          string          `json:"s"`
+		MarkPrice       string          `json:"p"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	eventTime, err := parseUnixMillis(raw.EventTime)
+	if err != nil {
+		eventTime, err = parseUnixMillis(raw.TransactionTime)
+	}
 	if err != nil {
 		return err
 	}
-	*value = unixMillisValue(milliseconds)
+	event.EventTime = eventTime
+	event.Symbol = raw.Symbol
+	event.MarkPrice = raw.MarkPrice
 	return nil
+}
+
+func parseUnixMillis(data json.RawMessage) (unixMillisValue, error) {
+	milliseconds, err := strconv.ParseInt(strings.Trim(string(data), `"`), 10, 64)
+	return unixMillisValue(milliseconds), err
 }
 
 type binanceMarkPriceSnapshot struct {
@@ -105,9 +125,22 @@ func (f *binanceMarkPriceFeed) session(ctx context.Context) (bool, error) {
 	logger.Infof("[HZ] Binance USD-M mark-price stream connected")
 	for {
 		_ = socket.SetReadDeadline(time.Now().Add(5 * time.Second))
-		var events []binanceMarkPriceEvent
-		if err := socket.ReadJSON(&events); err != nil {
+		var rawEvents []json.RawMessage
+		if err := socket.ReadJSON(&rawEvents); err != nil {
 			return true, err
+		}
+		events := make([]binanceMarkPriceEvent, 0, len(rawEvents))
+		invalid := 0
+		for _, raw := range rawEvents {
+			var event binanceMarkPriceEvent
+			if err := json.Unmarshal(raw, &event); err != nil {
+				invalid++
+				continue
+			}
+			events = append(events, event)
+		}
+		if invalid > 0 {
+			logger.Warnf("[HZ] Binance mark-price frame skipped %d invalid event(s)", invalid)
 		}
 		f.apply(events, time.Now())
 	}
