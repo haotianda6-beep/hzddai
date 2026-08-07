@@ -24,6 +24,10 @@ type Trader struct {
 	accountOpeningStopped   atomic.Bool
 	instrumentMu            sync.RWMutex
 	instrumentCache         map[string]instrument
+	positionMu              sync.RWMutex
+	positionCache           []position
+	positionCacheReady      bool
+	markPrices              *binanceMarkPriceFeed
 	scopeVerified           atomic.Bool
 	accountFingerprint      string
 	walletFingerprint       string
@@ -51,6 +55,7 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 	ctx, cancel := context.WithCancel(context.Background())
 	trader := &Trader{
 		client: client, ctx: ctx, cancelStream: cancel,
+		markPrices:              sharedBinanceMarkPrices,
 		accountFingerprint:      verified.AccountFingerprint,
 		walletFingerprint:       verified.WalletFingerprint,
 		positionBookFingerprint: verified.PositionBookFingerprint,
@@ -88,7 +93,7 @@ func (t *Trader) GetBalance() (map[string]interface{}, error) {
 }
 
 func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
-	positions, err := t.positions()
+	positions, err := t.positionSnapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +104,9 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if t.markPrices != nil {
+		t.markPrices.start()
+	}
 	result := make([]map[string]interface{}, 0, len(positions))
 	for _, item := range positions {
 		quantity, err := quantityForLots(instruments[item.Instrument], item.Lots)
@@ -108,18 +116,30 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 		if item.Side == "SHORT" {
 			quantity = -quantity
 		}
+		markPrice := number(item.CurrentPrice)
+		unrealizedPnL := number(item.UnrealizedPnL)
+		priceSource := "hz_rest"
+		var eventTime int64
+		if snapshot, ok := t.markPrices.latest(item.Instrument, time.Now()); ok {
+			markPrice = snapshot.price
+			unrealizedPnL = (markPrice - number(item.EntryPrice)) * quantity
+			priceSource = "binance_mark_ws"
+			eventTime = snapshot.eventTime.UnixMilli()
+		}
 		result = append(result, map[string]interface{}{
-			"positionId":       item.PositionID,
-			"symbol":           item.Instrument,
-			"positionAmt":      quantity,
-			"entryPrice":       number(item.EntryPrice),
-			"markPrice":        number(item.CurrentPrice),
-			"unRealizedProfit": number(item.UnrealizedPnL),
-			"leverage":         float64(item.Leverage),
-			"liquidationPrice": 0.0,
-			"side":             strings.ToLower(item.Side),
-			"mgnMode":          strings.ToLower(item.MarginMode),
-			"createdTime":      unixMillis(item.OpenedAt),
+			"positionId":         item.PositionID,
+			"symbol":             item.Instrument,
+			"positionAmt":        quantity,
+			"entryPrice":         number(item.EntryPrice),
+			"markPrice":          markPrice,
+			"unRealizedProfit":   unrealizedPnL,
+			"markPriceSource":    priceSource,
+			"markPriceEventTime": eventTime,
+			"leverage":           float64(item.Leverage),
+			"liquidationPrice":   0.0,
+			"side":               strings.ToLower(item.Side),
+			"mgnMode":            strings.ToLower(item.MarginMode),
+			"createdTime":        unixMillis(item.OpenedAt),
 		})
 	}
 	return result, nil
@@ -156,6 +176,7 @@ func (t *Trader) open(symbol, side string, quantity float64, leverage int) (map[
 	if err != nil {
 		return nil, err
 	}
+	t.invalidatePositionCache()
 	return orderResult(placed, quantity), nil
 }
 
@@ -214,6 +235,7 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		"/positions/"+url.PathEscape(item.PositionID)+"/close", body, &last, intent); err != nil {
 		return nil, err
 	}
+	t.invalidatePositionCache()
 	closeQuantity, quantityErr := quantityForLots(spec, closeLots)
 	if quantityErr != nil {
 		closeQuantity = quantity

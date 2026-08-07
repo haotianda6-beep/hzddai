@@ -42,8 +42,12 @@ func (t *Trader) Reconcile() (err error) {
 		return err
 	}
 	t.accountOpeningStopped.Store(!snapshot.Tradable)
-	if _, err = t.GetPositions(); err != nil {
+	positions, err := t.positions()
+	if err != nil {
 		return err
+	}
+	if len(positions) > 0 && t.markPrices != nil {
+		t.markPrices.start()
 	}
 	_, err = t.GetOpenOrders("")
 	return err
@@ -142,8 +146,31 @@ func IsNotFound(err error) bool {
 
 func (t *Trader) positions() ([]position, error) {
 	var values []position
-	err := t.client.do(context.Background(), http.MethodGet, "/positions", nil, "", &values)
-	return values, err
+	if err := t.client.do(context.Background(), http.MethodGet, "/positions", nil, "", &values); err != nil {
+		return nil, err
+	}
+	t.positionMu.Lock()
+	t.positionCache = append(t.positionCache[:0], values...)
+	t.positionCacheReady = true
+	t.positionMu.Unlock()
+	return values, nil
+}
+
+func (t *Trader) positionSnapshot() ([]position, error) {
+	t.positionMu.RLock()
+	if t.positionCacheReady {
+		values := append([]position(nil), t.positionCache...)
+		t.positionMu.RUnlock()
+		return values, nil
+	}
+	t.positionMu.RUnlock()
+	return t.positions()
+}
+
+func (t *Trader) invalidatePositionCache() {
+	t.positionMu.Lock()
+	t.positionCacheReady = false
+	t.positionMu.Unlock()
 }
 
 func (t *Trader) positionsFor(symbol, side string) ([]position, error) {

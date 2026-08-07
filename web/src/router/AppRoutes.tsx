@@ -374,6 +374,15 @@ function DashboardRoute() {
     }
   )
 
+  const selectedTrader = traders?.find(
+    (trader) => trader.trader_id === stableSelectedId
+  )
+  const isHZTrader = exchanges?.some(
+    (exchange) =>
+      exchange.id === selectedTrader?.exchange_id &&
+      exchange.exchange_type.toLowerCase() === 'hz'
+  )
+
   const { data: status } = useSWR<SystemStatus>(
     stableSelectedId ? `status-${stableSelectedId}` : null,
     () => api.getStatus(stableSelectedId!, true),
@@ -410,9 +419,9 @@ function DashboardRoute() {
     stableSelectedId ? `positions-${stableSelectedId}` : null,
     () => api.getPositions(stableSelectedId!, true),
     {
-      refreshInterval: 15000,
+      refreshInterval: isHZTrader ? 1000 : 15000,
       revalidateOnFocus: true,
-      dedupingInterval: 10000,
+      dedupingInterval: isHZTrader ? 500 : 10000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) {
           setPositionsPollOff(true)
@@ -427,6 +436,26 @@ function DashboardRoute() {
       },
     }
   )
+
+  const dashboardAccount = useMemo(() => {
+    if (!isHZTrader || !account || !positions) return account
+    const unrealizedProfit = positions.reduce(
+      (sum, position) => sum + (position.unrealized_pnl || 0),
+      0
+    )
+    const totalEquity = account.wallet_balance + unrealizedProfit
+    const totalPnl = totalEquity - account.initial_balance
+    return {
+      ...account,
+      unrealized_profit: unrealizedProfit,
+      total_equity: totalEquity,
+      total_pnl: totalPnl,
+      total_pnl_pct:
+        account.initial_balance > 0
+          ? (totalPnl / account.initial_balance) * 100
+          : 0,
+    }
+  }, [account, isHZTrader, positions])
 
   const { data: decisions } = useSWR<DecisionRecord[]>(
     stableSelectedId
@@ -467,10 +496,6 @@ function DashboardRoute() {
     }
   )
 
-  const selectedTrader = traders?.find(
-    (trader) => trader.trader_id === stableSelectedId
-  )
-
   useEffect(() => {
     if (!stableSelectedId) return
     try {
@@ -486,7 +511,7 @@ function DashboardRoute() {
         <TraderDashboardPage
           selectedTrader={selectedTrader}
           status={status}
-          account={account}
+          account={dashboardAccount}
           accountFailed={accountPollOff}
           positions={positions}
           positionsFailed={positionsPollOff}

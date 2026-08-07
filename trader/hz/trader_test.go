@@ -94,6 +94,94 @@ func TestGetPositionsMapsHZSnapshot(t *testing.T) {
 	}
 }
 
+func TestGetPositionsUsesFreshBinanceMarkForPriceAndPnL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/instruments":
+			_ = json.NewEncoder(w).Encode([]instrument{{
+				Instrument: "NXPCUSDT", LotPrecision: 2, MinLots: "0.01",
+				MaxLots: "100", LotStep: "0.01", ContractSize: "1",
+			}})
+		case "/api/v1/positions":
+			_ = json.NewEncoder(w).Encode([]position{{
+				PositionID: "pos-live", Instrument: "NXPCUSDT", Side: "LONG",
+				MarginMode: "CROSS", Leverage: 10, Lots: "10", EntryPrice: "0.2000",
+				CurrentPrice: "0.2100", UnrealizedPnL: "0.1000",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	trader := newTestTrader(t, server.URL+"/api/v1", true)
+	feed := newBinanceMarkPriceFeed("")
+	receivedAt := time.Now()
+	feed.apply([]binanceMarkPriceEvent{{
+		EventTime: receivedAt.Add(-100 * time.Millisecond).UnixMilli(),
+		Symbol:    "NXPCUSDT", MarkPrice: "0.2300",
+	}}, receivedAt)
+	trader.markPrices = feed
+
+	positions, err := trader.GetPositions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(positions) != 1 {
+		t.Fatalf("positions=%d, want 1", len(positions))
+	}
+	if got := positions[0]["markPrice"]; got != 0.23 {
+		t.Fatalf("markPrice=%v, want 0.23", got)
+	}
+	if got := positions[0]["unRealizedProfit"]; math.Abs(got.(float64)-0.3) > 1e-9 {
+		t.Fatalf("unRealizedProfit=%v, want 0.3", got)
+	}
+	if got := positions[0]["markPriceSource"]; got != "binance_mark_ws" {
+		t.Fatalf("markPriceSource=%v, want binance_mark_ws", got)
+	}
+}
+
+func TestStaleBinanceMarkFallsBackToHZPositionSnapshot(t *testing.T) {
+	feed := newBinanceMarkPriceFeed("")
+	receivedAt := time.Now().Add(-binanceMarkPriceMaxAge - time.Second)
+	feed.apply([]binanceMarkPriceEvent{{
+		EventTime: receivedAt.UnixMilli(), Symbol: "NXPCUSDT", MarkPrice: "0.2300",
+	}}, receivedAt)
+	if _, ok := feed.latest("NXPCUSDT", time.Now()); ok {
+		t.Fatal("stale Binance mark must not override the HZ REST fallback")
+	}
+}
+
+func TestGetPositionsCachesHZStructureBetweenReconciliations(t *testing.T) {
+	var positionRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/instruments":
+			writeInstruments(w)
+		case "/api/v1/positions":
+			positionRequests.Add(1)
+			_ = json.NewEncoder(w).Encode([]position{{
+				PositionID: "pos-cache", Instrument: "XAUUSD", Side: "LONG", Lots: "0.010",
+				EntryPrice: "2400", CurrentPrice: "2401", UnrealizedPnL: "1",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	trader := newTestTrader(t, server.URL+"/api/v1", true)
+	if _, err := trader.GetPositions(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := trader.GetPositions(); err != nil {
+		t.Fatal(err)
+	}
+	if got := positionRequests.Load(); got != 1 {
+		t.Fatalf("HZ position requests=%d, want one cached structure fetch", got)
+	}
+}
+
 func TestCommodityQuantityLotConversion(t *testing.T) {
 	tests := []struct {
 		symbol       string
