@@ -28,6 +28,10 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useSystemConfig } from '../hooks/useSystemConfig'
 import { t } from '../i18n/translations'
 import { api } from '../lib/api'
+import {
+  HZ_LAST_PRICE_REFRESH_MS,
+  mergeHZLastPrices,
+} from '../lib/hzLastPrices'
 import type {
   AccountInfo,
   DecisionRecord,
@@ -437,6 +441,27 @@ function DashboardRoute() {
     }
   )
 
+  const positionSymbols = useMemo(
+    () => [...new Set((positions ?? []).map((position) => position.symbol))],
+    [positions]
+  )
+  const { data: hzLastPrices } = useSWR(
+    isHZTrader && positionSymbols.length
+      ? `hz-last-prices-${positionSymbols.join(',')}`
+      : null,
+    () => api.getHZLastPrices(positionSymbols, true),
+    {
+      refreshInterval: HZ_LAST_PRICE_REFRESH_MS,
+      refreshWhenHidden: false,
+      revalidateOnFocus: true,
+      dedupingInterval: 0,
+    }
+  )
+  const displayPositions = useMemo(
+    () => mergeHZLastPrices(positions, hzLastPrices),
+    [positions, hzLastPrices]
+  )
+
   const dashboardAccount = useMemo(() => {
     if (!isHZTrader || !account || !positions) return account
     const unrealizedProfit = positions.reduce(
@@ -513,7 +538,7 @@ function DashboardRoute() {
           status={status}
           account={dashboardAccount}
           accountFailed={accountPollOff}
-          positions={positions}
+          positions={displayPositions}
           positionsFailed={positionsPollOff}
           decisions={decisions}
           decisionsFailed={decisionsPollOff}

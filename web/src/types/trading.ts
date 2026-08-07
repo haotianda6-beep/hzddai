@@ -45,6 +45,13 @@ export interface Position {
   margin_used: number
 }
 
+export interface HZLastPrice {
+  symbol: string
+  price: number
+  time: number
+  source: 'binance_agg_trade_ws' | 'binance_last_price_rest'
+}
+
 /** 交易所当前未成交委托（GET /api/open-orders，与后端 OpenOrder JSON 一致） */
 export interface ExchangeOpenOrder {
   order_id: string

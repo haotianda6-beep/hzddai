@@ -9,6 +9,7 @@ import type {
   PositionHistoryResponse,
   MarketBoardPayload,
   CryptoNewsPayload,
+  HZLastPrice,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
@@ -38,6 +39,16 @@ export const dataApi = {
     const result = await httpClient.request<Position[]>(url, { silent })
     if (!result.success) throw new Error('Failed to fetch positions')
     return result.data!
+  },
+
+  async getHZLastPrices(symbols: string[], silent?: boolean): Promise<HZLastPrice[]> {
+    const params = new URLSearchParams({ symbols: symbols.join(',') })
+    const result = await httpClient.request<HZLastPrice[]>(
+      `${API_BASE}/market/last-prices?${params}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch latest trades')
+    return result.data ?? []
   },
 
   /**

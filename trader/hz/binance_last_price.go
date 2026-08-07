@@ -58,6 +58,13 @@ type binanceLastPriceSnapshot struct {
 	source     string
 }
 
+type BinanceLastPrice struct {
+	Symbol string  `json:"symbol"`
+	Price  float64 `json:"price"`
+	Time   int64   `json:"time"`
+	Source string  `json:"source"`
+}
+
 type binanceLastPriceFeed struct {
 	wsURLTemplate   string
 	restURLTemplate string
@@ -218,4 +225,18 @@ func (f *binanceLastPriceFeed) latest(symbol string) (binanceLastPriceSnapshot, 
 	snapshot, ok := f.prices[strings.ToUpper(symbol)]
 	f.mu.RUnlock()
 	return snapshot, ok
+}
+
+// CurrentBinanceLastPrices reads the existing in-memory cache without starting streams or querying storage.
+func CurrentBinanceLastPrices(symbols []string) []BinanceLastPrice {
+	prices := make([]BinanceLastPrice, 0, len(symbols))
+	for _, symbol := range symbols {
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if snapshot, ok := sharedBinanceLastPrices.latest(symbol); ok {
+			prices = append(prices, BinanceLastPrice{
+				Symbol: symbol, Price: snapshot.price, Time: snapshot.eventTime.UnixMilli(), Source: snapshot.source,
+			})
+		}
+	}
+	return prices
 }

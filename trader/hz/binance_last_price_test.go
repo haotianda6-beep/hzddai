@@ -40,6 +40,23 @@ func TestBinanceLastPriceKeepsLastTradeWithoutInventingBid(t *testing.T) {
 	}
 }
 
+func TestCurrentBinanceLastPricesReadsExistingMemoryOnly(t *testing.T) {
+	original := sharedBinanceLastPrices
+	feed := newBinanceLastPriceFeed("", "")
+	sharedBinanceLastPrices = feed
+	defer func() { sharedBinanceLastPrices = original }()
+	feed.apply(binanceAggTradeEvent{
+		EventTime: 1786090146000, TradeTime: 1786090145999,
+		Symbol: "NXPCUSDT", Price: "0.2382",
+	}, time.Now(), "binance_agg_trade_ws")
+
+	prices := CurrentBinanceLastPrices([]string{"NXPCUSDT", "UNKNOWN"})
+	if len(prices) != 1 || prices[0].Symbol != "NXPCUSDT" || prices[0].Price != 0.2382 ||
+		prices[0].Time != 1786090145999 || prices[0].Source != "binance_agg_trade_ws" {
+		t.Fatalf("prices=%#v", prices)
+	}
+}
+
 func TestBinanceLastPriceRESTSeedsButDoesNotOverwriteNewerTrade(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
