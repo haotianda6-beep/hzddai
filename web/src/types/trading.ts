@@ -34,6 +34,9 @@ export interface Position {
   side: string
   entry_price: number
   mark_price: number
+  last_price?: number
+  last_price_time?: number
+  last_price_source?: 'binance_agg_trade_ws' | 'binance_last_price_rest'
   quantity: number
   leverage: number
   unrealized_pnl: number

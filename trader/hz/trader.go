@@ -28,6 +28,7 @@ type Trader struct {
 	positionCache           []position
 	positionCacheReady      bool
 	markPrices              *binanceMarkPriceFeed
+	lastPrices              *binanceLastPriceFeed
 	scopeVerified           atomic.Bool
 	accountFingerprint      string
 	walletFingerprint       string
@@ -56,6 +57,7 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 	trader := &Trader{
 		client: client, ctx: ctx, cancelStream: cancel,
 		markPrices:              sharedBinanceMarkPrices,
+		lastPrices:              sharedBinanceLastPrices,
 		accountFingerprint:      verified.AccountFingerprint,
 		walletFingerprint:       verified.WalletFingerprint,
 		positionBookFingerprint: verified.PositionBookFingerprint,
@@ -126,7 +128,7 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 			priceSource = "binance_mark_ws"
 			eventTime = snapshot.eventTime.UnixMilli()
 		}
-		result = append(result, map[string]interface{}{
+		row := map[string]interface{}{
 			"positionId":         item.PositionID,
 			"symbol":             item.Instrument,
 			"positionAmt":        quantity,
@@ -140,7 +142,16 @@ func (t *Trader) GetPositions() ([]map[string]interface{}, error) {
 			"side":               strings.ToLower(item.Side),
 			"mgnMode":            strings.ToLower(item.MarginMode),
 			"createdTime":        unixMillis(item.OpenedAt),
-		})
+		}
+		if t.lastPrices != nil {
+			t.lastPrices.watch(item.Instrument)
+			if snapshot, ok := t.lastPrices.latest(item.Instrument); ok {
+				row["lastPrice"] = snapshot.price
+				row["lastPriceTime"] = snapshot.eventTime.UnixMilli()
+				row["lastPriceSource"] = snapshot.source
+			}
+		}
+		result = append(result, row)
 	}
 	return result, nil
 }

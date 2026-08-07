@@ -374,7 +374,7 @@ Returns: {"balance":<float>,"equity":<float>,"unrealized_pnl":<float>,"initial_b
 				s.handleAccount)
 			s.routeWithSchema(protected, "GET", "/positions", "Current open positions",
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>
-Returns: [{"symbol":"<string>","side":"long|short","size":<float>,"entry_price":<float>,"mark_price":<float>,"unrealized_pnl":<float>,"leverage":<int>}]`,
+Returns: [{"symbol":"<string>","side":"long|short","size":<float>,"entry_price":<float>,"mark_price":<float>,"last_price":<float>,"last_price_time":<unix_ms>,"unrealized_pnl":<float>,"leverage":<int>}]`,
 				s.handlePositions)
 			s.routeWithSchema(protected, "GET", "/positions/history", "Closed position history",
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&limit=<int, default 20>`,

@@ -898,6 +898,10 @@ export function TraderDashboardPage({
                                                             <div className="font-mono text-[#EAECEF]">{formatPrice(pos.mark_price)}</div>
                                                         </div>
                                                         <div>
+                                                            <div className="text-[#5e6673]">{t('traderDashboard.last', language)}</div>
+                                                            <div className="font-mono text-[#EAECEF]">{formatPrice(pos.last_price)}</div>
+                                                        </div>
+                                                        <div>
                                                             <div className="text-[#5e6673]">{t('traderDashboard.value', language)}</div>
                                                             <div className="font-mono text-[#EAECEF]">
                                                                 {((pos.quantity ?? 0) * (pos.mark_price ?? 0)).toFixed(2)}
@@ -921,6 +925,7 @@ export function TraderDashboardPage({
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center">{t('traderDashboard.action', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('entryPrice', language)}>{t('traderDashboard.entry', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('markPrice', language)}>{t('traderDashboard.mark', language)}</th>
+                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell">{t('traderDashboard.last', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('quantity', language)}>{t('traderDashboard.qty', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('positionValue', language)}>{t('traderDashboard.value', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center hidden md:table-cell" title={t('leverage', language)}>{t('traderDashboard.lev', language)}</th>
@@ -976,6 +981,7 @@ export function TraderDashboardPage({
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.entry_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.mark_price)}</td>
+                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell" title={pos.last_price_time ? new Date(pos.last_price_time).toLocaleString() : undefined}>{formatPrice(pos.last_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main">{formatQuantity(pos.quantity)}</td>
                                                         <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">
                                                             {((pos.quantity ?? 0) * (pos.mark_price ?? 0)).toFixed(2)}

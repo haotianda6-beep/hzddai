@@ -122,6 +122,13 @@ func TestGetPositionsUsesFreshBinanceMarkForPriceAndPnL(t *testing.T) {
 		Symbol:    "NXPCUSDT", MarkPrice: "0.2300",
 	}}, receivedAt)
 	trader.markPrices = feed
+	lastTrades := newBinanceLastPriceFeed("", "")
+	lastTrades.apply(binanceAggTradeEvent{
+		EventTime: unixMillisValue(receivedAt.Add(-90 * time.Millisecond).UnixMilli()),
+		TradeTime: unixMillisValue(receivedAt.Add(-100 * time.Millisecond).UnixMilli()),
+		Symbol:    "NXPCUSDT", Price: "0.2250",
+	}, receivedAt, "binance_agg_trade_ws")
+	trader.lastPrices = lastTrades
 
 	positions, err := trader.GetPositions()
 	if err != nil {
@@ -138,6 +145,15 @@ func TestGetPositionsUsesFreshBinanceMarkForPriceAndPnL(t *testing.T) {
 	}
 	if got := positions[0]["markPriceSource"]; got != "binance_mark_ws" {
 		t.Fatalf("markPriceSource=%v, want binance_mark_ws", got)
+	}
+	if got := positions[0]["lastPrice"]; got != 0.225 {
+		t.Fatalf("lastPrice=%v, want 0.225", got)
+	}
+	if got := positions[0]["lastPriceTime"]; got != int64(lastTrades.prices["NXPCUSDT"].eventTime.UnixMilli()) {
+		t.Fatalf("lastPriceTime=%v", got)
+	}
+	if got := positions[0]["lastPriceSource"]; got != "binance_agg_trade_ws" {
+		t.Fatalf("lastPriceSource=%v, want binance_agg_trade_ws", got)
 	}
 }
 
