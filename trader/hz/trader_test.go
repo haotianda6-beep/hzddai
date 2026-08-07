@@ -118,7 +118,7 @@ func TestGetPositionsUsesFreshBinanceMarkForPriceAndPnL(t *testing.T) {
 	feed := newBinanceMarkPriceFeed("")
 	receivedAt := time.Now()
 	feed.apply([]binanceMarkPriceEvent{{
-		EventTime: receivedAt.Add(-100 * time.Millisecond).UnixMilli(),
+		EventTime: unixMillisValue(receivedAt.Add(-100 * time.Millisecond).UnixMilli()),
 		Symbol:    "NXPCUSDT", MarkPrice: "0.2300",
 	}}, receivedAt)
 	trader.markPrices = feed
@@ -145,7 +145,7 @@ func TestStaleBinanceMarkFallsBackToHZPositionSnapshot(t *testing.T) {
 	feed := newBinanceMarkPriceFeed("")
 	receivedAt := time.Now().Add(-binanceMarkPriceMaxAge - time.Second)
 	feed.apply([]binanceMarkPriceEvent{{
-		EventTime: receivedAt.UnixMilli(), Symbol: "NXPCUSDT", MarkPrice: "0.2300",
+		EventTime: unixMillisValue(receivedAt.UnixMilli()), Symbol: "NXPCUSDT", MarkPrice: "0.2300",
 	}}, receivedAt)
 	if _, ok := feed.latest("NXPCUSDT", time.Now()); ok {
 		t.Fatal("stale Binance mark must not override the HZ REST fallback")

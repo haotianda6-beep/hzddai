@@ -2,6 +2,7 @@ package hz
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -22,6 +23,18 @@ func TestBinanceMarkPriceStreamUsesMarketRoute(t *testing.T) {
 	}
 }
 
+func TestBinanceMarkPriceEventAcceptsStringTimestamp(t *testing.T) {
+	var events []binanceMarkPriceEvent
+	if err := json.Unmarshal([]byte(`[{"E":"1786089000123","s":"NXPCUSDT","p":"0.2384"}]`), &events); err != nil {
+		t.Fatalf("decode Binance event with string timestamp: %v", err)
+	}
+	feed := newBinanceMarkPriceFeed("")
+	feed.apply(events, time.UnixMilli(1786089000200))
+	if snapshot, ok := feed.latest("NXPCUSDT", time.UnixMilli(1786089000200)); !ok || snapshot.eventTime.UnixMilli() != 1786089000123 {
+		t.Fatalf("snapshot=%#v ok=%v", snapshot, ok)
+	}
+}
+
 func TestBinanceMarkPriceFeedReconnects(t *testing.T) {
 	var connections atomic.Int32
 	upgrader := websocket.Upgrader{}
@@ -32,7 +45,7 @@ func TestBinanceMarkPriceFeedReconnects(t *testing.T) {
 		}
 		connection := connections.Add(1)
 		_ = socket.WriteJSON([]binanceMarkPriceEvent{{
-			EventTime: time.Now().UnixMilli(), Symbol: "NXPCUSDT",
+			EventTime: unixMillisValue(time.Now().UnixMilli()), Symbol: "NXPCUSDT",
 			MarkPrice: "0.23" + strconv.Itoa(int(connection)),
 		}})
 		_ = socket.Close()

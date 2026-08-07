@@ -17,9 +17,20 @@ const (
 )
 
 type binanceMarkPriceEvent struct {
-	EventTime int64  `json:"E"`
-	Symbol    string `json:"s"`
-	MarkPrice string `json:"p"`
+	EventTime unixMillisValue `json:"E"`
+	Symbol    string          `json:"s"`
+	MarkPrice string          `json:"p"`
+}
+
+type unixMillisValue int64
+
+func (value *unixMillisValue) UnmarshalJSON(data []byte) error {
+	milliseconds, err := strconv.ParseInt(strings.Trim(string(data), `"`), 10, 64)
+	if err != nil {
+		return err
+	}
+	*value = unixMillisValue(milliseconds)
+	return nil
 }
 
 type binanceMarkPriceSnapshot struct {
@@ -110,7 +121,7 @@ func (f *binanceMarkPriceFeed) apply(events []binanceMarkPriceEvent, receivedAt 
 		if err != nil || price <= 0 || event.Symbol == "" {
 			continue
 		}
-		eventTime := time.UnixMilli(event.EventTime)
+		eventTime := time.UnixMilli(int64(event.EventTime))
 		f.prices[strings.ToUpper(event.Symbol)] = binanceMarkPriceSnapshot{
 			price: price, eventTime: eventTime, receivedAt: receivedAt,
 		}
