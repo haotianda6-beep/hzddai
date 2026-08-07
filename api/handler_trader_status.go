@@ -9,17 +9,9 @@ import (
 	"nofx/logger"
 	"nofx/store"
 	"nofx/trader"
-	"nofx/trader/aster"
-	"nofx/trader/binance"
-	"nofx/trader/bitget"
-	"nofx/trader/bybit"
-	"nofx/trader/gate"
-	hyperliquidtrader "nofx/trader/hyperliquid"
-	"nofx/trader/kucoin"
-	"nofx/trader/lighter"
-	"nofx/trader/okx"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // handleGetGridRiskInfo returns current risk information for a grid trader
@@ -150,82 +142,15 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		return
 	}
 
-	// Create temporary trader to execute close position
-	var tempTrader trader.Trader
-	var createErr error
-
-	// Use ExchangeType (e.g., "binance") instead of ExchangeID (which is now UUID)
-	// Convert EncryptedString fields to string
-	switch exchangeCfg.ExchangeType {
-	case "binance":
-		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)), exchangeCfg.Testnet)
-	case "hyperliquid":
-		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
-			string(exchangeCfg.APIKey),
-			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
-			exchangeCfg.HyperliquidUnifiedAcct,
-		)
-	case "aster":
-		tempTrader, createErr = aster.NewAsterTrader(
-			exchangeCfg.AsterUser,
-			exchangeCfg.AsterSigner,
-			string(exchangeCfg.AsterPrivateKey),
-		)
-	case "bybit":
-		tempTrader = bybit.NewBybitTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
-		)
-	case "okx":
-		tempTrader = okx.NewOKXTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
-		)
-	case "bitget":
-		tempTrader = bitget.NewBitgetTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
-		)
-	case "gate":
-		tempTrader = gate.NewGateTraderWithTestnet(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			exchangeCfg.Testnet,
-			strings.TrimSpace(string(exchangeCfg.OutboundProxyURL)),
-		)
-	case "kucoin":
-		tempTrader = kucoin.NewKuCoinTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-		)
-	case "lighter":
-		if exchangeCfg.LighterWalletAddr != "" && string(exchangeCfg.LighterAPIKeyPrivateKey) != "" {
-			// Lighter only supports mainnet
-			tempTrader, createErr = lighter.NewLighterTraderV2(
-				exchangeCfg.LighterWalletAddr,
-				string(exchangeCfg.LighterAPIKeyPrivateKey),
-				exchangeCfg.LighterAPIKeyIndex,
-				false, // Always use mainnet for Lighter
-			)
-		} else {
-			createErr = fmt.Errorf("Lighter requires wallet address and API Key private key")
-		}
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported exchange type"})
-		return
-	}
+	tempTrader, createErr := buildExchangeProbeTrader(exchangeCfg, userID)
 
 	if createErr != nil {
 		logger.Infof("⚠️ Failed to create temporary trader: %v", createErr)
 		SafeInternalError(c, "Failed to connect to exchange", createErr)
 		return
+	}
+	if closer, ok := tempTrader.(interface{ Close() }); ok {
+		defer closer.Close()
 	}
 
 	// Get current position info BEFORE closing (to get quantity and price)
@@ -251,18 +176,11 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		}
 	}
 
-	// Execute close position operation
-	var result map[string]interface{}
-	var closeErr error
-
-	if req.Side == "LONG" {
-		result, closeErr = tempTrader.CloseLong(req.Symbol, 0) // 0 means close all
-	} else if req.Side == "SHORT" {
-		result, closeErr = tempTrader.CloseShort(req.Symbol, 0) // 0 means close all
-	} else {
+	if !strings.EqualFold(req.Side, "LONG") && !strings.EqualFold(req.Side, "SHORT") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "side must be LONG or SHORT"})
 		return
 	}
+	result, closeErr := executePositionClose(tempTrader, req.Symbol, req.Side)
 
 	if closeErr != nil {
 		logger.Infof("❌ Close position failed: symbol=%s, side=%s, error=%v", req.Symbol, req.Side, closeErr)
@@ -283,11 +201,26 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	})
 }
 
+func executePositionClose(exchangeTrader trader.Trader, symbol, side string) (map[string]interface{}, error) {
+	execute := func() (map[string]interface{}, error) {
+		if strings.EqualFold(side, "LONG") {
+			return exchangeTrader.CloseLong(symbol, 0)
+		}
+		return exchangeTrader.CloseShort(symbol, 0)
+	}
+	if hzTrader, ok := exchangeTrader.(interface {
+		ExecuteWithIntent(string, func() (map[string]interface{}, error)) (map[string]interface{}, error)
+	}); ok {
+		return hzTrader.ExecuteWithIntent("api-close-"+uuid.NewString(), execute)
+	}
+	return execute()
+}
+
 // recordClosePositionOrder Record close position order to database (Lighter version - direct FILLED status)
 func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, symbol, side string, quantity, exitPrice float64, result map[string]interface{}) {
 	// Skip for exchanges with OrderSync - let the background sync handle it to avoid duplicates
 	switch exchangeType {
-	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster", "gate":
+	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster", "gate", "hz":
 		logger.Infof("  📝 Close order will be synced by OrderSync, skipping immediate record")
 		return
 	}
