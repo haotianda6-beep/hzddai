@@ -73,6 +73,12 @@ func TestHZManualCloseIntentAcceptsOnlyAPICloseOrders(t *testing.T) {
 	if intent.Action != "close" || intent.PositionSide != "long" || intent.ClientOrderID != "api-close-550e8400-e29b-41d4-a716-446655440000" {
 		t.Fatalf("intent=%+v", intent)
 	}
+	if !hzConfirmedManualClose(intent) {
+		t.Fatal("recovered API close must be sufficient evidence to rebuild a missing local opening fill")
+	}
+	if hzConfirmedManualClose(store.MirrorExecutionIntent{IntentKey: "ordinary", Action: "close"}) {
+		t.Fatal("ordinary close intent must still require its confirmed opening intent")
+	}
 
 	for _, clientOrderID := range []string{
 		"api:key-hint:close-550e8400-e29b-41d4-a716-446655440000",

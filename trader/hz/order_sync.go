@@ -152,9 +152,12 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 			if err != nil {
 				return err
 			}
-			if openPosition == nil && !hasOpeningIntent {
+			if openPosition == nil && !hasOpeningIntent && !hzConfirmedManualClose(projection.intent) {
 				missingOpeningIntent++
 				continue
+			}
+			if openPosition == nil && entryTime == 0 {
+				entryTime = tradeTime - 1
 			}
 		}
 		orderRecord := &store.TraderOrder{
@@ -233,6 +236,11 @@ func (t *Trader) SyncOrdersFromHZ(traderID, exchangeID, exchangeType string, st 
 			traderID, len(page.Items), created, alreadyProjected, orderLookupFailed, unmatchedIntent, missingOpeningIntent, recoveredManualClose)
 	}
 	return nil
+}
+
+func hzConfirmedManualClose(intent store.MirrorExecutionIntent) bool {
+	return intent.IntentKey == "" && strings.EqualFold(intent.Action, "close") &&
+		strings.HasPrefix(intent.ClientOrderID, "api-close-") && strings.TrimSpace(intent.ExchangeOrderID) != ""
 }
 
 func hzManualCloseIntent(remoteOrder order, traderID, exchangeID string, executedAt time.Time) (store.MirrorExecutionIntent, bool) {
