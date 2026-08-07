@@ -136,6 +136,35 @@ func (s *MirrorExecutionIntentStore) Get(intentKey string) (*MirrorExecutionInte
 	return &row, nil
 }
 
+// ListConfirmedForTrader returns executable intents in creation order so an
+// exchange trade stream can be projected into local orders and positions.
+func (s *MirrorExecutionIntentStore) ListConfirmedForTrader(traderID string, limit int) ([]MirrorExecutionIntent, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	var rows []MirrorExecutionIntent
+	err := s.db.Where("trader_id = ? AND status = ? AND action IN ?", traderID, MirrorIntentConfirmed,
+		[]string{"open", "increase", "reduce", "close"}).
+		Order("created_at DESC").Limit(limit).Find(&rows).Error
+	for left, right := 0, len(rows)-1; left < right; left, right = left+1, right-1 {
+		rows[left], rows[right] = rows[right], rows[left]
+	}
+	return rows, err
+}
+
+// SetExchangeOrderID repairs the remote order identifier without changing the
+// intent lifecycle or attempt count.
+func (s *MirrorExecutionIntentStore) SetExchangeOrderID(intentKey, exchangeOrderID string) error {
+	if strings.TrimSpace(exchangeOrderID) == "" {
+		return fmt.Errorf("exchange_order_id required")
+	}
+	return retrySQLiteBusy(s.db, func() error {
+		return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{
+			"exchange_order_id": exchangeOrderID, "updated_at": time.Now().UTC(),
+		}).Error
+	})
+}
+
 func (s *MirrorExecutionIntentStore) MarkSubmitted(intentKey string) error {
 	return retrySQLiteBusy(s.db, func() error {
 		return s.db.Model(&MirrorExecutionIntent{}).Where("intent_key = ?", intentKey).Updates(map[string]interface{}{

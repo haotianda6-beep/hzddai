@@ -672,6 +672,15 @@ func (at *AutoTrader) Run() error {
 		}
 	}
 
+	// Start HZ order sync so confirmed mirror executions appear in local
+	// orders, fills and closed-position history.
+	if at.exchange == "hz" {
+		if hzTrader, ok := at.trader.(*hz.Trader); ok && at.store != nil {
+			hzTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
+			logger.Infof("🔄 [%s] HZ order+position sync enabled (every 30s)", at.name)
+		}
+	}
+
 	// Start Gate order sync if using Gate exchange
 	if at.exchange == "gate" {
 		if gateTrader, ok := at.trader.(*gate.GateTrader); ok && at.store != nil {

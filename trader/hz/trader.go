@@ -16,6 +16,7 @@ import (
 
 type Trader struct {
 	client                  *client
+	ctx                     context.Context
 	crossMargin             atomic.Bool
 	streamReady             atomic.Bool
 	reconcileHealthy        atomic.Bool
@@ -49,7 +50,7 @@ func NewTrader(apiURL, apiKey, secret string, crossMargin bool) (*Trader, error)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	trader := &Trader{
-		client: client, cancelStream: cancel,
+		client: client, ctx: ctx, cancelStream: cancel,
 		accountFingerprint:      verified.AccountFingerprint,
 		walletFingerprint:       verified.WalletFingerprint,
 		positionBookFingerprint: verified.PositionBookFingerprint,
@@ -180,13 +181,13 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 	if len(positions) != 1 {
 		return nil, fmt.Errorf("ambiguous HZ %s %s positions: exact position ID is required", symbol, strings.ToLower(side))
 	}
+	spec, err := t.instrument(symbol)
+	if err != nil {
+		return nil, err
+	}
 	remainingLots := 0.0
 	lotPrecision := 0
 	if quantity > 0 {
-		spec, err := t.instrument(symbol)
-		if err != nil {
-			return nil, err
-		}
 		lots, err := t.lotsForQuantityWithSpec(spec, quantity)
 		if err != nil {
 			return nil, err
@@ -213,10 +214,20 @@ func (t *Trader) closePosition(symbol, side string, quantity float64) (map[strin
 		"/positions/"+url.PathEscape(item.PositionID)+"/close", body, &last, intent); err != nil {
 		return nil, err
 	}
+	closeQuantity, quantityErr := quantityForLots(spec, closeLots)
+	if quantityErr != nil {
+		closeQuantity = quantity
+	}
+	if placed, lookupErr := t.orderByClientID(intent); lookupErr == nil && placed.OrderID != "" {
+		result := orderResult(placed, closeQuantity)
+		result["fillPrice"] = number(last.ClosedPosition.CurrentPrice)
+		result["avgPrice"] = number(last.ClosedPosition.CurrentPrice)
+		return result, nil
+	}
 	return map[string]interface{}{
 		"orderId": last.ClosedPosition.PositionID, "symbol": strings.ToUpper(symbol),
 		"status": "FILLED", "fillPrice": number(last.ClosedPosition.CurrentPrice),
-		"avgPrice": number(last.ClosedPosition.CurrentPrice),
+		"avgPrice": number(last.ClosedPosition.CurrentPrice), "executedQty": closeQuantity,
 	}, nil
 }
 

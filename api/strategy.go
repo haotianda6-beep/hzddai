@@ -1199,6 +1199,14 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 			}
 		}
 	}
+	if strings.HasPrefix(marketDetailID, store.HZMasterSourcePrefix) {
+		history, historyErr := s.buildHZMasterTradeHistory(marketDetailID, marketRefs)
+		if historyErr != nil {
+			SafeInternalError(c, "Failed to load HZ master trade history", historyErr)
+			return
+		}
+		tradeHistory = history
+	}
 	if marketDetailID == ultimateSolMarketStrategyID {
 		solData, solErr := s.buildUltimateSolMarketData(true)
 		if solErr != nil {
