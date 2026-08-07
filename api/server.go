@@ -29,6 +29,7 @@ type Server struct {
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
 	hzMasterPollCancel        context.CancelFunc
+	hzMarketWatchCancel       context.CancelFunc
 	watchHZMarket             func(string)
 	partnerRebateCancel       context.CancelFunc
 }
@@ -66,6 +67,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	// Setup routes
 	s.setupRoutes()
 	s.startHZMasterEventPoller()
+	s.startPersistedHZMasterMarketWatch()
 	s.startPartnerRebateOutboxWorker()
 
 	return s
@@ -701,6 +703,9 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() error {
 	if s.hzMasterPollCancel != nil {
 		s.hzMasterPollCancel()
+	}
+	if s.hzMarketWatchCancel != nil {
+		s.hzMarketWatchCancel()
 	}
 	if s.partnerRebateCancel != nil {
 		s.partnerRebateCancel()

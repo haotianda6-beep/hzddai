@@ -72,6 +72,22 @@ func NewIntegrationMasterEventStore(db *gorm.DB) *IntegrationMasterEventStore {
 	return &IntegrationMasterEventStore{db: db}
 }
 
+func (s *IntegrationMasterEventStore) GetLatestMasterState(masterAccountID string) (string, error) {
+	var row struct{ MasterStateJSON string }
+	result := s.db.Table("integration_master_events AS events").
+		Select("broadcasts.master_state_json").
+		Joins("JOIN comkun_master_broadcasts AS broadcasts ON broadcasts.id = events.broadcast_id").
+		Where("events.master_account_id = ? AND events.provider IN ?", strings.TrimSpace(masterAccountID), []string{"hz", "hz-reconcile"}).
+		Order("events.producer_sequence DESC, events.received_at DESC").Limit(1).Scan(&row)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", nil
+	}
+	return row.MasterStateJSON, nil
+}
+
 func (s *IntegrationMasterEventStore) initTables() error {
 	return s.db.AutoMigrate(&IntegrationMasterEvent{})
 }

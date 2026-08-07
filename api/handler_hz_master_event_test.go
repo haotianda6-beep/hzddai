@@ -219,6 +219,47 @@ func TestHZMasterPollingRenewsUnchangedPositionWatch(t *testing.T) {
 	}
 }
 
+func TestPersistedHZMasterPositionRenewsWatchWithoutRemotePoll(t *testing.T) {
+	server, _ := newHZMasterEventTestServer(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	raw := hzMasterEventBody(t, now, "event-persisted-open", 1)
+	var open hzMasterEventRequest
+	if err := json.Unmarshal(raw, &open); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := server.acceptHZMasterEvent(open, raw, "persisted-open-1", false, false); err != nil || !result.Accepted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	var watched []string
+	server.watchHZMarket = func(symbol string) { watched = append(watched, symbol) }
+	if err := server.renewPersistedHZMasterMarket(open.MasterAccountID); err != nil {
+		t.Fatal(err)
+	}
+	if len(watched) != 1 || watched[0] != "BTC-PERP" {
+		t.Fatalf("watched=%v, want persisted open position", watched)
+	}
+
+	closeEvent := open
+	closeEvent.EventID = "event-persisted-close"
+	closeEvent.Sequence = "2"
+	closeEvent.EventType = "CLOSE"
+	closeEvent.Positions = nil
+	closeRaw, err := json.Marshal(closeEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := server.acceptHZMasterEvent(closeEvent, closeRaw, "persisted-close-2", false, false); err != nil || !result.Accepted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	watched = nil
+	if err := server.renewPersistedHZMasterMarket(open.MasterAccountID); err != nil {
+		t.Fatal(err)
+	}
+	if len(watched) != 0 {
+		t.Fatalf("closed persisted state renewed symbols: %v", watched)
+	}
+}
+
 func TestHZMasterSwitchKeepsGlobalSequenceWithoutSyntheticZero(t *testing.T) {
 	server, st := newHZMasterEventTestServer(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)
