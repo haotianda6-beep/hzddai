@@ -36,7 +36,8 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	// Set to Release mode (reduce log output)
 	gin.SetMode(gin.ReleaseMode)
 
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/api/market/last-prices"}}), gin.Recovery())
 
 	// Enable CORS
 	router.Use(corsMiddleware())
