@@ -89,6 +89,13 @@ func (s *Store) EnsureObservationMarketSeeds() error {
 					return err
 				}
 			}
+			// Strategy.ConfigVisible has a legacy database default of true. Force the
+			// zero value after first insert so public historical profiles never expose
+			// their internal config.
+			if err := tx.Model(&Strategy{}).Where("id = ?", strategy.ID).
+				Update("config_visible", false).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})

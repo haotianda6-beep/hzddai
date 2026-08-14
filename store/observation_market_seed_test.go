@@ -23,16 +23,14 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 	if err := db.Create(&owner).Error; err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("COMKUN_OBSERVER_MARKET_ENABLED", "true")
+	t.Setenv("COMKUN_OBSERVER_MARKET_ENABLED", "false")
 	st, err := NewFromGorm(db)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("COMKUN_OBSERVER_MARKET_ENABLED", "true")
 	if err := st.EnsureObservationMarketSeeds(); err != nil {
 		t.Fatal(err)
-	}
-	if err := st.EnsureObservationMarketSeeds(); err != nil {
-		t.Fatalf("second seed failed: %v", err)
 	}
 
 	var count int64
@@ -61,6 +59,9 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 		if !strings.Contains(strategy.Description, "非实盘") {
 			t.Fatalf("slot %d disclosure missing", slot)
 		}
+	}
+	if err := st.EnsureObservationMarketSeeds(); err != nil {
+		t.Fatalf("second seed failed: %v", err)
 	}
 }
 
