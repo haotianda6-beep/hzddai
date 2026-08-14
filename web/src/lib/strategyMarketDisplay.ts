@@ -21,15 +21,12 @@ export function isSimulatedPerformance(
   return strategy?.performance_source === 'historical_simulation'
 }
 
-export function recentTradeReturnSeries(
+export function recentBalanceSeries(
   values: number[] | null | undefined
 ): number[] {
-  const balances = (values ?? [])
+  return (values ?? [])
     .filter((value) => Number.isFinite(value) && value > 0)
-    .slice(-61)
-  return balances
-    .slice(1)
-    .map((balance, index) => (balance - balances[index]) / balances[index])
+    .slice(-40)
 }
 
 /**

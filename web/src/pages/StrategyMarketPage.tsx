@@ -31,7 +31,7 @@ import { getExchangeIcon } from '../components/common/ExchangeIcons'
 import './strategy-market-ai3.css'
 import {
   isHistoricalOnlyStrategy,
-  recentTradeReturnSeries,
+  recentBalanceSeries,
   stripStrategyTitleParenthetical,
 } from '../lib/strategyMarketDisplay'
 import {
@@ -242,21 +242,66 @@ function MiniSparkPath(id: string, up: boolean): string {
   return `M${pts.join(' L')}`
 }
 
-function MiniSparkPathReal(
+function MiniSparkPathsReal(
   values: number[] | undefined,
   fallbackId: string,
   up: boolean
-): string {
-  const clean = recentTradeReturnSeries(values)
-  if (clean.length < 2) return MiniSparkPath(fallbackId, up)
-  const extent = Math.max(1e-9, ...clean.map(Math.abs))
+): { up: string; down: string } {
+  const clean = recentBalanceSeries(values)
+  if (clean.length < 2) {
+    const fallback = MiniSparkPath(fallbackId, up)
+    return up ? { up: fallback, down: '' } : { up: '', down: fallback }
+  }
+  const min = Math.min(...clean)
+  const max = Math.max(...clean)
+  const span = Math.max(1e-9, max - min)
   const last = clean.length - 1
-  const pts = clean.map((v, i) => {
-    const x = last === 0 ? 0 : (i / last) * 100
-    const y = 15 - (v / extent) * 11
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  })
-  return `M${pts.join(' L')}`
+  const paths = { up: [] as string[], down: [] as string[] }
+  for (let i = 1; i <= last; i += 1) {
+    const x1 = ((i - 1) / last) * 100
+    const x2 = (i / last) * 100
+    const y1 = 26 - ((clean[i - 1] - min) / span) * 22
+    const y2 = 26 - ((clean[i] - min) / span) * 22
+    const segment = `M${x1.toFixed(1)},${y1.toFixed(1)} H${x2.toFixed(1)} V${y2.toFixed(1)}`
+    paths[clean[i] >= clean[i - 1] ? 'up' : 'down'].push(segment)
+  }
+  return { up: paths.up.join(' '), down: paths.down.join(' ') }
+}
+
+function MiniSparkline({
+  values,
+  fallbackId,
+  up,
+  className,
+}: {
+  values: number[] | undefined
+  fallbackId: string
+  up: boolean
+  className: string
+}) {
+  const paths = MiniSparkPathsReal(values, fallbackId, up)
+  return (
+    <svg className={className} viewBox="0 0 100 30" aria-hidden>
+      <path
+        d={paths.up}
+        fill="none"
+        stroke={CRYPTO_UP}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        d={paths.down}
+        fill="none"
+        stroke={CRYPTO_DOWN}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
 }
 
 function formatShortDate(dateStr: string, lang: string) {
@@ -962,27 +1007,12 @@ export function StrategyMarketPage() {
                           {stratBadge}
                         </span>
                         <div className="relative flex shrink-0 items-end gap-2">
-                          <svg
+                          <MiniSparkline
                             className="pointer-events-none h-9 w-[4.5rem] opacity-35"
-                            viewBox="0 0 100 30"
-                            aria-hidden
-                          >
-                            <line
-                              x1="0"
-                              y1="15"
-                              x2="100"
-                              y2="15"
-                              stroke="#3f3f46"
-                              strokeWidth="0.75"
-                              strokeDasharray="2 3"
-                            />
-                            <path
-                              d={MiniSparkPathReal(s.stats?.trend, s.id, up)}
-                              fill="none"
-                              stroke={up ? CRYPTO_UP : CRYPTO_DOWN}
-                              strokeWidth="2"
-                            />
-                          </svg>
+                            values={s.stats?.trend}
+                            fallbackId={s.id}
+                            up={up}
+                          />
                           <span
                             className="font-['Space_Grotesk',sans-serif] text-lg font-bold tabular-nums"
                             style={{ color: up ? CRYPTO_UP : CRYPTO_DOWN }}
@@ -1513,31 +1543,12 @@ export function StrategyMarketPage() {
                               {formatShortDate(s.updated_at, language)}
                             </td>
                             <td className="px-3 py-4">
-                              <svg
+                              <MiniSparkline
                                 className="h-8 w-24"
-                                viewBox="0 0 100 30"
-                                aria-hidden
-                              >
-                                <line
-                                  x1="0"
-                                  y1="15"
-                                  x2="100"
-                                  y2="15"
-                                  stroke="#3f3f46"
-                                  strokeWidth="0.75"
-                                  strokeDasharray="2 3"
-                                />
-                                <path
-                                  d={MiniSparkPathReal(
-                                    s.stats?.trend,
-                                    s.id,
-                                    up
-                                  )}
-                                  fill="none"
-                                  stroke={up ? CRYPTO_UP : CRYPTO_DOWN}
-                                  strokeWidth="2"
-                                />
-                              </svg>
+                                values={s.stats?.trend}
+                                fallbackId={s.id}
+                                up={up}
+                              />
                             </td>
                             <td className="px-4 py-4 text-right sm:px-6">
                               {renderActionButton(s)}
