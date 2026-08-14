@@ -14,7 +14,11 @@ import (
 	"gorm.io/gorm"
 )
 
-const observationMarketEnabledEnv = "COMKUN_OBSERVER_MARKET_ENABLED"
+const (
+	observationMarketEnabledEnv        = "COMKUN_OBSERVER_MARKET_ENABLED"
+	observationLiveMasterIDsEnv        = "COMKUN_OBSERVER_LIVE_MASTER_IDS"
+	observationExpectedLiveMasterCount = 6
+)
 
 func observationMarketEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(observationMarketEnabledEnv))) {
@@ -23,6 +27,24 @@ func observationMarketEnabled() bool {
 	default:
 		return false
 	}
+}
+
+func observationLiveMasterSourceIDs() ([]string, bool) {
+	parts := strings.Split(strings.TrimSpace(os.Getenv(observationLiveMasterIDsEnv)), ",")
+	if len(parts) != observationExpectedLiveMasterCount {
+		return nil, false
+	}
+	sources := make([]string, 0, observationExpectedLiveMasterCount)
+	seen := make(map[string]bool, observationExpectedLiveMasterCount)
+	for _, raw := range parts {
+		masterID := strings.TrimSpace(raw)
+		if masterID == "" || seen[masterID] {
+			return nil, false
+		}
+		seen[masterID] = true
+		sources = append(sources, HZMasterSourceStrategyID(masterID))
+	}
+	return sources, true
 }
 
 // EnsureObservationMarketSeeds publishes the six verified historical-scenario
@@ -41,32 +63,44 @@ func (s *Store) EnsureObservationMarketSeeds() error {
 		return nil
 	}
 	now := time.Now().UTC()
+	liveSources, liveReady := observationLiveMasterSourceIDs()
 	err = s.gdb.Transaction(func(tx *gorm.DB) error {
 		for _, slot := range doc.Slots {
+			profile, ok := observation.MarketProfileBySlot(slot.Slot)
+			if !ok {
+				return fmt.Errorf("observation market profile missing slot=%d", slot.Slot)
+			}
 			cfg := GetDefaultStrategyConfig("zh")
-			cfg.MarketPerformanceOnly = true
+			cfg.MarketSalePriceUSDT = profile.MonthlyPriceUSDT
+			cfg.MarketSubscriptionMonthlyOnly = true
+			cfg.MarketPerformanceOnly = !liveReady
 			cfg.MarketPerformanceSource = observation.StatusHistoricalSimulation
-			cfg.MarketPerformanceDisclosure = slot.History.Disclosure
-			cfg.MarketRealtimeFollowAvailable = false
+			cfg.MarketPerformanceDisclosure = "模拟业绩"
+			cfg.MarketRealtimeFollowAvailable = liveReady
 			cfg.ComkunMarketFollow = false
-			cfg.ComkunFollowListingTemplate = false
+			cfg.ComkunFollowListingTemplate = liveReady
 			cfg.ComkunMarketSourceStrategyID = ""
+			cfg.ComkunMarketListingStrategyID = ""
+			if liveReady {
+				cfg.ComkunMarketSourceStrategyID = liveSources[slot.Slot-1]
+				cfg.ComkunFollowMirrorMasterExchange = true
+			}
 			raw, err := json.Marshal(cfg)
 			if err != nil {
 				return err
 			}
 			strategy := &Strategy{
 				ID: observation.StrategyID(slot.Slot), UserID: owner.ID,
-				Name: slot.DisplayName,
-				Description: fmt.Sprintf(
-					"%s；%d 个完整月份 + 当月进行中，共 %d 笔。历史行情场景数据，非实盘已实现收益；目前不支持实时跟单。",
-					slot.History.StrategyLabel, slot.History.Months, slot.History.TradeCount,
-				),
+				Name: profile.Name, Description: profile.Description,
 				IsActive: false, IsDefault: false, Config: string(raw),
-				MarketAIModel: "comkun_ai", MarketRevision: 1, ContentLocked: true,
+				MarketAIModel: "comkun_ai", MarketRevision: 2, ContentLocked: true,
 				CreatedAt: now, UpdatedAt: now,
 			}
-			SyncListingFlagsFromAccess(strategy, MarketAccessPublic)
+			access := MarketAccessPublic
+			if liveReady {
+				access = MarketAccessSubscription
+			}
+			SyncListingFlagsFromAccess(strategy, access)
 			var existing Strategy
 			findErr := tx.Where("id = ?", strategy.ID).First(&existing).Error
 			switch {
@@ -100,7 +134,7 @@ func (s *Store) EnsureObservationMarketSeeds() error {
 		return nil
 	})
 	if err == nil {
-		logger.Infof("✅ observation market strategies ready count=%d source=%s", len(doc.Slots), doc.Status)
+		logger.Infof("✅ observation market strategies ready count=%d live_routes=%t source=%s", len(doc.Slots), liveReady, doc.Status)
 	}
 	return err
 }

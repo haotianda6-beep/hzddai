@@ -11,10 +11,14 @@ export function isHistoricalOnlyStrategy(
   strategy: HistoricalOnlyStrategy | null | undefined
 ): boolean {
   return Boolean(
-    strategy?.performance_only ||
-    strategy?.performance_source === 'historical_simulation' ||
-    strategy?.realtime_follow_available === false
+    strategy?.performance_only || strategy?.realtime_follow_available === false
   )
+}
+
+export function isSimulatedPerformance(
+  strategy: HistoricalOnlyStrategy | null | undefined
+): boolean {
+  return strategy?.performance_source === 'historical_simulation'
 }
 
 /**

@@ -24,6 +24,7 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("COMKUN_OBSERVER_MARKET_ENABLED", "false")
+	t.Setenv(observationLiveMasterIDsEnv, "")
 	st, err := NewFromGorm(db)
 	if err != nil {
 		t.Fatal(err)
@@ -56,12 +57,58 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 			cfg.MarketPerformanceSource != observation.StatusHistoricalSimulation || cfg.MarketRealtimeFollowAvailable {
 			t.Fatalf("slot %d execution boundary is invalid", slot)
 		}
-		if !strings.Contains(strategy.Description, "非实盘") {
-			t.Fatalf("slot %d disclosure missing", slot)
+		profile, _ := observation.MarketProfileBySlot(slot)
+		if strategy.Name != profile.Name || strategy.Description != profile.Description ||
+			cfg.MarketSalePriceUSDT != profile.MonthlyPriceUSDT || !cfg.MarketSubscriptionMonthlyOnly {
+			t.Fatalf("slot %d market profile mismatch", slot)
 		}
 	}
 	if err := st.EnsureObservationMarketSeeds(); err != nil {
 		t.Fatalf("second seed failed: %v", err)
+	}
+}
+
+func TestEnsureObservationMarketSeedsEnablesSixIndependentLiveRoutes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:observation-live-seed?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&User{}, &Strategy{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&User{ID: "owner-live", Email: comkunFollowListingOwnerEmail}).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(observationMarketEnabledEnv, "false")
+	st, err := NewFromGorm(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(observationMarketEnabledEnv, "true")
+	t.Setenv(observationLiveMasterIDsEnv, "master-1,master-2,master-3,master-4,master-5,master-6")
+	if err := st.EnsureObservationMarketSeeds(); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for slot := 1; slot <= 6; slot++ {
+		var strategy Strategy
+		if err := db.First(&strategy, "id = ?", observation.StrategyID(slot)).Error; err != nil {
+			t.Fatal(err)
+		}
+		var cfg StrategyConfig
+		if err := json.Unmarshal([]byte(strategy.Config), &cfg); err != nil {
+			t.Fatal(err)
+		}
+		wantSource := HZMasterSourceStrategyID("master-" + string(rune('0'+slot)))
+		if strategy.MarketAccess != MarketAccessSubscription || !strategy.IsPublic || strategy.ConfigVisible ||
+			cfg.MarketPerformanceOnly || !cfg.MarketRealtimeFollowAvailable || !cfg.ComkunFollowListingTemplate ||
+			cfg.ComkunMarketFollow || cfg.ComkunMarketSourceStrategyID != wantSource {
+			t.Fatalf("slot %d live route invalid: access=%s cfg=%+v", slot, strategy.MarketAccess, cfg)
+		}
+		if seen[cfg.ComkunMarketSourceStrategyID] {
+			t.Fatalf("slot %d shares a live route", slot)
+		}
+		seen[cfg.ComkunMarketSourceStrategyID] = true
 	}
 }
 

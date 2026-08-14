@@ -36,7 +36,7 @@ func newHZMasterEventTestServer(t *testing.T) (*Server, *store.Store) {
 	return &Server{store: st}, st
 }
 
-func TestHZMasterEventEndpointReplayAndSequenceGap(t *testing.T) {
+func TestHZMasterEventEndpointReplayAndGlobalSequenceJump(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv(hzMasterEventSecretEnv, "test-secret")
 	server, st := newHZMasterEventTestServer(t)
@@ -60,12 +60,16 @@ func TestHZMasterEventEndpointReplayAndSequenceGap(t *testing.T) {
 
 	gapBody := hzMasterEventBody(t, now, "event-3", 3)
 	gap := sendHZMasterEvent(t, router, gapBody, "33333333-3333-4333-8333-333333333333", now)
-	if gap.Code != http.StatusConflict || !bytes.Contains(gap.Body.Bytes(), []byte(`"expected_next_sequence":2`)) {
+	if gap.Code != http.StatusOK {
 		t.Fatalf("gap status=%d body=%s", gap.Code, gap.Body.String())
+	}
+	var gapResult store.IntegrationMasterEventResult
+	if err := json.Unmarshal(gap.Body.Bytes(), &gapResult); err != nil || !gapResult.Accepted || gapResult.Gap {
+		t.Fatalf("global sequence jump result=%+v err=%v", gapResult, err)
 	}
 
 	var broadcasts []store.ComkunMasterBroadcast
-	if err := st.GormDB().Find(&broadcasts).Error; err != nil || len(broadcasts) != 1 {
+	if err := st.GormDB().Find(&broadcasts).Error; err != nil || len(broadcasts) != 2 {
 		t.Fatalf("broadcasts=%d err=%v", len(broadcasts), err)
 	}
 	if broadcasts[0].AnalysisText != "AI策略执行" || broadcasts[0].SourceStrategyID == "hz-ai-master:master-human-account" ||

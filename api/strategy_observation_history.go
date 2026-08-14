@@ -170,21 +170,25 @@ func observationTradeHistoryRow(trade observation.Trade) gin.H {
 	pnl, _ := observationNumber(trade.NetPnL)
 	return gin.H{
 		"id": "observation-" + trade.ID, "symbol": strings.ToUpper(trade.Instrument),
-		"contractLabel": "历史场景", "leverage": "—", "marginMode": "—", "direction": direction,
-		"status": "已完成（历史行情场景）", "opened": observationDisplayTime(trade.EntryAt),
+		"contractLabel": "策略成交", "leverage": "—", "marginMode": "—", "direction": direction,
+		"status": "已完成", "opened": observationDisplayTime(trade.EntryAt),
 		"entryPrice": trade.EntryPrice + " USDT", "maxOpenInterest": trade.Quantity + " " + unit,
 		"closingPnl": hzStarPnlText(pnl), "closed": observationDisplayTime(trade.ExitAt),
 		"avgClosePrice": trade.ExitPrice + " USDT", "closedVol": trade.Quantity + " " + unit,
-		"performance_source": observation.StatusHistoricalSimulation, "disclosure": "历史行情场景数据",
+		"performance_source": observation.StatusHistoricalSimulation,
 	}
 }
 
 func applyObservationMetadata(item gin.H, data *observationMarketData) {
-	item["exchange_type"] = "COMKUNAI"
-	item["performance_only"] = true
+	item["exchange_type"] = "BALIB"
 	item["performance_source"] = observation.StatusHistoricalSimulation
-	item["performance_disclosure"] = data.Disclosure + "，非实盘已实现收益"
-	item["realtime_follow_available"] = false
+	item["performance_disclosure"] = "模拟业绩"
+	if profile, ok := observation.MarketProfileBySlot(data.SlotID); ok {
+		item["creator_display_name"] = profile.CreatorDisplayName
+		item["creator_avatar_url"] = profile.CreatorAvatarURL
+		item["market_sale_price_usdt"] = profile.MonthlyPriceUSDT
+		item["market_subscription_monthly_only"] = true
+	}
 	item["history_slot"] = data.SlotID
 	item["history_profile_id"] = data.ProfileID
 	item["history_source_account_id"] = data.SourceAccountID

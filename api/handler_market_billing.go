@@ -20,11 +20,18 @@ const (
 	marketSubWeeklyLabel  = "weekly"
 )
 
-func marketPlanPriceAndDuration(plan string) (price float64, extend time.Duration, ledgerReason string, ok bool) {
+func marketPlanPriceAndDuration(plan string, cfg *store.StrategyConfig) (price float64, extend time.Duration, ledgerReason string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(plan)) {
 	case marketSubMonthlyLabel:
-		return marketSubMonthlyUSDT, 30 * 24 * time.Hour, "market_subscription_monthly", true
+		price = marketSubMonthlyUSDT
+		if cfg != nil && cfg.MarketSalePriceUSDT > 0 {
+			price = cfg.MarketSalePriceUSDT
+		}
+		return price, 30 * 24 * time.Hour, "market_subscription_monthly", true
 	case marketSubWeeklyLabel:
+		if cfg != nil && cfg.MarketSubscriptionMonthlyOnly {
+			return 0, 0, "", false
+		}
 		return marketSubWeeklyUSDT, 7 * 24 * time.Hour, "market_subscription_weekly_trial", true
 	default:
 		return 0, 0, "", false
@@ -35,7 +42,8 @@ func isFreeComkunMarketSubscription(access string, cfg *store.StrategyConfig) bo
 	if cfg == nil || access != store.MarketAccessSubscription {
 		return false
 	}
-	return store.IsComkunMarketFollowStrategy(cfg) || cfg.ComkunFollowListingTemplate
+	return cfg.MarketSalePriceUSDT <= 0 &&
+		(store.IsComkunMarketFollowStrategy(cfg) || cfg.ComkunFollowListingTemplate)
 }
 
 // handleMarketStrategyPurchase 解锁策略市场订阅；跟单策略不再卖包月，后续按主控 AI 广播次数扣平台余额。
@@ -102,9 +110,13 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		return
 	}
 
-	price, extend, ledgerReason, ok := marketPlanPriceAndDuration(req.Plan)
+	price, extend, ledgerReason, ok := marketPlanPriceAndDuration(req.Plan, &cfg)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "plan 须为 monthly（月卡 600U·30 天）或 weekly（周卡体验 40U·7 天，每账号仅一次）"})
+		if cfg.MarketSubscriptionMonthlyOnly {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "该策略仅支持 monthly 月卡（30 天）"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "plan 须为 monthly（月卡 30 天）或 weekly（周卡体验 7 天，每账号仅一次）"})
 		return
 	}
 
@@ -157,7 +169,7 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		subUntil = row.SubscriptionUntil
 	}
 
-	msg := "订阅成功：有效期内同步策略不再按轮扣除站内余额"
+	msg := "订阅成功：有效期内可使用该策略进行实时跟单"
 	c.JSON(http.StatusOK, gin.H{
 		"balance_usdt":       newBal,
 		"strategy_id":        st.ID,

@@ -40,7 +40,12 @@ func ApplyComkunFollowChildConfig(s *Store, source *Strategy, buyerUserID string
 		return
 	}
 	cfg.ComkunMarketFollow = true
-	cfg.ComkunMarketSourceStrategyID = strings.TrimSpace(source.ID)
+	cfg.ComkunMarketListingStrategyID = strings.TrimSpace(source.ID)
+	// A listing may route to an independent live master. Preserve that route;
+	// only legacy templates without an explicit route use their own strategy ID.
+	if strings.TrimSpace(cfg.ComkunMarketSourceStrategyID) == "" {
+		cfg.ComkunMarketSourceStrategyID = strings.TrimSpace(source.ID)
+	}
 	cfg.ComkunFollowListingTemplate = false
 	// 市场复制的跟单子策略：默认镜像跟单（按主控快照同步仓位/限价/止盈止损）
 	cfg.ComkunFollowMirrorMasterExchange = true
@@ -95,7 +100,8 @@ func (s *Store) DuplicateStrategy(userID, sourceID, newID, newName string) error
 	if err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
-	if cfg.MarketPerformanceOnly {
+	if cfg.MarketPerformanceOnly ||
+		(strings.TrimSpace(cfg.MarketPerformanceSource) != "" && !cfg.MarketRealtimeFollowAvailable) {
 		return fmt.Errorf("该策略为历史行情场景展示，尚未绑定实时主控，不能复制为交易策略")
 	}
 	sourceAccess := EffectivePublicListingAccess(source)

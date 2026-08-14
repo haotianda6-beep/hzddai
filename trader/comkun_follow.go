@@ -182,6 +182,9 @@ func comkunBroadcastHasBillableAIAnalysis(br *store.ComkunMasterBroadcast) bool 
 }
 
 func (at *AutoTrader) comkunFollowScanFeeForBroadcast(br *store.ComkunMasterBroadcast) float64 {
+	if at.comkunFollowScanFeeWaived() {
+		return 0
+	}
 	sourceID := ""
 	if at.config.StrategyConfig != nil {
 		sourceID = store.ResolveComkunFollowSourceStrategyID(at.config.StrategyConfig)
@@ -285,6 +288,9 @@ func (at *AutoTrader) chargeComkunFollowScanUsage(feeUSDT float64) (balanceAfter
 }
 
 func (at *AutoTrader) maybeChargeComkunFollowOffline(sourceID string, now time.Time) error {
+	if at.comkunFollowScanFeeWaived() {
+		return nil
+	}
 	if !at.comkunFollowOfflineChargeDue(now) || at.store == nil || at.userID == "" {
 		return nil
 	}
@@ -312,13 +318,28 @@ func (at *AutoTrader) maybeChargeComkunFollowOffline(sourceID string, now time.T
 	return nil
 }
 
-// comkunFollowScanFeeWaived kept for old call sites; market follow subscriptions are no longer package-waived.
 func (at *AutoTrader) comkunFollowScanFeeWaived() bool {
-	return false
+	if at.store == nil || at.config.StrategyConfig == nil {
+		return false
+	}
+	listingID := strings.TrimSpace(at.config.StrategyConfig.ComkunMarketListingStrategyID)
+	if listingID == "" {
+		return false
+	}
+	ok, err := at.store.Billing().HasScanFeeWaiver(at.userID, listingID)
+	return err == nil && ok
 }
 
 func (at *AutoTrader) comkunFollowSourceSubscriptionExpired(sourceID string) bool {
-	return false
+	if at.store == nil || at.config.StrategyConfig == nil {
+		return false
+	}
+	listingID := strings.TrimSpace(at.config.StrategyConfig.ComkunMarketListingStrategyID)
+	if listingID == "" {
+		return false
+	}
+	expired, err := at.store.Billing().ComkunSourceSubscriptionExpired(at.userID, listingID)
+	return err == nil && expired
 }
 
 func scaleComkunDecisions(decisions []kernel.Decision, equityRatio float64) []kernel.Decision {

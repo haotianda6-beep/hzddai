@@ -37,12 +37,13 @@ func TestBuildObservationMarketData(t *testing.T) {
 }
 
 func TestObservationListOverlayIsAuditable(t *testing.T) {
-	item := gin.H{"stats": gin.H{}}
+	item := gin.H{"stats": gin.H{}, "realtime_follow_available": true, "performance_only": false}
 	applied, err := applyObservationMarketListOverlay(item, observation.StrategyID(6))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !applied || item["performance_source"] != observation.StatusHistoricalSimulation || item["realtime_follow_available"] != false {
+	if !applied || item["performance_source"] != observation.StatusHistoricalSimulation || item["realtime_follow_available"] != true ||
+		item["exchange_type"] != "BALIB" || item["creator_display_name"] == "" {
 		t.Fatalf("overlay metadata = %#v", item)
 	}
 	stats := item["stats"].(gin.H)
@@ -51,11 +52,12 @@ func TestObservationListOverlayIsAuditable(t *testing.T) {
 	}
 }
 
-func TestPublicItemExposesHistoricalOnlyBoundary(t *testing.T) {
+func TestPublicItemExposesSimulationProvenanceAndLiveBoundarySeparately(t *testing.T) {
 	cfg := store.GetDefaultStrategyConfig("zh")
-	cfg.MarketPerformanceOnly = true
+	cfg.MarketPerformanceOnly = false
 	cfg.MarketPerformanceSource = observation.StatusHistoricalSimulation
-	cfg.MarketPerformanceDisclosure = "历史行情场景数据"
+	cfg.MarketPerformanceDisclosure = "模拟业绩"
+	cfg.MarketRealtimeFollowAvailable = true
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -63,11 +65,26 @@ func TestPublicItemExposesHistoricalOnlyBoundary(t *testing.T) {
 	item := buildPublicStrategyItem(&store.Strategy{
 		ID: observation.StrategyID(1), Name: "稳衡一号", Config: string(raw), MarketAccess: store.MarketAccessPublic,
 	}, nil, publicStrategyMarketStats{})
-	if item["performance_only"] != true || item["realtime_follow_available"] != false ||
-		!strings.Contains(item["performance_disclosure"].(string), "历史行情") {
+	if item["performance_only"] != false || item["realtime_follow_available"] != true ||
+		!strings.Contains(item["performance_disclosure"].(string), "模拟业绩") {
 		t.Fatalf("public item boundary = %#v", item)
 	}
 	if strings.HasPrefix(observation.StrategyID(1), store.HZMasterSourcePrefix) {
 		t.Fatal("history strategy must not be a live HZ master route")
+	}
+}
+
+func TestMarketStatsAttributeLiveRouteFollowerToListing(t *testing.T) {
+	cfg := store.GetDefaultStrategyConfig("zh")
+	cfg.ComkunMarketFollow = true
+	cfg.ComkunMarketSourceStrategyID = store.HZMasterSourceStrategyID("live-master-1")
+	cfg.ComkunMarketListingStrategyID = observation.StrategyID(1)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strategyIDForMarketStats(store.MarketStrategyTraderRef{StrategyID: "buyer-copy", Config: string(raw)})
+	if got != observation.StrategyID(1) {
+		t.Fatalf("stats listing id=%q", got)
 	}
 }

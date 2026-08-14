@@ -82,6 +82,7 @@ interface PublicStrategy {
   config?: any
   open_source_bundle?: Record<string, unknown>
   market_sale_price_usdt?: number
+  market_subscription_monthly_only?: boolean
   market_ai_model?: string
   /** 后端根据绑定交易员推断的交易所类型，如 OKX、BINANCE */
   exchange_type?: string
@@ -97,6 +98,7 @@ interface PublicStrategy {
     total_agents?: number
     total_aum?: number
     return_7d_pct?: number
+    cumulative_return_pct?: number
     max_drawdown_pct?: number
     trend?: number[]
     data_complete?: boolean
@@ -125,6 +127,12 @@ function isFreeSubscriptionStrategy(s: PublicStrategy): boolean {
     typeof s.market_sale_price_usdt === 'number' &&
     s.market_sale_price_usdt <= 0
   )
+}
+
+function monthlySubscriptionPrice(s: PublicStrategy): number {
+  return s.market_sale_price_usdt && s.market_sale_price_usdt > 0
+    ? s.market_sale_price_usdt
+    : MARKET_SUB_MONTHLY_USDT
 }
 
 const strategyStyles: Record<
@@ -515,8 +523,10 @@ export function StrategyMarketPage() {
       )
     } else if (listMode === 'yield') {
       copy.sort((a, b) => {
-        const ua = a.stats?.return_7d_pct ?? -999999
-        const ub = b.stats?.return_7d_pct ?? -999999
+        const ua =
+          a.stats?.cumulative_return_pct ?? a.stats?.return_7d_pct ?? -999999
+        const ub =
+          b.stats?.cumulative_return_pct ?? b.stats?.return_7d_pct ?? -999999
         return ub - ua
       })
     }
@@ -609,8 +619,8 @@ export function StrategyMarketPage() {
     if (isHistoricalOnlyStrategy(strategy)) {
       toast.info(
         language === 'zh'
-          ? '该策略仅展示历史行情场景，暂不支持实时跟单'
-          : 'Historical scenario only; live copy trading is unavailable'
+          ? '该策略尚未绑定实时主控，暂不支持跟单'
+          : 'This strategy is not connected to a live master yet'
       )
       return
     }
@@ -708,7 +718,7 @@ export function StrategyMarketPage() {
         'border border-emerald-400/35 bg-[#0ECB81] text-black shadow-[0_0_18px_rgba(14,203,129,0.35)] hover:brightness-110 active:brightness-95'
     } else if (paid && !owned) {
       label = language === 'zh' ? '订阅' : 'Subscribe'
-      icon = <EyeOff className="h-3.5 w-3.5" aria-hidden />
+      icon = <Sparkles className="h-3.5 w-3.5" aria-hidden />
       btnClass =
         'market-detail-cta-gold border border-[#c9e820]/45 text-black shadow-[0_0_18px_rgba(212,255,51,0.28)] hover:brightness-105 active:brightness-95'
     } else {
@@ -726,8 +736,8 @@ export function StrategyMarketPage() {
         title={
           historicalOnly
             ? language === 'zh'
-              ? '历史行情场景数据，非实盘收益，暂不支持实时跟单'
-              : 'Historical scenario data; live copy trading is unavailable'
+              ? '尚未绑定实时主控，暂不支持跟单'
+              : 'Live master route is unavailable'
             : undefined
         }
         className={`inline-flex h-11 items-center justify-center rounded-lg px-3 text-xs font-bold transition-all ${fullWidth ? 'w-full' : ''} ${btnClass}`}
@@ -915,7 +925,7 @@ export function StrategyMarketPage() {
                     .toLowerCase()
                   const retValue = marketListDisplayReturn7dPct(
                     s.name,
-                    s.stats?.return_7d_pct
+                    s.stats?.cumulative_return_pct ?? s.stats?.return_7d_pct
                   )
                   const ret = formatReturnPct(retValue)
                   const up = isReturnValueUp(retValue)
@@ -1123,7 +1133,7 @@ export function StrategyMarketPage() {
                       .toLowerCase()
                     const retValue = marketListDisplayReturn7dPct(
                       s.name,
-                      s.stats?.return_7d_pct
+                      s.stats?.cumulative_return_pct ?? s.stats?.return_7d_pct
                     )
                     const ret = formatReturnPct(retValue)
                     const up = isReturnValueUp(retValue)
@@ -1326,7 +1336,8 @@ export function StrategyMarketPage() {
                           .toLowerCase()
                         const retValue = marketListDisplayReturn7dPct(
                           s.name,
-                          s.stats?.return_7d_pct
+                          s.stats?.cumulative_return_pct ??
+                            s.stats?.return_7d_pct
                         )
                         const ret = formatReturnPct(retValue)
                         const up = isReturnValueUp(retValue)
@@ -1600,11 +1611,21 @@ export function StrategyMarketPage() {
               ) : (
                 <>
                   <p className="mt-2 text-sm text-on-surface-variant">
-                    {language === 'zh'
-                      ? '选择套餐：订阅期内使用同步策略不再按轮扣除站内余额；到期后恢复按约三分钟一轮扣费。'
-                      : 'Pick a plan: while active, no per-cycle sync fees; after expiry, per-scan fees resume (~3 min).'}
+                    {purchaseStrategy.market_subscription_monthly_only
+                      ? language === 'zh'
+                        ? '月费订阅有效期为 30 天，到期后需续订才可继续跟单。'
+                        : 'The monthly subscription is valid for 30 days and must be renewed to keep copy trading.'
+                      : language === 'zh'
+                        ? '选择套餐：订阅期内使用同步策略不再按轮扣除站内余额。'
+                        : 'Pick a plan. Sync usage fees are waived while the subscription is active.'}
                   </p>
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div
+                    className={`mt-4 grid grid-cols-1 gap-3 ${
+                      purchaseStrategy.market_subscription_monthly_only
+                        ? ''
+                        : 'sm:grid-cols-2'
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={() => setPurchasePlan('monthly')}
@@ -1618,49 +1639,51 @@ export function StrategyMarketPage() {
                         {language === 'zh' ? '月卡 · 30 天' : 'Monthly · 30d'}
                       </div>
                       <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
-                        {MARKET_SUB_MONTHLY_USDT} USDT
+                        {monthlySubscriptionPrice(purchaseStrategy)} USDT
                       </div>
                       <p className="mt-2 text-[11px] text-on-surface-variant">
                         {language === 'zh'
-                          ? '推荐：长期使用更划算'
-                          : 'Best for steady use'}
+                          ? '有效期 30 天'
+                          : 'Valid for 30 days'}
                       </p>
                     </button>
-                    <button
-                      type="button"
-                      disabled={Boolean(walletData?.market_weekly_trial_used)}
-                      onClick={() => {
-                        if (!walletData?.market_weekly_trial_used)
-                          setPurchasePlan('weekly')
-                      }}
-                      className={`rounded-xl border-2 p-4 text-left transition-all ${
-                        purchasePlan === 'weekly'
-                          ? 'border-[#d4ff33] bg-primary-container/15 ring-1 ring-[#d4ff33]/40'
-                          : 'border-outline-variant/30 bg-surface-container-low hover:border-outline-variant/50'
-                      } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
-                    >
-                      <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
-                        {language === 'zh'
-                          ? '周卡体验 · 7 天'
-                          : 'Weekly trial · 7d'}
-                      </div>
-                      <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
-                        {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
-                      </div>
-                      {walletData?.market_weekly_trial_used ? (
-                        <p className="mt-2 text-[11px] text-on-surface-variant">
+                    {!purchaseStrategy.market_subscription_monthly_only && (
+                      <button
+                        type="button"
+                        disabled={Boolean(walletData?.market_weekly_trial_used)}
+                        onClick={() => {
+                          if (!walletData?.market_weekly_trial_used)
+                            setPurchasePlan('weekly')
+                        }}
+                        className={`rounded-xl border-2 p-4 text-left transition-all ${
+                          purchasePlan === 'weekly'
+                            ? 'border-[#d4ff33] bg-primary-container/15 ring-1 ring-[#d4ff33]/40'
+                            : 'border-outline-variant/30 bg-surface-container-low hover:border-outline-variant/50'
+                        } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
+                      >
+                        <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
                           {language === 'zh'
-                            ? '本账号已使用过唯一一次体验'
-                            : 'Trial already used on this account'}
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-[11px] text-on-surface-variant">
-                          {language === 'zh'
-                            ? '每账号仅一次，不计入充值返利统计'
-                            : 'One per account; excluded from rebate stats'}
-                        </p>
-                      )}
-                    </button>
+                            ? '周卡体验 · 7 天'
+                            : 'Weekly trial · 7d'}
+                        </div>
+                        <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
+                          {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
+                        </div>
+                        {walletData?.market_weekly_trial_used ? (
+                          <p className="mt-2 text-[11px] text-on-surface-variant">
+                            {language === 'zh'
+                              ? '本账号已使用过唯一一次体验'
+                              : 'Trial already used on this account'}
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-[11px] text-on-surface-variant">
+                            {language === 'zh'
+                              ? '每账号仅一次，不计入充值返利统计'
+                              : 'One per account; excluded from rebate stats'}
+                          </p>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </>
               )}

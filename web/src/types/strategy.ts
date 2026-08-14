@@ -69,6 +69,7 @@ export interface StrategyConfig {
   strategy_prompt?: string
   /** 上架策略市场时的售卖标价（USDT），仅存于 config JSON */
   market_sale_price_usdt?: number
+  market_subscription_monthly_only?: boolean
   /** 客户上架策略市场的管理员审核状态 */
   market_review_status?: 'pending' | 'approved' | 'rejected' | string
   market_review_requested_access?: StrategyMarketAccess
@@ -82,6 +83,8 @@ export interface StrategyConfig {
   comkun_market_follow?: boolean
   /** 与主广播 source_strategy_id 一致，通常为市场源策略的 strategies.id */
   comkun_market_source_strategy_id?: string
+  /** 订阅与计费归属的市场上架 ID；实时广播源可使用另一个独立路由 ID。 */
+  comkun_market_listing_strategy_id?: string
   /** 每轮扫描消耗的虚拟 token；0 或未设则用后端默认 */
   comkun_follow_tokens_per_scan?: number
   /** 官方上架「跟单开关」模板时为 true；他人从市场复制后自动变为跟单子策略 */

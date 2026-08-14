@@ -121,7 +121,10 @@ func (s *Server) handleHZMasterEvent(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	result, err := s.acceptHZMasterEvent(request, raw, nonce, false, false)
+	// HZ uses one global BIGSERIAL across masters. Per-master sequences are
+	// strictly increasing but can jump when another master publishes between
+	// two events, so the HTTP ingress must accept monotonic gaps.
+	result, err := s.acceptHZMasterEvent(request, raw, nonce, true, false)
 	if errors.Is(err, store.ErrIntegrationNonceReplay) {
 		c.JSON(http.StatusConflict, gin.H{"error": "nonce replay"})
 		return

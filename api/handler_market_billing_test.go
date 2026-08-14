@@ -2,6 +2,7 @@ package api
 
 import (
 	"testing"
+	"time"
 
 	"nofx/store"
 )
@@ -33,13 +34,13 @@ func TestIsFreeComkunMarketSubscription(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "listing template subscription ignores old package price",
+			name:   "priced listing template is paid",
 			access: store.MarketAccessSubscription,
 			cfg: &store.StrategyConfig{
 				MarketSalePriceUSDT:         599,
 				ComkunFollowListingTemplate: true,
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name:   "ordinary zero price subscription is not free comkun",
@@ -67,5 +68,16 @@ func TestIsFreeComkunMarketSubscription(t *testing.T) {
 				t.Fatalf("isFreeComkunMarketSubscription() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMarketPlanPriceAndDurationUsesListingPriceAndMonthlyOnly(t *testing.T) {
+	cfg := &store.StrategyConfig{MarketSalePriceUSDT: 300, MarketSubscriptionMonthlyOnly: true}
+	price, duration, reason, ok := marketPlanPriceAndDuration("monthly", cfg)
+	if !ok || price != 300 || duration != 30*24*time.Hour || reason != "market_subscription_monthly" {
+		t.Fatalf("monthly plan mismatch: price=%v duration=%v reason=%s ok=%v", price, duration, reason, ok)
+	}
+	if _, _, _, ok := marketPlanPriceAndDuration("weekly", cfg); ok {
+		t.Fatal("monthly-only listing accepted weekly trial")
 	}
 }

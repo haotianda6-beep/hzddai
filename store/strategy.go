@@ -141,6 +141,8 @@ type StrategyConfig struct {
 
 	// Strategy market listing price in USDT (optional, frontend-only contract until market checkout wired)
 	MarketSalePriceUSDT float64 `json:"market_sale_price_usdt,omitempty"`
+	// Monthly-only listings do not offer the global seven-day trial.
+	MarketSubscriptionMonthlyOnly bool `json:"market_subscription_monthly_only,omitempty"`
 	// Strategy market admin review state for customer-created listings.
 	MarketReviewStatus          string `json:"market_review_status,omitempty"`           // pending/approved/rejected
 	MarketReviewRequestedAccess string `json:"market_review_requested_access,omitempty"` // requested market_access while pending
@@ -159,6 +161,10 @@ type StrategyConfig struct {
 	ComkunMarketFollow bool `json:"comkun_market_follow,omitempty"`
 	// 对应策略市场「源策略」的 strategies.id（主账户发布广播时使用同一 ID）
 	ComkunMarketSourceStrategyID string `json:"comkun_market_source_strategy_id,omitempty"`
+	// Marketplace listing that owns the entitlement. It is intentionally
+	// separate from ComkunMarketSourceStrategyID, which may be a hashed live
+	// master route such as hz-ai-master:<hash>.
+	ComkunMarketListingStrategyID string `json:"comkun_market_listing_strategy_id,omitempty"`
 	// 每轮扫描消耗的虚拟 token，0 表示使用后端默认 ComkunFollowDefaultTokensPerScan
 	ComkunFollowTokensPerScan int `json:"comkun_follow_tokens_per_scan,omitempty"`
 	// 上架模板：为 true 表示「策略市场跟单开关」官方策略；他人从市场复制时自动打开 comkun_market_follow

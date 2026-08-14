@@ -732,13 +732,16 @@ func buildPublicStrategyItem(st *store.Strategy, creator *store.User, stats publ
 		item["creator_display_name"] = ""
 		item["creator_avatar_url"] = ""
 	}
-	if access == store.MarketAccessSubscription && (store.IsComkunMarketFollowStrategy(&cfg) || cfg.ComkunFollowListingTemplate) {
-		item["market_sale_price_usdt"] = 0
-	} else if cfg.MarketSalePriceUSDT > 0 {
+	if cfg.MarketSalePriceUSDT > 0 {
 		item["market_sale_price_usdt"] = cfg.MarketSalePriceUSDT
+	} else if access == store.MarketAccessSubscription && (store.IsComkunMarketFollowStrategy(&cfg) || cfg.ComkunFollowListingTemplate) {
+		item["market_sale_price_usdt"] = 0
 	}
-	if cfg.MarketPerformanceOnly {
-		item["performance_only"] = true
+	if cfg.MarketSubscriptionMonthlyOnly {
+		item["market_subscription_monthly_only"] = true
+	}
+	if strings.TrimSpace(cfg.MarketPerformanceSource) != "" {
+		item["performance_only"] = cfg.MarketPerformanceOnly
 		item["performance_source"] = strings.TrimSpace(cfg.MarketPerformanceSource)
 		item["performance_disclosure"] = strings.TrimSpace(cfg.MarketPerformanceDisclosure)
 		item["realtime_follow_available"] = cfg.MarketRealtimeFollowAvailable
@@ -783,6 +786,10 @@ func strategyIDForMarketStats(ref store.MarketStrategyTraderRef) string {
 	sid := strings.TrimSpace(ref.StrategyID)
 	var cfg store.StrategyConfig
 	if strings.TrimSpace(ref.Config) != "" && json.Unmarshal([]byte(ref.Config), &cfg) == nil {
+		listingID := strings.TrimSpace(cfg.ComkunMarketListingStrategyID)
+		if cfg.ComkunMarketFollow && listingID != "" {
+			return listingID
+		}
 		sourceID := strings.TrimSpace(cfg.ComkunMarketSourceStrategyID)
 		if cfg.ComkunMarketFollow && sourceID != "" {
 			return sourceID
@@ -1230,7 +1237,7 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 	}
 	if observationData != nil && observationData.Rollup != nil {
 		observationApplied = true
-		observationExchangeLabel = "COMKUNAI"
+		observationExchangeLabel = "BALIB"
 		initialCapitalSum = observationData.InitialBalance
 		rollup = observationData.Rollup
 		tradeHistory = observationData.TradeHistory
@@ -1439,7 +1446,7 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 	if exchangeLabel == "" && hzStarExchangeLabel != "" {
 		exchangeLabel = hzStarExchangeLabel
 	}
-	if exchangeLabel == "" && observationExchangeLabel != "" {
+	if observationApplied && observationExchangeLabel != "" {
 		exchangeLabel = observationExchangeLabel
 	}
 	if exchangeLabel == "" && ultimateSolExchangeLabel != "" {
