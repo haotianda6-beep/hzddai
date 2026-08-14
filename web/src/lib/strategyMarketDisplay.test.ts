@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isHistoricalOnlyStrategy,
   isSimulatedPerformance,
+  recentTradeReturnSeries,
 } from './strategyMarketDisplay'
 
 describe('isHistoricalOnlyStrategy', () => {
@@ -27,5 +28,23 @@ describe('isHistoricalOnlyStrategy', () => {
     expect(isSimulatedPerformance({ realtime_follow_available: true })).toBe(
       false
     )
+  })
+})
+
+describe('recentTradeReturnSeries', () => {
+  it('converts the latest 61 balances into 60 real per-trade returns', () => {
+    const balances = Array.from({ length: 70 }, (_, index) => 100 + index)
+    const returns = recentTradeReturnSeries(balances)
+
+    expect(returns).toHaveLength(60)
+    expect(returns[0]).toBeCloseTo((110 - 109) / 109)
+    expect(returns.at(-1)).toBeCloseTo((169 - 168) / 168)
+  })
+
+  it('preserves losses and ignores invalid balances', () => {
+    expect(recentTradeReturnSeries([100, Number.NaN, 110, 99])).toEqual([
+      0.1,
+      -0.1,
+    ])
   })
 })

@@ -31,6 +31,7 @@ import { getExchangeIcon } from '../components/common/ExchangeIcons'
 import './strategy-market-ai3.css'
 import {
   isHistoricalOnlyStrategy,
+  recentTradeReturnSeries,
   stripStrategyTitleParenthetical,
 } from '../lib/strategyMarketDisplay'
 import {
@@ -246,17 +247,13 @@ function MiniSparkPathReal(
   fallbackId: string,
   up: boolean
 ): string {
-  const clean = (values ?? [])
-    .filter((v) => Number.isFinite(v) && v > 0)
-    .slice(-60)
+  const clean = recentTradeReturnSeries(values)
   if (clean.length < 2) return MiniSparkPath(fallbackId, up)
-  const min = Math.min(...clean)
-  const max = Math.max(...clean)
-  const span = Math.max(1e-9, max - min)
+  const extent = Math.max(1e-9, ...clean.map(Math.abs))
   const last = clean.length - 1
   const pts = clean.map((v, i) => {
     const x = last === 0 ? 0 : (i / last) * 100
-    const y = 26 - ((v - min) / span) * 22
+    const y = 15 - (v / extent) * 11
     return `${x.toFixed(1)},${y.toFixed(1)}`
   })
   return `M${pts.join(' L')}`
@@ -970,6 +967,15 @@ export function StrategyMarketPage() {
                             viewBox="0 0 100 30"
                             aria-hidden
                           >
+                            <line
+                              x1="0"
+                              y1="15"
+                              x2="100"
+                              y2="15"
+                              stroke="#3f3f46"
+                              strokeWidth="0.75"
+                              strokeDasharray="2 3"
+                            />
                             <path
                               d={MiniSparkPathReal(s.stats?.trend, s.id, up)}
                               fill="none"
@@ -1512,6 +1518,15 @@ export function StrategyMarketPage() {
                                 viewBox="0 0 100 30"
                                 aria-hidden
                               >
+                                <line
+                                  x1="0"
+                                  y1="15"
+                                  x2="100"
+                                  y2="15"
+                                  stroke="#3f3f46"
+                                  strokeWidth="0.75"
+                                  strokeDasharray="2 3"
+                                />
                                 <path
                                   d={MiniSparkPathReal(
                                     s.stats?.trend,

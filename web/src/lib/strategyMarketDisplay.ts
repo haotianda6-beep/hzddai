@@ -21,6 +21,17 @@ export function isSimulatedPerformance(
   return strategy?.performance_source === 'historical_simulation'
 }
 
+export function recentTradeReturnSeries(
+  values: number[] | null | undefined
+): number[] {
+  const balances = (values ?? [])
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .slice(-61)
+  return balances
+    .slice(1)
+    .map((balance, index) => (balance - balances[index]) / balances[index])
+}
+
 /**
  * 策略市场展示用：去掉标题里半角/全角括号及其中的说明文字（如「xxx（只能用COMKUN-AI跑）」→「xxx」）
  * 「（客户用）」等产品后缀保留。
