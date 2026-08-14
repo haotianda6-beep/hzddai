@@ -202,7 +202,7 @@ func applyObservationMetadata(item gin.H, data *observationMarketData) {
 		stats["return_7d_pct"] = data.Return7DPct
 		stats["cumulative_return_pct"] = data.CumulativeReturn
 		stats["max_drawdown_pct"] = data.Rollup.Stats.MaxDrawdownPct
-		stats["trend"] = sampleMarketTrend(data.Trend, 18)
+		stats["trend"] = data.Trend
 		stats["completed_months"] = data.CompletedMonths
 		stats["monthly_rows"] = data.MonthlyRows
 		stats["history_trade_count"] = data.Rollup.Stats.TotalTrades

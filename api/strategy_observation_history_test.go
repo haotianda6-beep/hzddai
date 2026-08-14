@@ -50,6 +50,10 @@ func TestObservationListOverlayIsAuditable(t *testing.T) {
 	if stats["data_complete"] != true || stats["completed_months"] != 3 || stats["monthly_rows"] != 4 {
 		t.Fatalf("overlay stats = %#v", stats)
 	}
+	trend, ok := stats["trend"].([]float64)
+	if !ok || len(trend) != 270 || trend[0] != 10000 || trend[len(trend)-1] != 115649.56468485 {
+		t.Fatalf("real balance trend = %#v", stats["trend"])
+	}
 }
 
 func TestPublicItemExposesSimulationProvenanceAndLiveBoundarySeparately(t *testing.T) {

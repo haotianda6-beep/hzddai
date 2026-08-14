@@ -801,7 +801,7 @@ export function StrategyMarketDetailPage() {
                           formatter={(v: number) => [v.toFixed(2), 'Σ净值']}
                         />
                         <Area
-                          type="monotone"
+                          type="linear"
                           dataKey="v"
                           stroke={up ? CRYPTO_UP : CRYPTO_DOWN}
                           strokeWidth={2}
