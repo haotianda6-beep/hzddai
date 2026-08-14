@@ -10,6 +10,7 @@ import (
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
+	"nofx/marketdata/observation"
 	"nofx/mcp"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
@@ -736,6 +737,12 @@ func buildPublicStrategyItem(st *store.Strategy, creator *store.User, stats publ
 	} else if cfg.MarketSalePriceUSDT > 0 {
 		item["market_sale_price_usdt"] = cfg.MarketSalePriceUSDT
 	}
+	if cfg.MarketPerformanceOnly {
+		item["performance_only"] = true
+		item["performance_source"] = strings.TrimSpace(cfg.MarketPerformanceSource)
+		item["performance_disclosure"] = strings.TrimSpace(cfg.MarketPerformanceDisclosure)
+		item["realtime_follow_available"] = cfg.MarketRealtimeFollowAvailable
+	}
 	applyOkxScreenMarketIdentityOverlay(item, st.ID)
 
 	switch access {
@@ -1051,10 +1058,17 @@ func (s *Server) handlePublicStrategies(c *gin.Context) {
 		if st.ID == okx08MarketStrategyID {
 			applyOkx08MarketListOverlay(item)
 		}
-		if st.ID != ultimateSolMarketStrategyID && st.ID != okx01MarketStrategyID && st.ID != okx02MarketStrategyID && st.ID != okx03MarketStrategyID && st.ID != okx04MarketStrategyID && st.ID != okx05MarketStrategyID && st.ID != okx06MarketStrategyID && st.ID != okx07MarketStrategyID && st.ID != okx08MarketStrategyID {
+		observationApplied, observationErr := applyObservationMarketListOverlay(item, st.ID)
+		if observationErr != nil {
+			SafeInternalError(c, "Failed to load observation market stats", observationErr)
+			return
+		}
+		if !observationApplied && st.ID != ultimateSolMarketStrategyID && st.ID != okx01MarketStrategyID && st.ID != okx02MarketStrategyID && st.ID != okx03MarketStrategyID && st.ID != okx04MarketStrategyID && st.ID != okx05MarketStrategyID && st.ID != okx06MarketStrategyID && st.ID != okx07MarketStrategyID && st.ID != okx08MarketStrategyID {
 			applyPublicStrategyMarketDemoOverlay(item, st.ID, st.Name, st.MarketRevision)
 		}
-		applyStableMarketAudienceStats(item, st.ID, st.Name)
+		if !observationApplied {
+			applyStableMarketAudienceStats(item, st.ID, st.Name)
+		}
 		applyOkxScreenMarketDisplayExchangeOverlay(item, st.ID)
 		result = append(result, item)
 	}
@@ -1154,6 +1168,8 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 		"env_key": "NOFX_MARKET_DETAIL_DEMO",
 	}
 	var tradeHistory []gin.H
+	observationApplied := false
+	observationExchangeLabel := ""
 	hzStarApplied := false
 	hzStarExchangeLabel := ""
 	ultimateSolApplied := false
@@ -1206,6 +1222,24 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 			return
 		}
 		tradeHistory = history
+	}
+	observationData, observationErr := buildObservationMarketData(marketDetailID, true)
+	if observationErr != nil {
+		SafeInternalError(c, "Failed to load observation market detail", observationErr)
+		return
+	}
+	if observationData != nil && observationData.Rollup != nil {
+		observationApplied = true
+		observationExchangeLabel = "COMKUNAI"
+		initialCapitalSum = observationData.InitialBalance
+		rollup = observationData.Rollup
+		tradeHistory = observationData.TradeHistory
+		applyObservationMetadata(item, observationData)
+		statsSource = observation.StatusHistoricalSimulation
+		demoMeta = gin.H{
+			"enabled": false,
+			"note_zh": "历史行情场景数据，非实盘已实现收益；尚未绑定独立实时主控。",
+		}
 	}
 	if marketDetailID == ultimateSolMarketStrategyID {
 		solData, solErr := s.buildUltimateSolMarketData(true)
@@ -1384,7 +1418,7 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 			okx08ExchangeLabel = "OKX"
 		}
 	}
-	if !hzStarApplied && !ultimateSolApplied && !okx01Applied && !okx02Applied && !okx03Applied && !okx04Applied && !okx05Applied && !okx06Applied && !okx07Applied && !okx08Applied && applyMarketDetailDemoOverlay(marketDetailID, st.Name, item, &initialCapitalSum, &rollup, st.MarketRevision) {
+	if !observationApplied && !hzStarApplied && !ultimateSolApplied && !okx01Applied && !okx02Applied && !okx03Applied && !okx04Applied && !okx05Applied && !okx06Applied && !okx07Applied && !okx08Applied && applyMarketDetailDemoOverlay(marketDetailID, st.Name, item, &initialCapitalSum, &rollup, st.MarketRevision) {
 		statsSource = "demo_overlay"
 		demoMeta = gin.H{
 			"enabled":           true,
@@ -1404,6 +1438,9 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 	}
 	if exchangeLabel == "" && hzStarExchangeLabel != "" {
 		exchangeLabel = hzStarExchangeLabel
+	}
+	if exchangeLabel == "" && observationExchangeLabel != "" {
+		exchangeLabel = observationExchangeLabel
 	}
 	if exchangeLabel == "" && ultimateSolExchangeLabel != "" {
 		exchangeLabel = ultimateSolExchangeLabel
@@ -1437,7 +1474,9 @@ func (s *Server) handlePublicStrategyDetail(c *gin.Context) {
 			exchangeLabel = okxScreenMarketDisplayExchange(marketDetailID)
 		}
 	}
-	applyStableMarketAudienceStats(item, marketDetailID, st.Name)
+	if !observationApplied {
+		applyStableMarketAudienceStats(item, marketDetailID, st.Name)
+	}
 	if displayExchange := applyOkxScreenMarketDisplayExchangeOverlay(item, marketDetailID); displayExchange != "" {
 		exchangeLabel = displayExchange
 	}

@@ -220,6 +220,9 @@ func (s *Store) initDefaultData() error {
 	if err := s.EnsureComkunFollowListingSeed(); err != nil {
 		return err
 	}
+	if err := s.EnsureObservationMarketSeeds(); err != nil {
+		return err
+	}
 	// Migrate old decision_account_snapshots data to new trader_equity_snapshots table
 	if migrated, err := s.Equity().MigrateFromDecision(); err != nil {
 		logger.Warnf("failed to migrate equity data: %v", err)

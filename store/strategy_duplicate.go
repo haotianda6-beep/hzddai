@@ -95,6 +95,9 @@ func (s *Store) DuplicateStrategy(userID, sourceID, newID, newName string) error
 	if err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
+	if cfg.MarketPerformanceOnly {
+		return fmt.Errorf("该策略为历史行情场景展示，尚未绑定实时主控，不能复制为交易策略")
+	}
 	sourceAccess := EffectivePublicListingAccess(source)
 	isMarketCopy := strings.TrimSpace(source.UserID) != strings.TrimSpace(userID)
 	contentLocked := isMarketCopy && sourceAccess != MarketAccessOpenSource

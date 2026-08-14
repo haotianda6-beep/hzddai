@@ -148,6 +148,13 @@ type StrategyConfig struct {
 	MarketReviewReviewedAt      string `json:"market_review_reviewed_at,omitempty"`
 	MarketReviewReviewedBy      string `json:"market_review_reviewed_by,omitempty"`
 
+	// Strategy-market performance provenance. Historical profiles are display-only
+	// until a separate live master/follower mapping is explicitly configured.
+	MarketPerformanceOnly         bool   `json:"market_performance_only,omitempty"`
+	MarketPerformanceSource       string `json:"market_performance_source,omitempty"`
+	MarketPerformanceDisclosure   string `json:"market_performance_disclosure,omitempty"`
+	MarketRealtimeFollowAvailable bool   `json:"market_realtime_follow_available,omitempty"`
+
 	// Comkun 合规跟单：为 true 时交易员周期不走真实 LLM 下单，而消费主账户广播 + 虚拟 comkun token
 	ComkunMarketFollow bool `json:"comkun_market_follow,omitempty"`
 	// 对应策略市场「源策略」的 strategies.id（主账户发布广播时使用同一 ID）

@@ -14,6 +14,9 @@ func IsHZStrategy(config *StrategyConfig) bool {
 
 // ValidateStrategyExchange keeps HZ commodity strategies isolated from crypto accounts.
 func ValidateStrategyExchange(exchangeType string, config *StrategyConfig) error {
+	if config != nil && config.MarketPerformanceOnly {
+		return fmt.Errorf("历史行情场景策略仅供业绩展示，尚未绑定实时主控，不能创建交易员")
+	}
 	hzStrategy := IsHZStrategy(config)
 	hzExchange := strings.EqualFold(exchangeType, "hz")
 	if hzStrategy && !hzExchange {
