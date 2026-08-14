@@ -22,19 +22,11 @@ type recoveringHZIntentTrader struct {
 	next          string
 	positions     []map[string]interface{}
 	balance       float64
-	contractSize  float64
+	marketPrice   float64
 	opens, closes int
 	balanceCalls  int
 	positionCalls int
 	orderCalls    int
-}
-
-func (trader *recoveringHZIntentTrader) QuantityForLots(_ string, lots float64) (float64, error) {
-	contractSize := trader.contractSize
-	if contractSize == 0 {
-		contractSize = 1
-	}
-	return lots * contractSize, nil
 }
 
 func (trader *recoveringHZIntentTrader) FormatQuantity(_ string, quantity float64) (string, error) {
@@ -56,6 +48,13 @@ func (trader *recoveringHZIntentTrader) GetPositions() ([]map[string]interface{}
 func (trader *recoveringHZIntentTrader) GetOpenOrders(string) ([]types.OpenOrder, error) {
 	trader.orderCalls++
 	return nil, nil
+}
+
+func (trader *recoveringHZIntentTrader) GetMarketPrice(string) (float64, error) {
+	if trader.marketPrice > 0 {
+		return trader.marketPrice, nil
+	}
+	return 1000, nil
 }
 
 func (trader *recoveringHZIntentTrader) OpenLong(string, float64, int) (map[string]interface{}, error) {
@@ -91,7 +90,7 @@ func TestHZMirrorCloseOnlyBlocksOpenButAlwaysCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	underlying := &recoveringHZIntentTrader{balance: 250, contractSize: 1}
+	underlying := &recoveringHZIntentTrader{balance: 250}
 	at := &AutoTrader{
 		id: "trader-1", userID: "user-1", exchangeID: "exchange-1", exchange: "hz",
 		initialBalance: 250, store: st, trader: underlying,
@@ -102,7 +101,10 @@ func TestHZMirrorCloseOnlyBlocksOpenButAlwaysCloses(t *testing.T) {
 	ctx := &kernel.Context{Account: kernel.AccountInfo{TotalEquity: 250}}
 	openWire := comkunMasterStateWire{
 		V: 1, SourceEventID: "event-open", SourceSequence: 1, OccurredAt: time.Now(), EventType: "OPEN",
-		Positions:     []kernel.PositionInfo{{PositionID: "master-position", Symbol: "BTC-PERP", Side: "long", Lots: 1, Leverage: 10}},
+		Positions: []kernel.PositionInfo{{
+			PositionID: "master-position", Symbol: "BTC-PERP", Side: "long", Lots: 1,
+			Leverage: 10, MarginMode: "cross", MarginUsed: 100,
+		}},
 		PendingOrders: []kernel.PendingOrder{},
 	}
 	openRaw, _ := json.Marshal(openWire)
@@ -134,7 +136,7 @@ func TestHZMirrorCloseOnlyBlocksOpenButAlwaysCloses(t *testing.T) {
 }
 
 func TestHZFirstSubscriptionSeedsCurrentSequenceWithoutChasingPosition(t *testing.T) {
-	underlying := &recoveringHZIntentTrader{balance: 250, contractSize: 0.01}
+	underlying := &recoveringHZIntentTrader{balance: 250}
 	at := &AutoTrader{
 		exchange: "hz", initialBalance: 250, trader: underlying,
 		config: AutoTraderConfig{StrategyConfig: &store.StrategyConfig{
@@ -143,7 +145,9 @@ func TestHZFirstSubscriptionSeedsCurrentSequenceWithoutChasingPosition(t *testin
 	}
 	wire := comkunMasterStateWire{
 		V: 1, SourceEventID: "event-baseline", SourceSequence: 42,
-		Positions:     []kernel.PositionInfo{{Symbol: "BTC-PERP", Side: "long", Lots: 2, Leverage: 10}},
+		Positions: []kernel.PositionInfo{{
+			Symbol: "BTC-PERP", Side: "long", Lots: 2, Leverage: 10, MarginMode: "cross", MarginUsed: 2,
+		}},
 		PendingOrders: []kernel.PendingOrder{},
 	}
 	raw, _ := json.Marshal(wire)
@@ -221,7 +225,8 @@ func TestHZThirtyFollowersBackOffBeforeExchangeSnapshot(t *testing.T) {
 		V: 1, SourceEventID: "event-failed", SourceSequence: 1,
 		OccurredAt: time.Now(), EventType: "OPEN",
 		Positions: []kernel.PositionInfo{{
-			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03,
+			Leverage: 100, MarginMode: "cross", MarginUsed: 0.3,
 		}},
 		PendingOrders: []kernel.PendingOrder{},
 	}
@@ -241,7 +246,7 @@ func TestHZThirtyFollowersBackOffBeforeExchangeSnapshot(t *testing.T) {
 		if err := st.ComkunFollow().MarkConsumptionFailed(traderID, broadcast.ID, "temporary"); err != nil {
 			t.Fatal(err)
 		}
-		underlying := &recoveringHZIntentTrader{balance: 10_000, contractSize: 1}
+		underlying := &recoveringHZIntentTrader{balance: 10_000}
 		at := &AutoTrader{
 			id: traderID, name: traderID, userID: fmt.Sprintf("user-%02d", i),
 			exchangeID: fmt.Sprintf("exchange-%02d", i), exchange: "hz",
@@ -279,7 +284,8 @@ func TestHZExpiredOpenRefundsBillingWithoutTradeIntent(t *testing.T) {
 		V: 1, SourceEventID: "event-expired", SourceSequence: 1,
 		OccurredAt: time.Now().Add(-3 * time.Minute), EventType: "OPEN",
 		Positions: []kernel.PositionInfo{{
-			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03,
+			Leverage: 100, MarginMode: "cross", MarginUsed: 0.3,
 		}},
 		PendingOrders: []kernel.PendingOrder{},
 	}
@@ -288,7 +294,7 @@ func TestHZExpiredOpenRefundsBillingWithoutTradeIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	underlying := &recoveringHZIntentTrader{balance: 1_000, contractSize: 1}
+	underlying := &recoveringHZIntentTrader{balance: 1_000}
 	at := &AutoTrader{
 		id: traderID, name: traderID, userID: userID, exchangeID: "exchange-expired", exchange: "hz",
 		initialBalance: 1_000, store: st, trader: underlying, isRunning: true,
@@ -334,7 +340,8 @@ func TestHZExpiredOpenWithConfirmedTradeFinalizesBilling(t *testing.T) {
 		V: 1, SourceEventID: "event-confirmed", SourceSequence: 3,
 		OccurredAt: time.Now().Add(-3 * time.Minute), EventType: "OPEN",
 		Positions: []kernel.PositionInfo{{
-			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03, Leverage: 100,
+			PositionID: "master-position", Symbol: "BTCUSDT", Side: "long", Lots: 0.03,
+			Leverage: 100, MarginMode: "cross", MarginUsed: 0.3,
 		}},
 		PendingOrders: []kernel.PendingOrder{},
 	}
@@ -344,7 +351,7 @@ func TestHZExpiredOpenWithConfirmedTradeFinalizesBilling(t *testing.T) {
 		t.Fatal(err)
 	}
 	underlying := &recoveringHZIntentTrader{
-		balance: 1_000, contractSize: 1,
+		balance: 1_000,
 		positions: []map[string]interface{}{{
 			"positionId": "follower-position", "symbol": "BTCUSDT", "side": "long", "positionAmt": 0.03,
 		}},

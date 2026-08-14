@@ -61,12 +61,47 @@ func TestHZFreshPollingReconcileCanRepairMissedOpen(t *testing.T) {
 	}
 }
 
-func TestHZMasterLotsUseDynamicContractAndEquityRatio(t *testing.T) {
-	position := kernel.PositionInfo{Symbol: "BTC-PERP", Side: "long", Lots: 2, Quantity: 0}
-	got, err := hzScaledPositionQuantity(position, 1000, 250, func(_ string, lots float64) (float64, error) {
-		return lots * 0.01, nil
-	})
-	if err != nil || got != 0.005 {
-		t.Fatalf("got=%v err=%v", got, err)
+func TestHZInitialMarginRatioTargets(t *testing.T) {
+	price := func(string) (float64, error) { return 50, nil }
+	tests := []struct {
+		name       string
+		masterEq   float64
+		followerEq float64
+		margin     float64
+		positions  bool
+		wantQty    float64
+		wantErr    bool
+	}{
+		{name: "100/10 -> 1000/100", masterEq: 100, followerEq: 1000, margin: 10, positions: true, wantQty: 20},
+		{name: "same equity", masterEq: 100, followerEq: 100, margin: 10, positions: true, wantQty: 2},
+		{name: "reduce to four percent", masterEq: 100, followerEq: 1000, margin: 4, positions: true, wantQty: 8},
+		{name: "close", masterEq: 100, followerEq: 1000, positions: false, wantQty: 0},
+		{name: "invalid master equity", masterEq: 0, followerEq: 1000, margin: 10, positions: true, wantErr: true},
+		{name: "invalid follower equity", masterEq: 100, followerEq: 0, margin: 10, positions: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := &comkunMasterStateWire{}
+			if test.positions {
+				wire.Positions = []kernel.PositionInfo{{
+					Symbol: "BTC-PERP", Side: "long", Leverage: 10,
+					MarginMode: "cross", MarginUsed: test.margin,
+				}}
+			}
+			target, err := buildHZInitialMarginTargetFromWire(wire, test.masterEq, test.followerEq, price)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected fail-closed sizing error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := target[posKey("BTC-PERP", "long")]
+			if math.Abs(got-test.wantQty) > 1e-12 {
+				t.Fatalf("target quantity=%.12f want=%.12f", got, test.wantQty)
+			}
+		})
 	}
 }

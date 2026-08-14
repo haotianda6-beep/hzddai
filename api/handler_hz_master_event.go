@@ -251,10 +251,14 @@ func (account hzMasterAccount) validate() error {
 func (position hzMasterPosition) validate() error {
 	lots, lotsErr := parseHZDecimal(position.Lots)
 	positionValue, valueErr := parseHZDecimal(position.PositionValue)
+	initialMargin, marginErr := parseHZDecimal(position.InitialMargin)
+	currentPrice, priceErr := parseHZDecimal(position.CurrentPrice)
 	side := strings.ToUpper(strings.TrimSpace(position.Side))
+	marginMode := strings.ToUpper(strings.TrimSpace(position.MarginMode))
 	if strings.TrimSpace(position.PositionID) == "" || strings.TrimSpace(position.Instrument) == "" ||
 		(side != "LONG" && side != "SHORT") || position.Leverage <= 0 || lotsErr != nil || lots <= 0 ||
-		valueErr != nil || positionValue < 0 {
+		valueErr != nil || positionValue < 0 || marginErr != nil || initialMargin <= 0 ||
+		priceErr != nil || currentPrice <= 0 || (marginMode != "CROSS" && marginMode != "ISOLATED") {
 		return fmt.Errorf("invalid master position")
 	}
 	return nil
@@ -274,10 +278,15 @@ func (request hzMasterEventRequest) masterStateJSON(pollingReconcile bool) (stri
 	for _, item := range request.Positions {
 		lots, _ := parseHZDecimal(item.Lots)
 		positionValue, _ := parseHZDecimal(item.PositionValue)
+		initialMargin, _ := parseHZDecimal(item.InitialMargin)
+		entryPrice, _ := parseHZDecimal(item.EntryPrice)
+		currentPrice, _ := parseHZDecimal(item.CurrentPrice)
+		unrealizedPnL, _ := parseHZDecimal(item.UnrealizedPnL)
 		positions = append(positions, kernel.PositionInfo{
 			PositionID: strings.TrimSpace(item.PositionID), Symbol: strings.ToUpper(strings.TrimSpace(item.Instrument)),
-			Side: strings.ToLower(strings.TrimSpace(item.Side)), Lots: lots,
-			Leverage: item.Leverage, PositionValue: positionValue,
+			Side: strings.ToLower(strings.TrimSpace(item.Side)), MarginMode: strings.ToLower(strings.TrimSpace(item.MarginMode)),
+			Lots: lots, Leverage: item.Leverage, PositionValue: positionValue, MarginUsed: initialMargin,
+			EntryPrice: entryPrice, MarkPrice: currentPrice, UnrealizedPnL: unrealizedPnL,
 		})
 	}
 	raw, err := json.Marshal(hzMasterState{

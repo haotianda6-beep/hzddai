@@ -26,6 +26,7 @@ type PositionInfo struct {
 	PositionID       string  `json:"position_id,omitempty"`
 	Symbol           string  `json:"symbol"`
 	Side             string  `json:"side"` // "long" or "short"
+	MarginMode       string  `json:"margin_mode,omitempty"`
 	EntryPrice       float64 `json:"entry_price"`
 	MarkPrice        float64 `json:"mark_price"`
 	Quantity         float64 `json:"quantity"`

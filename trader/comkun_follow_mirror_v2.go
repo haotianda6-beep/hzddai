@@ -44,7 +44,6 @@ type mirrorPositionCacheInvalidator interface {
 }
 
 type hzMirrorTrader interface {
-	QuantityForLots(symbol string, lots float64) (float64, error)
 	ExecuteWithIntent(clientOrderID string, execute func() (map[string]interface{}, error)) (map[string]interface{}, error)
 	LookupOrderByClientID(clientOrderID string) (map[string]interface{}, error)
 }
@@ -204,11 +203,32 @@ func (at *AutoTrader) seedMirrorBaselineFromMasterBroadcast(br *store.ComkunMast
 	}
 	target := buildMirrorMasterTargetFromWire(&wire, masterEq, followerEq)
 	if at.comkunFollowSourceIsHZExternal() {
-		if hzTrader, ok := at.trader.(hzMirrorTrader); ok {
-			if hzTarget, err := buildHZMasterTargetFromWire(&wire, masterEq, followerEq, hzTrader.QuantityForLots); err == nil {
-				target = hzTarget
+		if _, ok := at.trader.(hzMirrorTrader); !ok {
+			logger.Warnf("[%s] HZ startup baseline deferred: trader intent support missing", at.name)
+			return
+		}
+		hzTarget, err := buildHZInitialMarginTargetFromWire(&wire, masterEq, followerEq, at.trader.GetMarketPrice)
+		if err != nil {
+			logger.Warnf("[%s] HZ startup baseline deferred: %v", at.name, err)
+			return
+		}
+		for key, rawTarget := range hzTarget {
+			symbol, _, ok := splitPosKey(key)
+			if !ok {
+				return
+			}
+			floored, err := floorHZMirrorTarget(at.trader, symbol, rawTarget)
+			if err != nil {
+				logger.Warnf("[%s] HZ startup baseline deferred: %v", at.name, err)
+				return
+			}
+			if floored == 0 {
+				delete(hzTarget, key)
+			} else {
+				hzTarget[key] = floored
 			}
 		}
+		target = hzTarget
 	}
 	if at.comkunFollowSourceIsMT4Gold() {
 		followLev := store.ComkunMirrorFollowerMarginLeverageOrDefault(at.config.StrategyConfig)
@@ -287,12 +307,8 @@ func floorHZMirrorTarget(formatter mirrorQuantityFormatter, symbol string, targe
 	return floored, nil
 }
 
-func mirrorFollowerTargetEquity(hzExternal bool, cfg *store.StrategyConfig, sourceID string, initialBalance, currentEquity, masterEquity float64) float64 {
-	followerEquity := mirrorFollowerSizingEquity(sourceID, initialBalance, currentEquity)
-	if hzExternal && cfg != nil && cfg.ComkunMirrorFollowerEquityRatio > 0 {
-		return masterEquity * cfg.ComkunMirrorFollowerEquityRatio
-	}
-	return followerEquity
+func mirrorFollowerTargetEquity(sourceID string, initialBalance, currentEquity float64) float64 {
+	return mirrorFollowerSizingEquity(sourceID, initialBalance, currentEquity)
 }
 
 func mirrorQuantitiesAligned(formatter mirrorQuantityFormatter, key string, target, follower float64) bool {
@@ -367,8 +383,11 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 
 	masterEq := br.MasterAccountEquity
 	sourceID := store.ResolveComkunFollowSourceStrategyID(at.config.StrategyConfig)
-	followerEq := mirrorFollowerTargetEquity(hzExternal, at.config.StrategyConfig, sourceID, at.initialBalance, ctx.Account.TotalEquity, masterEq)
-	if followerEq < 0 {
+	followerEq := mirrorFollowerTargetEquity(sourceID, at.initialBalance, ctx.Account.TotalEquity)
+	if hzExternal && (masterEq <= 0 || followerEq <= 0 || math.IsNaN(masterEq) || math.IsNaN(followerEq) || math.IsInf(masterEq, 0) || math.IsInf(followerEq, 0)) {
+		return fmt.Errorf("HZ initial-margin sizing requires positive master and follower equity")
+	}
+	if !hzExternal && followerEq < 0 {
 		followerEq = 0
 	}
 	masterLev := resolveMirrorMasterLevFromWire(&wire)
@@ -393,14 +412,19 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 
 	// ---- Phase 1: 构建主控目标 ----
 	masterTarget := buildMirrorMasterTargetFromWire(&wire, masterEq, followerEq)
+	var hzLegs map[string]hzInitialMarginLeg
 	if hzExternal {
-		hzTrader, ok := at.trader.(hzMirrorTrader)
-		if !ok {
+		if _, ok := at.trader.(hzMirrorTrader); !ok {
 			return fmt.Errorf("HZ trader does not expose dynamic lot conversion")
 		}
-		hzTarget, hzErr := buildHZMasterTargetFromWire(&wire, masterEq, followerEq, hzTrader.QuantityForLots)
+		var hzErr error
+		hzLegs, hzErr = collectHZInitialMarginLegs(&wire)
 		if hzErr != nil {
-			return fmt.Errorf("HZ dynamic contract conversion: %w", hzErr)
+			return fmt.Errorf("HZ initial-margin metadata: %w", hzErr)
+		}
+		hzTarget, hzErr := buildHZInitialMarginTargetFromWire(&wire, masterEq, followerEq, at.trader.GetMarketPrice)
+		if hzErr != nil {
+			return fmt.Errorf("HZ initial-margin target conversion: %w", hzErr)
 		}
 		for key, rawTarget := range hzTarget {
 			symbol, _, ok := splitPosKey(key)
@@ -432,12 +456,14 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 	var syncErrs []string
 	mirrorMarketNeedRetry := false
 	mirrorCloseNeedRetry := false
+	hzRiskIncreaseBlocked := false
 
-	// Ensure follower leverage matches master per-symbol leverage.
+	// Ensure follower leverage matches master per-symbol leverage. HZ applies
+	// margin mode and leverage per target leg immediately before each order.
 	seen := map[string]bool{}
 	for _, mp := range wire.Positions {
 		sym := strings.TrimSpace(mp.Symbol)
-		if sym != "" && !seen[sym] {
+		if sym != "" && !seen[sym] && !hzExternal {
 			seen[sym] = true
 			lev := masterLevBySymbol[sym]
 			if lev < 1 {
@@ -570,6 +596,12 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 		}
 		if closeErr != nil {
 			msg := fmt.Sprintf("❌ v2 平仓失败 %s: %v", k, closeErr)
+			if hzExternal {
+				msg += "（HZ 目标归零失败，本轮保持失败并重试）"
+				record.ExecutionLog = append(record.ExecutionLog, msg)
+				mirrorCloseNeedRetry = true
+				continue
+			}
 			es := strings.ToLower(closeErr.Error())
 			if strings.Contains(es, "2019") || strings.Contains(es, "margin is insufficient") || strings.Contains(es, "position size too small") || strings.Contains(es, "notional") || strings.Contains(es, "2010") || mirrorIsBinanceAPIAuthOrWhitelistError(es) || strings.Contains(es, "1121") || strings.Contains(es, "invalid symbol") {
 				if mirrorIsBinanceAPIAuthOrWhitelistError(es) {
@@ -648,6 +680,7 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			continue
 		}
 		if hzExternal && !hzMirrorDeltaAllowed(delta, wire.OccurredAt, time.Now(), closeOnly) {
+			hzRiskIncreaseBlocked = true
 			if record != nil {
 				reason := "余额不足，close-only 禁止增加风险"
 				if !closeOnly {
@@ -708,8 +741,23 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 		}
 
-		if err := at.trader.SetMarginMode(sym, at.config.IsCrossMargin); err != nil {
-			logger.Infof("v2 镜像: SetMarginMode %s: %v", sym, err)
+		if !hzExternal {
+			if err := at.trader.SetMarginMode(sym, at.config.IsCrossMargin); err != nil {
+				logger.Infof("v2 镜像: SetMarginMode %s: %v", sym, err)
+			}
+		}
+
+		if delta > 0 && hzExternal {
+			leg, ok := hzLegs[k]
+			if !ok {
+				return fmt.Errorf("HZ initial-margin settings missing for %s", k)
+			}
+			if err := at.trader.SetMarginMode(sym, leg.crossMargin); err != nil {
+				return fmt.Errorf("HZ set master margin mode for %s: %w", k, err)
+			}
+			if err := at.trader.SetLeverage(sym, leg.leverage); err != nil {
+				return fmt.Errorf("HZ set master leverage for %s: %w", k, err)
+			}
 		}
 
 		if delta > 0 {
@@ -721,16 +769,22 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 			// ---- 加仓：WS API 优先，失败回退 REST ----
 			posLev := masterLevBySymbol[sym]
+			if hzExternal {
+				posLev = hzLegs[k].leverage
+			}
 			if posLev < 1 {
 				posLev = fl
 			}
 			addQty := delta
 			price, _ := at.trader.GetMarketPrice(sym)
-			if !mt4Mirror {
+			if !mt4Mirror && !hzExternal {
 				addQty = clampMirrorScaledQtyByAvailable(at, sym, 0, addQty, posLev, false, record)
 				addQty = clampMirrorScaledQtyByAvailable(at, sym, price, addQty, posLev, false, record)
 			}
 			if addQty < 1e-12 {
+				if hzExternal {
+					return fmt.Errorf("HZ initial-margin target for %s is below executable quantity", k)
+				}
 				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf(
 					"v2 订单同步: %s %s 可用保证金不足，跳过（跟单账户太小）", sym, side))
 				continue
@@ -775,6 +829,12 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 			if openErr != nil {
 				msg := fmt.Sprintf("❌ v2 市价加%s %s qty=%.6f: %v", side, sym, addQty, openErr)
+				if hzExternal {
+					msg += "（HZ 初始保证金比例目标禁止缩量，本轮保持失败并重试）"
+					record.ExecutionLog = append(record.ExecutionLog, msg)
+					mirrorMarketNeedRetry = true
+					continue
+				}
 				es := strings.ToLower(openErr.Error())
 				if strings.Contains(es, "2019") || strings.Contains(es, "margin is insufficient") || strings.Contains(es, "position size too small") || strings.Contains(es, "notional") || strings.Contains(es, "2010") || mirrorIsBinanceAPIAuthOrWhitelistError(es) || strings.Contains(es, "1121") || strings.Contains(es, "invalid symbol") {
 					if mt4Mirror {
@@ -861,6 +921,12 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 			}
 			if closeErr != nil {
 				msg := fmt.Sprintf("❌ v2 部分平%s %s qty=%.6f: %v", side, sym, closeQty, closeErr)
+				if hzExternal {
+					msg += "（HZ 减仓目标禁止偏离，本轮保持失败并重试）"
+					record.ExecutionLog = append(record.ExecutionLog, msg)
+					mirrorMarketNeedRetry = true
+					continue
+				}
 				es := strings.ToLower(closeErr.Error())
 				if strings.Contains(es, "2019") || strings.Contains(es, "margin is insufficient") || strings.Contains(es, "position size too small") || strings.Contains(es, "notional") || strings.Contains(es, "2010") || mirrorIsBinanceAPIAuthOrWhitelistError(es) || strings.Contains(es, "1121") || strings.Contains(es, "invalid symbol") {
 					if mirrorIsBinanceAPIAuthOrWhitelistError(es) {
@@ -916,8 +982,13 @@ func (at *AutoTrader) reconcileComkunFollowMasterStateV2(ctx *kernel.Context, br
 				return fmt.Errorf("mirror_transient: v2 MT4 市价镜像最终持仓未对齐（%w）", err)
 			}
 		}
+		if hzExternal && !hzRiskIncreaseBlocked {
+			if err := mirrorMarketTargetMismatch(masterTarget, foll, at.trader); err != nil {
+				return fmt.Errorf("mirror_transient: HZ initial-margin target not aligned (%w)", err)
+			}
+		}
 		if mirrorMarketNeedRetry || mirrorCloseNeedRetry {
-			return fmt.Errorf("mirror_transient: v2 网页镜像市价同步未完成（加仓/全平/部分平仓重试中）")
+			return fmt.Errorf("mirror_transient: v2 market mirror not aligned (open/close/reduce retry pending)")
 		}
 		if record != nil {
 			record.ExecutionLog = append(record.ExecutionLog,

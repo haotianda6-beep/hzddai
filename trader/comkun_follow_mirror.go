@@ -599,37 +599,75 @@ func buildMirrorMasterTargetFromWire(wire *comkunMasterStateWire, masterEq, foll
 	return masterTarget
 }
 
-type hzLotsQuantityConverter func(symbol string, lots float64) (float64, error)
+type hzTargetPriceResolver func(symbol string) (float64, error)
 
-func hzScaledPositionQuantity(mp kernel.PositionInfo, masterEq, followerEq float64, convert hzLotsQuantityConverter) (float64, error) {
-	if masterEq <= 0 || followerEq <= 0 || mp.Lots <= 0 || convert == nil {
-		return 0, nil
-	}
-	quantity, err := convert(mp.Symbol, mp.Lots)
-	if err != nil {
-		return 0, err
-	}
-	return math.Abs(quantity) * followerEq / masterEq, nil
+type hzInitialMarginLeg struct {
+	symbol        string
+	initialMargin float64
+	leverage      int
+	crossMargin   bool
 }
 
-func buildHZMasterTargetFromWire(wire *comkunMasterStateWire, masterEq, followerEq float64, convert hzLotsQuantityConverter) (map[string]float64, error) {
-	target := make(map[string]float64)
+func collectHZInitialMarginLegs(wire *comkunMasterStateWire) (map[string]hzInitialMarginLeg, error) {
 	if wire == nil {
-		return target, nil
+		return nil, fmt.Errorf("HZ master state is missing")
 	}
+	legs := make(map[string]hzInitialMarginLeg)
 	for _, position := range wire.Positions {
-		symbol := strings.TrimSpace(position.Symbol)
+		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
 		side := strings.ToLower(strings.TrimSpace(position.Side))
-		if symbol == "" || (side != "long" && side != "short") {
-			continue
+		mode := strings.ToLower(strings.TrimSpace(position.MarginMode))
+		if symbol == "" || (side != "long" && side != "short") || position.Leverage <= 0 ||
+			position.MarginUsed <= 0 || (mode != "cross" && mode != "isolated") {
+			return nil, fmt.Errorf("invalid HZ master sizing metadata for %s %s", symbol, side)
 		}
-		quantity, err := hzScaledPositionQuantity(position, masterEq, followerEq, convert)
-		if err != nil {
-			return nil, err
+		key := posKey(symbol, side)
+		leg := legs[key]
+		if leg.leverage > 0 && (leg.leverage != position.Leverage || leg.crossMargin != (mode == "cross")) {
+			return nil, fmt.Errorf("inconsistent HZ master leverage or margin mode for %s", key)
 		}
-		if quantity > 0 {
-			target[posKey(symbol, side)] += quantity
+		leg.symbol = symbol
+		leg.initialMargin += position.MarginUsed
+		leg.leverage = position.Leverage
+		leg.crossMargin = mode == "cross"
+		legs[key] = leg
+	}
+	return legs, nil
+}
+
+// buildHZInitialMarginTargetFromWire maps each master leg's actual initial
+// margin/equity ratio onto the follower's current AI equity. Quantity is then
+// derived from the follower's current BALIB price and the master's leverage.
+func buildHZInitialMarginTargetFromWire(wire *comkunMasterStateWire, masterEq, followerEq float64, price hzTargetPriceResolver) (map[string]float64, error) {
+	if masterEq <= 0 || math.IsNaN(masterEq) || math.IsInf(masterEq, 0) ||
+		followerEq <= 0 || math.IsNaN(followerEq) || math.IsInf(followerEq, 0) || price == nil {
+		return nil, fmt.Errorf("invalid HZ master or follower equity")
+	}
+	legs, err := collectHZInitialMarginLegs(wire)
+	if err != nil {
+		return nil, err
+	}
+	target := make(map[string]float64, len(legs))
+	prices := make(map[string]float64, len(legs))
+	for key, leg := range legs {
+		currentPrice := prices[leg.symbol]
+		if currentPrice == 0 {
+			currentPrice, err = price(leg.symbol)
+			if err != nil {
+				return nil, fmt.Errorf("HZ follower price for %s: %w", leg.symbol, err)
+			}
+			if currentPrice <= 0 || math.IsNaN(currentPrice) || math.IsInf(currentPrice, 0) {
+				return nil, fmt.Errorf("invalid HZ follower price for %s", leg.symbol)
+			}
+			prices[leg.symbol] = currentPrice
 		}
+		masterRatio := leg.initialMargin / masterEq
+		followerInitialMargin := followerEq * masterRatio
+		quantity := followerInitialMargin * float64(leg.leverage) / currentPrice
+		if quantity <= 0 || math.IsNaN(quantity) || math.IsInf(quantity, 0) {
+			return nil, fmt.Errorf("invalid HZ follower target for %s", key)
+		}
+		target[key] = quantity
 	}
 	return target, nil
 }

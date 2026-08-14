@@ -98,6 +98,28 @@ func TestAcceptedHZMasterPositionStartsMarketWatch(t *testing.T) {
 	}
 }
 
+func TestHZMasterStatePreservesInitialMarginAndMarginMode(t *testing.T) {
+	request := hzMasterEventRequest{
+		EventID: "event-margin", Sequence: "1", EventType: "OPEN",
+		OccurredAt: time.Now().UTC(), MasterAccountID: "master-human-account",
+		Account: hzMasterTestAccount(), Positions: hzMasterTestPositions(),
+	}
+	if err := request.validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := request.masterStateJSON(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state hzMasterState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Positions) != 1 || state.Positions[0].MarginUsed != 25 || state.Positions[0].MarginMode != "cross" {
+		t.Fatalf("position sizing metadata not preserved: %+v", state.Positions)
+	}
+}
+
 func TestHZMasterEventEndpointRejectsExpiredSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv(hzMasterEventSecretEnv, "test-secret")
@@ -345,6 +367,7 @@ func hzMasterTestPositions() []hzMasterPosition {
 	return []hzMasterPosition{{
 		PositionID: "position-1", Instrument: "BTC-PERP", Side: "LONG", MarginMode: "CROSS",
 		Leverage: 10, Lots: "0.25", PositionValue: "250", EntryPrice: "1000", CurrentPrice: "1000",
+		InitialMargin: "25", UnrealizedPnL: "0",
 	}}
 }
 
