@@ -246,7 +246,9 @@ function MiniSparkPathReal(
   fallbackId: string,
   up: boolean
 ): string {
-  const clean = (values ?? []).filter((v) => Number.isFinite(v) && v > 0)
+  const clean = (values ?? [])
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .slice(-60)
   if (clean.length < 2) return MiniSparkPath(fallbackId, up)
   const min = Math.min(...clean)
   const max = Math.max(...clean)
