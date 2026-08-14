@@ -29,8 +29,14 @@ import { getModelDisplayName } from '../components/trader/model-constants'
 import { getModelIcon } from '../components/common/ModelIcons'
 import { getExchangeIcon } from '../components/common/ExchangeIcons'
 import './strategy-market-ai3.css'
-import { stripStrategyTitleParenthetical } from '../lib/strategyMarketDisplay'
-import { MARKET_SUB_MONTHLY_USDT, MARKET_SUB_WEEKLY_TRIAL_USDT } from '../lib/strategyMarketPricing'
+import {
+  isHistoricalOnlyStrategy,
+  stripStrategyTitleParenthetical,
+} from '../lib/strategyMarketDisplay'
+import {
+  MARKET_SUB_MONTHLY_USDT,
+  MARKET_SUB_WEEKLY_TRIAL_USDT,
+} from '../lib/strategyMarketPricing'
 import { findExistingForkIdForMarketSource } from '../lib/marketStrategyFork'
 import {
   formatUserFacingError,
@@ -51,7 +57,10 @@ function publicStrategiesListUrl(): string {
   if (import.meta.env.PROD) {
     return '/api/strategies/public'
   }
-  const b = (import.meta.env.VITE_API_BASE as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  const b =
+    (import.meta.env.VITE_API_BASE as string | undefined)
+      ?.trim()
+      .replace(/\/$/, '') ?? ''
   return b ? `${b}/api/strategies/public` : '/api/strategies/public'
 }
 
@@ -76,6 +85,10 @@ interface PublicStrategy {
   market_ai_model?: string
   /** 后端根据绑定交易员推断的交易所类型，如 OKX、BINANCE */
   exchange_type?: string
+  performance_only?: boolean
+  performance_source?: string
+  performance_disclosure?: string
+  realtime_follow_available?: boolean
   stats?: {
     used_by: number
     rating: number
@@ -94,14 +107,24 @@ interface PublicStrategy {
 
 function marketAccessOf(s: PublicStrategy): StrategyMarketAccess {
   const a = s.market_access
-  if (a === 'subscription' || a === 'public' || a === 'open_source' || a === 'private') return a
+  if (
+    a === 'subscription' ||
+    a === 'public' ||
+    a === 'open_source' ||
+    a === 'private'
+  )
+    return a
   if (s.is_public && s.config_visible) return 'public'
   if (s.is_public) return 'subscription'
   return 'private'
 }
 
 function isFreeSubscriptionStrategy(s: PublicStrategy): boolean {
-  return marketAccessOf(s) === 'subscription' && typeof s.market_sale_price_usdt === 'number' && s.market_sale_price_usdt <= 0
+  return (
+    marketAccessOf(s) === 'subscription' &&
+    typeof s.market_sale_price_usdt === 'number' &&
+    s.market_sale_price_usdt <= 0
+  )
 }
 
 const strategyStyles: Record<
@@ -184,8 +207,10 @@ function getStrategyStyle(name: string) {
   if (lower.includes('scalp')) return strategyStyles.scalper
   if (lower.includes('swing')) return strategyStyles.swing
   if (lower.includes('arb')) return strategyStyles.arbitrage
-  if (lower.includes('safe') || lower.includes('conserv')) return strategyStyles.conservative
-  if (lower.includes('aggress') || lower.includes('high')) return strategyStyles.aggressive
+  if (lower.includes('safe') || lower.includes('conserv'))
+    return strategyStyles.conservative
+  if (lower.includes('aggress') || lower.includes('high'))
+    return strategyStyles.aggressive
   return strategyStyles.default
 }
 
@@ -208,7 +233,11 @@ function MiniSparkPath(id: string, up: boolean): string {
   return `M${pts.join(' L')}`
 }
 
-function MiniSparkPathReal(values: number[] | undefined, fallbackId: string, up: boolean): string {
+function MiniSparkPathReal(
+  values: number[] | undefined,
+  fallbackId: string,
+  up: boolean
+): string {
   const clean = (values ?? []).filter((v) => Number.isFinite(v) && v > 0)
   if (clean.length < 2) return MiniSparkPath(fallbackId, up)
   const min = Math.min(...clean)
@@ -226,11 +255,14 @@ function MiniSparkPathReal(values: number[] | undefined, fallbackId: string, up:
 function formatShortDate(dateStr: string, lang: string) {
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString(lang === 'zh' ? 'zh-CN' : lang === 'id' ? 'id-ID' : 'en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
+  return d.toLocaleDateString(
+    lang === 'zh' ? 'zh-CN' : lang === 'id' ? 'id-ID' : 'en-US',
+    {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }
+  )
 }
 
 const PAGE_SIZE = 10
@@ -239,7 +271,10 @@ const HIDDEN_MARKET_STRATEGY_IDS = new Set([
   'bn-screen-mirror-test04-2560c95f',
   'mt5-xau-martingale-bn-draft-v1',
 ])
-const MARKET_CREATOR_DISGUISES: Record<string, { name: string; avatar: string }> = {
+const MARKET_CREATOR_DISGUISES: Record<
+  string,
+  { name: string; avatar: string }
+> = {
   [MAINSTREAM_CALM_STRATEGY_ID]: {
     name: '青衫量化',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=qingshan-quant',
@@ -268,7 +303,10 @@ function isReturnValueUp(v: number | undefined): boolean {
 }
 
 /** 列表页单独展示的 7 日收益（详情页仍用接口原始 stats）；匹配策略名称子串 */
-function marketListDisplayReturn7dPct(strategyName: string, raw: number | undefined): number | undefined {
+function marketListDisplayReturn7dPct(
+  strategyName: string,
+  raw: number | undefined
+): number | undefined {
   const n = strategyName.trim()
   if (n.includes('只做主流币,冷静处理行情')) return raw
   if (n.includes('静默测试')) return 236.47
@@ -345,16 +383,22 @@ function applyTradeHistoryMarketOverrides(s: PublicStrategy): PublicStrategy {
   return {
     ...s,
     name: isBnSmartOperation ? '全智能操作,解放双手' : s.name,
-    market_revision: s.id === MAINSTREAM_CALM_STRATEGY_ID ? 1.3 : isBnSmartOperation ? 1.4 : s.market_revision,
+    market_revision:
+      s.id === MAINSTREAM_CALM_STRATEGY_ID
+        ? 1.3
+        : isBnSmartOperation
+          ? 1.4
+          : s.market_revision,
     stats: {
       ...s.stats,
       used_by: s.stats?.used_by ?? 0,
       rating: s.stats?.rating ?? 0,
-      total_aum: s.id === OKX_STABLE_STRATEGY_ID
-        ? 769054
-        : isBnSmartOperation
-          ? performance.initialCapital + performance.aggregate.stats.total_pnl
-          : s.stats?.total_aum,
+      total_aum:
+        s.id === OKX_STABLE_STRATEGY_ID
+          ? 769054
+          : isBnSmartOperation
+            ? performance.initialCapital + performance.aggregate.stats.total_pnl
+            : s.stats?.total_aum,
       return_7d_pct: performance.returnPct,
       max_drawdown_pct: -Math.abs(performance.aggregate.stats.max_drawdown_pct),
       trend: performance.trend,
@@ -367,12 +411,19 @@ export function StrategyMarketPage() {
   const { language } = useLanguage()
   const { token, applyUserProfile } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
-  const [listMode, setListMode] = useState<'trend' | 'recent' | 'yield'>('trend')
+  const [listMode, setListMode] = useState<'trend' | 'recent' | 'yield'>(
+    'trend'
+  )
   /** 权限分类筛选 */
-  const [permFilter, setPermFilter] = useState<'all' | 'subscription' | 'public' | 'open_source'>('all')
+  const [permFilter, setPermFilter] = useState<
+    'all' | 'subscription' | 'public' | 'open_source'
+  >('all')
   const [page, setPage] = useState(1)
-  const [purchaseStrategy, setPurchaseStrategy] = useState<PublicStrategy | null>(null)
-  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>('monthly')
+  const [purchaseStrategy, setPurchaseStrategy] =
+    useState<PublicStrategy | null>(null)
+  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>(
+    'monthly'
+  )
   const [purchaseBusy, setPurchaseBusy] = useState(false)
 
   const { data: walletData, mutate: mutateWallet } = useSWR(
@@ -422,7 +473,11 @@ export function StrategyMarketPage() {
       const response = await fetch(url, { credentials: 'same-origin' })
       if (!response.ok) {
         const body = await response.text().catch(() => '')
-        throwUserFacingFetchError(response.status, body, language === 'zh' ? 'zh' : 'en')
+        throwUserFacingFetchError(
+          response.status,
+          body,
+          language === 'zh' ? 'zh' : 'en'
+        )
       }
       const data = await response.json()
       return data.strategies || []
@@ -444,7 +499,8 @@ export function StrategyMarketPage() {
       const q = searchQuery.toLowerCase()
       list = list.filter(
         (s) =>
-          s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
+          s.name.toLowerCase().includes(q) ||
+          (s.description || '').toLowerCase().includes(q)
       )
     }
     if (permFilter !== 'all') {
@@ -453,7 +509,10 @@ export function StrategyMarketPage() {
 
     const copy = [...list]
     if (listMode === 'recent') {
-      copy.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      copy.sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      )
     } else if (listMode === 'yield') {
       copy.sort((a, b) => {
         const ua = a.stats?.return_7d_pct ?? -999999
@@ -519,15 +578,21 @@ export function StrategyMarketPage() {
     const finishOpenFork = async (targetId: string, reused: boolean) => {
       try {
         if (kind === 'open_source' && strategy.config) {
-          await navigator.clipboard.writeText(JSON.stringify(strategy.config, null, 2))
+          await navigator.clipboard.writeText(
+            JSON.stringify(strategy.config, null, 2)
+          )
         } else if (kind === 'purchase' || kind === 'sub_owned') {
           const data = await api.getMarketOwnedStrategy(strategy.id)
-          await navigator.clipboard.writeText(JSON.stringify(data.config, null, 2))
+          await navigator.clipboard.writeText(
+            JSON.stringify(data.config, null, 2)
+          )
         }
       } catch {
         /* 剪贴板失败不阻断 */
       }
-      toast.success(tr(reused ? 'toastOpenExistingFork' : 'toastAddedToStrategies'))
+      toast.success(
+        tr(reused ? 'toastOpenExistingFork' : 'toastAddedToStrategies')
+      )
       navigate(`${ROUTES.strategy}?id=${encodeURIComponent(targetId)}`)
     }
 
@@ -541,6 +606,14 @@ export function StrategyMarketPage() {
   }
 
   const handleActionClick = (strategy: PublicStrategy) => {
+    if (isHistoricalOnlyStrategy(strategy)) {
+      toast.info(
+        language === 'zh'
+          ? '该策略仅展示历史行情场景，暂不支持实时跟单'
+          : 'Historical scenario only; live copy trading is unavailable'
+      )
+      return
+    }
     const acc = marketAccessOf(strategy)
     if (acc === 'private' || acc === 'subscription') {
       if (!token) {
@@ -584,8 +657,13 @@ export function StrategyMarketPage() {
     if (!purchaseStrategy) return
     setPurchaseBusy(true)
     try {
-      const res = await api.postMarketPurchase(purchaseStrategy.id, isFreeSubscriptionStrategy(purchaseStrategy) ? 'free' : purchasePlan)
-      toast.success(res.message || (language === 'zh' ? '购买成功' : 'Purchased'))
+      const res = await api.postMarketPurchase(
+        purchaseStrategy.id,
+        isFreeSubscriptionStrategy(purchaseStrategy) ? 'free' : purchasePlan
+      )
+      toast.success(
+        res.message || (language === 'zh' ? '购买成功' : 'Purchased')
+      )
       await mutateWallet()
       applyUserProfile({ balance_usdt: res.balance_usdt })
       try {
@@ -607,12 +685,18 @@ export function StrategyMarketPage() {
     const acc = marketAccessOf(s)
     const owned = entitlementIds.has(s.id)
     const paid = acc === 'subscription' || acc === 'private'
+    const historicalOnly = isHistoricalOnlyStrategy(s)
 
     let label: string
     let icon: JSX.Element
     let btnClass: string
 
-    if (acc === 'public' || acc === 'open_source') {
+    if (historicalOnly) {
+      label = language === 'zh' ? '仅历史展示' : 'Historical only'
+      icon = <EyeOff className="h-3.5 w-3.5" aria-hidden />
+      btnClass =
+        'cursor-not-allowed border border-amber-500/30 bg-amber-500/10 text-amber-200 opacity-90'
+    } else if (acc === 'public' || acc === 'open_source') {
       label = tr('actionAddToStrategies')
       icon = <Copy className="h-3.5 w-3.5" aria-hidden />
       btnClass =
@@ -637,7 +721,15 @@ export function StrategyMarketPage() {
     return (
       <button
         type="button"
+        disabled={historicalOnly}
         onClick={() => handleActionClick(s)}
+        title={
+          historicalOnly
+            ? language === 'zh'
+              ? '历史行情场景数据，非实盘收益，暂不支持实时跟单'
+              : 'Historical scenario data; live copy trading is unavailable'
+            : undefined
+        }
         className={`inline-flex h-11 items-center justify-center rounded-lg px-3 text-xs font-bold transition-all ${fullWidth ? 'w-full' : ''} ${btnClass}`}
       >
         <span className="inline-flex items-center gap-1">
@@ -652,7 +744,10 @@ export function StrategyMarketPage() {
     <div className="strategy-market-ai3 min-h-screen bg-surface pb-14 text-on-surface selection:bg-primary/30 selection:text-on-primary-container font-[Inter,system-ui,sans-serif]">
       {/* 顶栏由全局 AppChrome + HeaderBar 提供，此处不再重复固定导航 */}
       <main className="min-h-screen pt-0">
-        <div className="fixed inset-0 -z-10 ai3-noise bg-cover bg-center" aria-hidden />
+        <div
+          className="fixed inset-0 -z-10 ai3-noise bg-cover bg-center"
+          aria-hidden
+        />
 
         <div className="px-4 pb-8 pt-6 sm:px-8 sm:pt-8">
           <div className="mb-8 flex flex-col gap-4 text-left sm:mb-10">
@@ -660,7 +755,9 @@ export function StrategyMarketPage() {
               <h1 className="font-['Space_Grotesk',sans-serif] text-3xl font-bold tracking-tight text-on-surface sm:text-4xl">
                 {tr('title')}
               </h1>
-              <p className="mt-2 font-light text-on-surface-variant">{tr('descriptionLum')}</p>
+              <p className="mt-2 font-light text-on-surface-variant">
+                {tr('descriptionLum')}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center rounded-full border border-outline-variant/10 bg-surface-container-high p-1">
@@ -678,16 +775,25 @@ export function StrategyMarketPage() {
                         : 'text-on-surface-variant hover:text-on-surface'
                     }`}
                   >
-                    {m === 'trend' ? tr('filterTrend') : m === 'recent' ? tr('filterRecent') : tr('filterHighYield')}
+                    {m === 'trend'
+                      ? tr('filterTrend')
+                      : m === 'recent'
+                        ? tr('filterRecent')
+                        : tr('filterHighYield')}
                   </button>
                 ))}
               </div>
             </div>
             <div className="flex flex-col gap-3 rounded-xl border border-outline-variant/15 bg-surface-container-low/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-3 text-sm">
-                <Wallet className="h-4 w-4 shrink-0 text-primary-container" aria-hidden />
+                <Wallet
+                  className="h-4 w-4 shrink-0 text-primary-container"
+                  aria-hidden
+                />
                 <span className="text-on-surface-variant">
-                  {language === 'zh' ? '站内余额（购买订阅/仅展示策略）' : 'Platform balance'}
+                  {language === 'zh'
+                    ? '站内余额（购买订阅/仅展示策略）'
+                    : 'Platform balance'}
                 </span>
                 <span className="font-['Space_Grotesk',sans-serif] text-lg font-bold tabular-nums text-[#d4ff33]">
                   {(walletData?.balance_usdt ?? 0).toFixed(2)} USDT
@@ -702,35 +808,47 @@ export function StrategyMarketPage() {
                   {language === 'zh' ? '去充值' : 'Recharge'}
                 </button>
               ) : (
-                <span className="text-xs text-on-surface-variant">{language === 'zh' ? '登录后可充值与购买' : 'Sign in to recharge'}</span>
+                <span className="text-xs text-on-surface-variant">
+                  {language === 'zh'
+                    ? '登录后可充值与购买'
+                    : 'Sign in to recharge'}
+                </span>
               )}
             </div>
           </div>
 
-          {token && (walletData?.market_subscription_alerts?.length ?? 0) > 0 && (
-            <div className="mb-6 space-y-2">
-              {(walletData?.market_subscription_alerts ?? []).map((a, i) => (
-                <div
-                  key={`${a.strategy_id}-${a.kind}-${i}`}
-                  className={`rounded-xl border px-4 py-3 text-sm ${
-                    a.kind === 'expiring_soon'
-                      ? 'border-amber-500/45 bg-amber-950/35 text-amber-50'
-                      : 'border-zinc-600/55 bg-zinc-900/55 text-zinc-200'
-                  }`}
-                >
-                  {language === 'zh' ? a.message_zh : a.message_en ?? a.message_zh}
-                </div>
-              ))}
-            </div>
-          )}
+          {token &&
+            (walletData?.market_subscription_alerts?.length ?? 0) > 0 && (
+              <div className="mb-6 space-y-2">
+                {(walletData?.market_subscription_alerts ?? []).map((a, i) => (
+                  <div
+                    key={`${a.strategy_id}-${a.kind}-${i}`}
+                    className={`rounded-xl border px-4 py-3 text-sm ${
+                      a.kind === 'expiring_soon'
+                        ? 'border-amber-500/45 bg-amber-950/35 text-amber-50'
+                        : 'border-zinc-600/55 bg-zinc-900/55 text-zinc-200'
+                    }`}
+                  >
+                    {language === 'zh'
+                      ? a.message_zh
+                      : (a.message_en ?? a.message_zh)}
+                  </div>
+                ))}
+              </div>
+            )}
 
           {strategiesError && (
             <div className="mb-6 rounded-xl border border-red-500/35 bg-red-950/50 px-4 py-4 text-left text-sm text-red-100">
               <p className="font-bold">
-                {language === 'zh' ? '策略列表加载失败' : 'Failed to load market strategies'}
+                {language === 'zh'
+                  ? '策略列表加载失败'
+                  : 'Failed to load market strategies'}
               </p>
               <p className="mt-2 text-sm text-red-200/90">
-                {formatUserFacingError(strategiesError, language === 'zh' ? 'zh' : 'en')}
+                {formatUserFacingError(
+                  strategiesError,
+                  language === 'zh' ? 'zh' : 'en'
+                )}
               </p>
               <button
                 type="button"
@@ -745,7 +863,9 @@ export function StrategyMarketPage() {
           {isLoading && strategies === undefined && !strategiesError && (
             <div className="flex flex-col items-center justify-center py-24">
               <Sparkles className="h-10 w-10 animate-pulse text-primary-container" />
-              <p className="mt-4 text-sm text-on-surface-variant">{tr('loading')}</p>
+              <p className="mt-4 text-sm text-on-surface-variant">
+                {tr('loading')}
+              </p>
             </div>
           )}
 
@@ -758,7 +878,9 @@ export function StrategyMarketPage() {
                 <h3 className="font-['Space_Grotesk',sans-serif] text-lg font-bold text-on-surface">
                   {tr('noStrategies')}
                 </h3>
-                <p className="mt-2 text-sm text-on-surface-variant">{tr('noStrategiesDesc')}</p>
+                <p className="mt-2 text-sm text-on-surface-variant">
+                  {tr('noStrategiesDesc')}
+                </p>
               </div>
             )}
 
@@ -783,16 +905,33 @@ export function StrategyMarketPage() {
                   const cav = creatorAvatar(s)
                   const modelId = s.market_ai_model || ''
                   const modelName = getModelDisplayName(modelId)
-                  const modelIcon = getModelIcon(modelId, { width: 16, height: 16, className: 'opacity-90' })
-                  const exchangeSlug = (s.exchange_type ?? '').trim().toLowerCase()
-                  const retValue = marketListDisplayReturn7dPct(s.name, s.stats?.return_7d_pct)
+                  const modelIcon = getModelIcon(modelId, {
+                    width: 16,
+                    height: 16,
+                    className: 'opacity-90',
+                  })
+                  const exchangeSlug = (s.exchange_type ?? '')
+                    .trim()
+                    .toLowerCase()
+                  const retValue = marketListDisplayReturn7dPct(
+                    s.name,
+                    s.stats?.return_7d_pct
+                  )
                   const ret = formatReturnPct(retValue)
                   const up = isReturnValueUp(retValue)
                   const subs = s.stats?.subscribers ?? 0
                   const rankLabel =
-                    language === 'zh' ? `第 ${idx + 1} 位` : language === 'id' ? `#${idx + 1}` : `#${idx + 1}`
+                    language === 'zh'
+                      ? `第 ${idx + 1} 位`
+                      : language === 'id'
+                        ? `#${idx + 1}`
+                        : `#${idx + 1}`
                   const stratBadge =
-                    language === 'zh' ? '策略' : language === 'id' ? 'Strategi' : 'Strategy'
+                    language === 'zh'
+                      ? '策略'
+                      : language === 'id'
+                        ? 'Strategi'
+                        : 'Strategy'
                   const to = strategyMarketDetailPath(s.id)
                   return (
                     <Link
@@ -840,7 +979,10 @@ export function StrategyMarketPage() {
                       <div className="mb-4 border-b border-zinc-600/60" />
                       <div className="space-y-2.5 text-sm text-zinc-400">
                         <div className="flex flex-wrap items-center gap-2">
-                          <User className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                          <User
+                            className="h-4 w-4 shrink-0 text-zinc-500"
+                            aria-hidden
+                          />
                           {cav ? (
                             <img
                               src={cav}
@@ -852,7 +994,9 @@ export function StrategyMarketPage() {
                               {cname[0] ?? '?'}
                             </div>
                           )}
-                          <span className="max-w-[10rem] truncate font-medium text-zinc-200">{cname}</span>
+                          <span className="max-w-[10rem] truncate font-medium text-zinc-200">
+                            {cname}
+                          </span>
                           <span className="text-zinc-600">·</span>
                           <span className="text-zinc-400">
                             {subs} {tr('subsLabel')}
@@ -860,11 +1004,19 @@ export function StrategyMarketPage() {
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                           <span className="inline-flex items-center gap-2">
-                            <span className="h-4 w-4 shrink-0 text-center text-zinc-500" aria-hidden>
-                              {modelIcon || <span className="text-[11px] font-bold">AI</span>}
+                            <span
+                              className="h-4 w-4 shrink-0 text-center text-zinc-500"
+                              aria-hidden
+                            >
+                              {modelIcon || (
+                                <span className="text-[11px] font-bold">
+                                  AI
+                                </span>
+                              )}
                             </span>
                             <span className="text-zinc-300">
-                              {language === 'zh' ? 'AI 模型' : 'AI'}：{modelName}
+                              {language === 'zh' ? 'AI 模型' : 'AI'}：
+                              {modelName}
                             </span>
                           </span>
                           {exchangeSlug ? (
@@ -872,7 +1024,10 @@ export function StrategyMarketPage() {
                               <span className="text-zinc-600" aria-hidden>
                                 ·
                               </span>
-                              <span className="flex shrink-0 items-center" aria-hidden>
+                              <span
+                                className="flex shrink-0 items-center"
+                                aria-hidden
+                              >
                                 {getExchangeIcon(exchangeSlug, {
                                   width: 16,
                                   height: 16,
@@ -887,7 +1042,10 @@ export function StrategyMarketPage() {
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
-                          <Wallet className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                          <Wallet
+                            className="h-4 w-4 shrink-0 text-zinc-500"
+                            aria-hidden
+                          />
                           <span className="tabular-nums text-zinc-300">
                             {formatAum(s.stats?.total_aum)} USDT
                           </span>
@@ -925,16 +1083,24 @@ export function StrategyMarketPage() {
                         value={permFilter}
                         onChange={(e) => {
                           setPermFilter(
-                            e.target.value as 'all' | 'subscription' | 'public' | 'open_source'
+                            e.target.value as
+                              | 'all'
+                              | 'subscription'
+                              | 'public'
+                              | 'open_source'
                           )
                           setPage(1)
                         }}
                         className="w-full cursor-pointer rounded-lg border border-outline-variant/20 bg-surface-container-highest py-2 pl-3 pr-8 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
                       >
                         <option value="all">{tr('permFilterAll')}</option>
-                        <option value="subscription">{tr('permFilterSubscription')}</option>
+                        <option value="subscription">
+                          {tr('permFilterSubscription')}
+                        </option>
                         <option value="public">{tr('permFilterPublic')}</option>
-                        <option value="open_source">{tr('permFilterOpenSource')}</option>
+                        <option value="open_source">
+                          {tr('permFilterOpenSource')}
+                        </option>
                       </select>
                     </label>
                   </div>
@@ -947,9 +1113,18 @@ export function StrategyMarketPage() {
                     const cav = creatorAvatar(s)
                     const modelId = s.market_ai_model || ''
                     const modelName = getModelDisplayName(modelId)
-                    const modelIcon = getModelIcon(modelId, { width: 14, height: 14, className: 'opacity-90' })
-                    const exchangeSlug = (s.exchange_type ?? '').trim().toLowerCase()
-                    const retValue = marketListDisplayReturn7dPct(s.name, s.stats?.return_7d_pct)
+                    const modelIcon = getModelIcon(modelId, {
+                      width: 14,
+                      height: 14,
+                      className: 'opacity-90',
+                    })
+                    const exchangeSlug = (s.exchange_type ?? '')
+                      .trim()
+                      .toLowerCase()
+                    const retValue = marketListDisplayReturn7dPct(
+                      s.name,
+                      s.stats?.return_7d_pct
+                    )
                     const ret = formatReturnPct(retValue)
                     const up = isReturnValueUp(retValue)
                     const agents = s.stats?.running_agents ?? agentCount(s)
@@ -983,7 +1158,9 @@ export function StrategyMarketPage() {
                           <div className="min-w-0 flex-1">
                             <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70">
                               <span>#{seq}</span>
-                              <span className={`rounded-full border px-2 py-0.5 ${accessClass}`}>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 ${accessClass}`}
+                              >
                                 {accessLabel}
                               </span>
                             </div>
@@ -1012,7 +1189,9 @@ export function StrategyMarketPage() {
 
                         <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface-container-high/45 p-3 text-xs">
                           <div>
-                            <div className="text-on-surface-variant">{tr('colReturn7d')}</div>
+                            <div className="text-on-surface-variant">
+                              {tr('colReturn7d')}
+                            </div>
                             <div
                               className="mt-1 font-['Space_Grotesk',sans-serif] text-base font-bold tabular-nums"
                               style={{ color: up ? CRYPTO_UP : CRYPTO_DOWN }}
@@ -1021,23 +1200,31 @@ export function StrategyMarketPage() {
                             </div>
                           </div>
                           <div>
-                            <div className="text-on-surface-variant">{tr('colAum')}</div>
+                            <div className="text-on-surface-variant">
+                              {tr('colAum')}
+                            </div>
                             <div className="mt-1 truncate font-['Space_Grotesk',sans-serif] text-sm font-semibold tabular-nums text-on-surface">
                               {formatAum(s.stats?.total_aum)} USDT
                             </div>
                           </div>
                           <div>
-                            <div className="text-on-surface-variant">{tr('colSubs')}</div>
+                            <div className="text-on-surface-variant">
+                              {tr('colSubs')}
+                            </div>
                             <div className="mt-1 font-['Space_Grotesk',sans-serif] text-sm font-semibold tabular-nums text-on-surface">
                               {s.stats?.subscribers ?? 0}
                             </div>
                           </div>
                           <div>
-                            <div className="text-on-surface-variant">{tr('colAgentsTitle')}</div>
+                            <div className="text-on-surface-variant">
+                              {tr('colAgentsTitle')}
+                            </div>
                             <div className="mt-1 inline-flex items-center gap-1.5 font-['Space_Grotesk',sans-serif] text-sm font-semibold tabular-nums text-on-surface">
                               <span
                                 className={`h-1.5 w-1.5 rounded-full ${
-                                  agents > 0 ? 'bg-[#0ECB81]' : 'bg-on-surface-variant/40'
+                                  agents > 0
+                                    ? 'bg-[#0ECB81]'
+                                    : 'bg-on-surface-variant/40'
                                 }`}
                               />
                               {agents}
@@ -1047,12 +1234,21 @@ export function StrategyMarketPage() {
 
                         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-on-surface-variant/85">
                           <span className="inline-flex min-w-0 items-center gap-1.5">
-                            <span aria-hidden>{modelIcon || <span className="text-[10px] font-bold">AI</span>}</span>
+                            <span aria-hidden>
+                              {modelIcon || (
+                                <span className="text-[10px] font-bold">
+                                  AI
+                                </span>
+                              )}
+                            </span>
                             <span className="truncate">AI：{modelName}</span>
                           </span>
                           {exchangeSlug ? (
                             <span className="inline-flex min-w-0 items-center gap-1.5">
-                              <span className="flex shrink-0 items-center" aria-hidden>
+                              <span
+                                className="flex shrink-0 items-center"
+                                aria-hidden
+                              >
                                 {getExchangeIcon(exchangeSlug, {
                                   width: 14,
                                   height: 14,
@@ -1067,7 +1263,9 @@ export function StrategyMarketPage() {
                           ) : null}
                         </div>
 
-                        <div className="mt-4">{renderActionButton(s, true)}</div>
+                        <div className="mt-4">
+                          {renderActionButton(s, true)}
+                        </div>
                       </article>
                     )
                   })}
@@ -1077,15 +1275,27 @@ export function StrategyMarketPage() {
                   <table className="w-full min-w-[960px] border-collapse text-left">
                     <thead>
                       <tr className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
-                        <th className="w-12 px-2 py-3 text-center sm:px-3">{tr('colIndex')}</th>
-                        <th className="px-4 py-3 sm:px-6">{tr('colNameAuthor')}</th>
-                        <th className="min-w-[8.5rem] whitespace-nowrap px-4 py-3">{tr('colPermission')}</th>
-                        <th className="min-w-[9rem] whitespace-nowrap px-4 py-3">{tr('colAum')}</th>
+                        <th className="w-12 px-2 py-3 text-center sm:px-3">
+                          {tr('colIndex')}
+                        </th>
+                        <th className="px-4 py-3 sm:px-6">
+                          {tr('colNameAuthor')}
+                        </th>
+                        <th className="min-w-[8.5rem] whitespace-nowrap px-4 py-3">
+                          {tr('colPermission')}
+                        </th>
+                        <th className="min-w-[9rem] whitespace-nowrap px-4 py-3">
+                          {tr('colAum')}
+                        </th>
                         <th className="px-3 py-3">{tr('colReturn7d')}</th>
-                        <th className="px-3 py-3 text-center">{tr('colDrawdown')}</th>
+                        <th className="px-3 py-3 text-center">
+                          {tr('colDrawdown')}
+                        </th>
                         <th className="px-3 py-3">{tr('colSubs')}</th>
                         <th className="px-3 py-3 normal-case">
-                          <span className="block leading-tight">{tr('colAgentsTitle')}</span>
+                          <span className="block leading-tight">
+                            {tr('colAgentsTitle')}
+                          </span>
                           <span className="mt-0.5 block text-[9px] font-normal tracking-normal text-on-surface-variant">
                             {tr('colAgentsSub')}
                           </span>
@@ -1093,7 +1303,9 @@ export function StrategyMarketPage() {
                         <th className="px-3 py-3">{tr('colRevision')}</th>
                         <th className="px-3 py-3">{tr('colPublished')}</th>
                         <th className="px-3 py-3">{tr('colTrend')}</th>
-                        <th className="px-4 py-3 text-right sm:px-6">{tr('colAction')}</th>
+                        <th className="px-4 py-3 text-right sm:px-6">
+                          {tr('colAction')}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant/5">
@@ -1104,15 +1316,27 @@ export function StrategyMarketPage() {
                         const cav = creatorAvatar(s)
                         const modelId = s.market_ai_model || ''
                         const modelName = getModelDisplayName(modelId)
-                        const modelIcon = getModelIcon(modelId, { width: 14, height: 14, className: 'opacity-90' })
-                        const exchangeSlug = (s.exchange_type ?? '').trim().toLowerCase()
-                        const retValue = marketListDisplayReturn7dPct(s.name, s.stats?.return_7d_pct)
+                        const modelIcon = getModelIcon(modelId, {
+                          width: 14,
+                          height: 14,
+                          className: 'opacity-90',
+                        })
+                        const exchangeSlug = (s.exchange_type ?? '')
+                          .trim()
+                          .toLowerCase()
+                        const retValue = marketListDisplayReturn7dPct(
+                          s.name,
+                          s.stats?.return_7d_pct
+                        )
                         const ret = formatReturnPct(retValue)
                         const up = isReturnValueUp(retValue)
                         const agents = s.stats?.running_agents ?? agentCount(s)
                         const seq = (pageSafe - 1) * PAGE_SIZE + rowIdx + 1
                         return (
-                          <tr key={s.id} className="group transition-colors hover:bg-surface-container-high/80">
+                          <tr
+                            key={s.id}
+                            className="group transition-colors hover:bg-surface-container-high/80"
+                          >
                             <td className="px-2 py-4 text-center font-mono text-xs tabular-nums text-on-surface-variant sm:px-3">
                               {seq}
                             </td>
@@ -1143,34 +1367,51 @@ export function StrategyMarketPage() {
                                         {cname[0] ?? '?'}
                                       </div>
                                     )}
-                                    <span className="truncate text-xs text-on-surface-variant">{cname}</span>
-                                  </div>
-                                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-on-surface-variant/80">
-                                  <span className="inline-flex min-w-0 items-center gap-1.5">
-                                    <span aria-hidden>{modelIcon || <span className="text-[10px] font-bold">AI</span>}</span>
-                                    <span className="truncate">
-                                      {language === 'zh' ? 'AI' : 'AI'}：{modelName}
+                                    <span className="truncate text-xs text-on-surface-variant">
+                                      {cname}
                                     </span>
-                                  </span>
-                                  {exchangeSlug ? (
-                                    <span className="inline-flex items-center gap-1.5">
-                                      <span className="text-on-surface-variant/45" aria-hidden>
-                                        ·
-                                      </span>
-                                      <span className="flex shrink-0 items-center" aria-hidden>
-                                        {getExchangeIcon(exchangeSlug, {
-                                          width: 14,
-                                          height: 14,
-                                          className: 'opacity-90',
-                                        })}
+                                  </div>
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-on-surface-variant/80">
+                                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                                      <span aria-hidden>
+                                        {modelIcon || (
+                                          <span className="text-[10px] font-bold">
+                                            AI
+                                          </span>
+                                        )}
                                       </span>
                                       <span className="truncate">
-                                        {language === 'zh' ? '交易所' : 'Exchange'}：
-                                        {exchangeDisplayName(exchangeSlug)}
+                                        {language === 'zh' ? 'AI' : 'AI'}：
+                                        {modelName}
                                       </span>
                                     </span>
-                                  ) : null}
-                                </div>
+                                    {exchangeSlug ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <span
+                                          className="text-on-surface-variant/45"
+                                          aria-hidden
+                                        >
+                                          ·
+                                        </span>
+                                        <span
+                                          className="flex shrink-0 items-center"
+                                          aria-hidden
+                                        >
+                                          {getExchangeIcon(exchangeSlug, {
+                                            width: 14,
+                                            height: 14,
+                                            className: 'opacity-90',
+                                          })}
+                                        </span>
+                                        <span className="truncate">
+                                          {language === 'zh'
+                                            ? '交易所'
+                                            : 'Exchange'}
+                                          ：{exchangeDisplayName(exchangeSlug)}
+                                        </span>
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                             </td>
@@ -1229,12 +1470,16 @@ export function StrategyMarketPage() {
                             <td className="px-3 py-4 text-center font-['Space_Grotesk',sans-serif] text-sm text-on-surface-variant">
                               {formatDrawdown(s.stats?.max_drawdown_pct)}
                             </td>
-                            <td className="px-3 py-4 text-sm text-on-surface">{s.stats?.subscribers ?? 0}</td>
+                            <td className="px-3 py-4 text-sm text-on-surface">
+                              {s.stats?.subscribers ?? 0}
+                            </td>
                             <td className="px-3 py-4">
                               <div className="flex flex-col items-start gap-0.5">
                                 <span
                                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                                    agents > 0 ? 'animate-pulse bg-[#0ECB81]' : 'bg-on-surface-variant/40'
+                                    agents > 0
+                                      ? 'animate-pulse bg-[#0ECB81]'
+                                      : 'bg-on-surface-variant/40'
                                   }`}
                                 />
                                 <span className="font-['Space_Grotesk',sans-serif] text-sm font-bold tabular-nums text-on-surface">
@@ -1249,9 +1494,17 @@ export function StrategyMarketPage() {
                               {formatShortDate(s.updated_at, language)}
                             </td>
                             <td className="px-3 py-4">
-                              <svg className="h-8 w-24" viewBox="0 0 100 30" aria-hidden>
+                              <svg
+                                className="h-8 w-24"
+                                viewBox="0 0 100 30"
+                                aria-hidden
+                              >
                                 <path
-                                  d={MiniSparkPathReal(s.stats?.trend, s.id, up)}
+                                  d={MiniSparkPathReal(
+                                    s.stats?.trend,
+                                    s.id,
+                                    up
+                                  )}
                                   fill="none"
                                   stroke={up ? CRYPTO_UP : CRYPTO_DOWN}
                                   strokeWidth="2"
@@ -1270,8 +1523,14 @@ export function StrategyMarketPage() {
                 <div className="flex flex-col items-center justify-between gap-3 border-t border-outline-variant/5 bg-surface-container px-4 py-3 text-xs text-on-surface-variant sm:flex-row sm:px-6">
                   <span>
                     {tr('paginationShow')
-                      .replace('{{from}}', String((pageSafe - 1) * PAGE_SIZE + 1))
-                      .replace('{{to}}', String(Math.min(pageSafe * PAGE_SIZE, filtered.length)))
+                      .replace(
+                        '{{from}}',
+                        String((pageSafe - 1) * PAGE_SIZE + 1)
+                      )
+                      .replace(
+                        '{{to}}',
+                        String(Math.min(pageSafe * PAGE_SIZE, filtered.length))
+                      )
                       .replace('{{total}}', String(filtered.length))}
                   </span>
                   <div className="flex items-center gap-1">
@@ -1297,13 +1556,16 @@ export function StrategyMarketPage() {
                         {n}
                       </button>
                     ))}
-                    {totalPages > pageButtonRange[pageButtonRange.length - 1]! && (
+                    {totalPages >
+                      pageButtonRange[pageButtonRange.length - 1]! && (
                       <span className="px-1">…</span>
                     )}
                     <button
                       type="button"
                       disabled={pageSafe >= totalPages}
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      onClick={() =>
+                        setPage((p) => Math.min(totalPages, p + 1))
+                      }
                       className="flex h-8 w-8 items-center justify-center rounded bg-surface-container-high transition-colors hover:bg-surface-container-highest disabled:opacity-40"
                     >
                       <ChevronRight className="h-4 w-4" />
@@ -1359,14 +1621,17 @@ export function StrategyMarketPage() {
                         {MARKET_SUB_MONTHLY_USDT} USDT
                       </div>
                       <p className="mt-2 text-[11px] text-on-surface-variant">
-                        {language === 'zh' ? '推荐：长期使用更划算' : 'Best for steady use'}
+                        {language === 'zh'
+                          ? '推荐：长期使用更划算'
+                          : 'Best for steady use'}
                       </p>
                     </button>
                     <button
                       type="button"
                       disabled={Boolean(walletData?.market_weekly_trial_used)}
                       onClick={() => {
-                        if (!walletData?.market_weekly_trial_used) setPurchasePlan('weekly')
+                        if (!walletData?.market_weekly_trial_used)
+                          setPurchasePlan('weekly')
                       }}
                       className={`rounded-xl border-2 p-4 text-left transition-all ${
                         purchasePlan === 'weekly'
@@ -1375,18 +1640,24 @@ export function StrategyMarketPage() {
                       } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
                     >
                       <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
-                        {language === 'zh' ? '周卡体验 · 7 天' : 'Weekly trial · 7d'}
+                        {language === 'zh'
+                          ? '周卡体验 · 7 天'
+                          : 'Weekly trial · 7d'}
                       </div>
                       <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
                         {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
                       </div>
                       {walletData?.market_weekly_trial_used ? (
                         <p className="mt-2 text-[11px] text-on-surface-variant">
-                          {language === 'zh' ? '本账号已使用过唯一一次体验' : 'Trial already used on this account'}
+                          {language === 'zh'
+                            ? '本账号已使用过唯一一次体验'
+                            : 'Trial already used on this account'}
                         </p>
                       ) : (
                         <p className="mt-2 text-[11px] text-on-surface-variant">
-                          {language === 'zh' ? '每账号仅一次，不计入充值返利统计' : 'One per account; excluded from rebate stats'}
+                          {language === 'zh'
+                            ? '每账号仅一次，不计入充值返利统计'
+                            : 'One per account; excluded from rebate stats'}
                         </p>
                       )}
                     </button>
@@ -1413,7 +1684,15 @@ export function StrategyMarketPage() {
                   onClick={() => void submitPurchase()}
                   className="market-detail-cta-gold rounded-lg px-4 py-2 text-sm font-bold text-black disabled:opacity-50"
                 >
-                  {purchaseBusy ? '…' : isFreeSubscriptionStrategy(purchaseStrategy) ? (language === 'zh' ? '确认免费订阅' : 'Subscribe free') : language === 'zh' ? '确认支付' : 'Pay'}
+                  {purchaseBusy
+                    ? '…'
+                    : isFreeSubscriptionStrategy(purchaseStrategy)
+                      ? language === 'zh'
+                        ? '确认免费订阅'
+                        : 'Subscribe free'
+                      : language === 'zh'
+                        ? '确认支付'
+                        : 'Pay'}
                 </button>
               </div>
             </div>

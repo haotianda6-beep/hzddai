@@ -1,0 +1,4 @@
+FROM nofx-frontend:hz-detach-old-server-20260814
+
+# web/dist is produced by the repository's normal `npm run build` pipeline.
+COPY web/dist/ /usr/share/nginx/html/

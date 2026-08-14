@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import useSWR from 'swr'
-import { Activity, ArrowLeft, BadgeCheck, Loader2, Sparkles } from 'lucide-react'
+import {
+  Activity,
+  ArrowLeft,
+  BadgeCheck,
+  Loader2,
+  Sparkles,
+} from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -26,8 +32,14 @@ import type {
   PublicStrategyMarketDetailPayload,
 } from '../lib/api/strategies'
 import './strategy-market-ai3.css'
-import { stripStrategyTitleParenthetical } from '../lib/strategyMarketDisplay'
-import { MARKET_SUB_MONTHLY_USDT, MARKET_SUB_WEEKLY_TRIAL_USDT } from '../lib/strategyMarketPricing'
+import {
+  isHistoricalOnlyStrategy,
+  stripStrategyTitleParenthetical,
+} from '../lib/strategyMarketDisplay'
+import {
+  MARKET_SUB_MONTHLY_USDT,
+  MARKET_SUB_WEEKLY_TRIAL_USDT,
+} from '../lib/strategyMarketPricing'
 import { findExistingForkIdForMarketSource } from '../lib/marketStrategyFork'
 import {
   formatUserFacingError,
@@ -56,6 +68,10 @@ interface PublicStrategyDetail {
   market_revision?: number
   market_sale_price_usdt?: number
   market_ai_model?: string
+  performance_only?: boolean
+  performance_source?: string
+  performance_disclosure?: string
+  realtime_follow_available?: boolean
   config?: { coins?: string[]; symbol?: string; leverage?: number }
   stats?: {
     used_by: number
@@ -76,7 +92,10 @@ const CRYPTO_UP = '#00C087'
 const CRYPTO_DOWN = '#F6465D'
 /** 详情页展示用固定杠杆（产品约定） */
 const DISPLAY_LEVERAGE = 20
-const MARKET_CREATOR_DISGUISES: Record<string, { name: string; avatar: string }> = {
+const MARKET_CREATOR_DISGUISES: Record<
+  string,
+  { name: string; avatar: string }
+> = {
   [MAINSTREAM_CALM_STRATEGY_ID]: {
     name: '青衫量化',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=qingshan-quant',
@@ -105,13 +124,22 @@ function publicStrategyDetailUrl(id: string): string {
   if (import.meta.env.PROD) {
     return path
   }
-  const b = (import.meta.env.VITE_API_BASE as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  const b =
+    (import.meta.env.VITE_API_BASE as string | undefined)
+      ?.trim()
+      .replace(/\/$/, '') ?? ''
   return b ? `${b}${path}` : path
 }
 
 function marketAccessOf(s: PublicStrategyDetail): StrategyMarketAccess {
   const a = s.market_access
-  if (a === 'subscription' || a === 'public' || a === 'open_source' || a === 'private') return a
+  if (
+    a === 'subscription' ||
+    a === 'public' ||
+    a === 'open_source' ||
+    a === 'private'
+  )
+    return a
   return 'private'
 }
 
@@ -124,7 +152,8 @@ function formatUsd(v: number | undefined, compact = false): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
   const abs = Math.abs(v)
   const sign = v < 0 ? '-' : ''
-  if (compact && abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+  if (compact && abs >= 1_000_000)
+    return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
   if (compact && abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(2)}K`
   return `${sign}$${abs.toFixed(2)}`
 }
@@ -164,11 +193,18 @@ function isFreeMarketAccess(s: PublicStrategyDetail): boolean {
 }
 
 function isFreeSubscriptionStrategy(s: PublicStrategyDetail): boolean {
-  return marketAccessOf(s) === 'subscription' && typeof s.market_sale_price_usdt === 'number' && s.market_sale_price_usdt <= 0
+  return (
+    marketAccessOf(s) === 'subscription' &&
+    typeof s.market_sale_price_usdt === 'number' &&
+    s.market_sale_price_usdt <= 0
+  )
 }
 
 /** 需付费上架且当前用户未购权益 → 金色「购买策略」 */
-function needsPurchaseButton(s: PublicStrategyDetail, entitled: boolean): boolean {
+function needsPurchaseButton(
+  s: PublicStrategyDetail,
+  entitled: boolean
+): boolean {
   if (isFreeMarketAccess(s)) return false
   return !entitled
 }
@@ -181,7 +217,9 @@ export function StrategyMarketDetailPage() {
   const { token, applyUserProfile } = useAuth()
   const [purchaseBusy, setPurchaseBusy] = useState(false)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
-  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>('monthly')
+  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>(
+    'monthly'
+  )
 
   const tr = (key: string) => t(`strategyMarket.${key}`, language)
 
@@ -230,7 +268,11 @@ export function StrategyMarketDetailPage() {
       const response = await fetch(url, { credentials: 'same-origin' })
       if (!response.ok) {
         const body = await response.text().catch(() => '')
-        throwUserFacingFetchError(response.status, body, language === 'zh' ? 'zh' : 'en')
+        throwUserFacingFetchError(
+          response.status,
+          body,
+          language === 'zh' ? 'zh' : 'en'
+        )
       }
       return response.json() as Promise<PublicStrategyMarketDetailPayload>
     },
@@ -243,14 +285,15 @@ export function StrategyMarketDetailPage() {
   )
 
   const strategy = payload?.strategy as PublicStrategyDetail | undefined
+  const historicalOnly = isHistoricalOnlyStrategy(strategy)
   const rawAgg = payload?.aggregate_trading
   const rawInitialCapital = payload?.initial_capital ?? 0
   const historyPerformance = useMemo(
     () =>
-	      buildMainstreamCalmPerformance(id) ??
-	      buildOkxStablePerformance(id) ??
-	      buildBnSmartOperationPerformance(id) ??
-	      buildUltimateSolPerformance(id),
+      buildMainstreamCalmPerformance(id) ??
+      buildOkxStablePerformance(id) ??
+      buildBnSmartOperationPerformance(id) ??
+      buildUltimateSolPerformance(id),
     [id]
   )
   const agg = historyPerformance?.aggregate ?? rawAgg
@@ -291,12 +334,16 @@ export function StrategyMarketDetailPage() {
           await navigator.clipboard.writeText(JSON.stringify(s.config, null, 2))
         } else if (kind === 'purchase' || kind === 'sub_owned') {
           const data = await api.getMarketOwnedStrategy(s.id)
-          await navigator.clipboard.writeText(JSON.stringify(data.config, null, 2))
+          await navigator.clipboard.writeText(
+            JSON.stringify(data.config, null, 2)
+          )
         }
       } catch {
         /* ignore */
       }
-      toast.success(tr(reused ? 'toastOpenExistingFork' : 'toastAddedToStrategies'))
+      toast.success(
+        tr(reused ? 'toastOpenExistingFork' : 'toastAddedToStrategies')
+      )
       navigate(`${ROUTES.strategy}?id=${encodeURIComponent(targetId)}`)
     }
 
@@ -311,6 +358,14 @@ export function StrategyMarketDetailPage() {
 
   /** 进入策略：已购/免费用户复制到「我的策略」并打开构建器 */
   const handleEnterStrategy = (s: PublicStrategyDetail) => {
+    if (isHistoricalOnlyStrategy(s)) {
+      toast.info(
+        language === 'zh'
+          ? '该策略仅展示历史行情场景，暂不支持实时跟单'
+          : 'Historical scenario only; live copy trading is unavailable'
+      )
+      return
+    }
     const acc = marketAccessOf(s)
     if (acc === 'private' || acc === 'subscription') {
       if (!token) {
@@ -339,7 +394,10 @@ export function StrategyMarketDetailPage() {
       }
       void (async () => {
         try {
-          await duplicateMarketStrategyToMine(s, acc === 'open_source' ? 'open_source' : 'public')
+          await duplicateMarketStrategyToMine(
+            s,
+            acc === 'open_source' ? 'open_source' : 'public'
+          )
         } catch (e) {
           toast.error(e instanceof Error ? e.message : tr('copyFailed'))
         }
@@ -364,8 +422,13 @@ export function StrategyMarketDetailPage() {
     if (!strategy) return
     setPurchaseBusy(true)
     try {
-      const res = await api.postMarketPurchase(strategy.id, isFreeSubscriptionStrategy(strategy) ? 'free' : purchasePlan)
-      toast.success(res.message || (language === 'zh' ? '购买成功' : 'Purchased'))
+      const res = await api.postMarketPurchase(
+        strategy.id,
+        isFreeSubscriptionStrategy(strategy) ? 'free' : purchasePlan
+      )
+      toast.success(
+        res.message || (language === 'zh' ? '购买成功' : 'Purchased')
+      )
       await mutateWallet()
       applyUserProfile({ balance_usdt: res.balance_usdt })
       try {
@@ -386,12 +449,19 @@ export function StrategyMarketDetailPage() {
   const trend = historyPerformance?.trend ?? strategy?.stats?.trend ?? []
   const windowDays = strategy?.stats?.stats_window_days ?? 90
   const retVal = historyPerformance?.returnPct ?? strategy?.stats?.return_7d_pct
-  const up = typeof retVal === 'number' && Number.isFinite(retVal) ? retVal >= 0 : true
-  const disguisedCreator = strategy ? MARKET_CREATOR_DISGUISES[strategy.id] : undefined
-  const displayCreatorName = disguisedCreator?.name ?? strategy?.creator_display_name ?? '—'
-  const displayCreatorAvatar = disguisedCreator?.avatar ?? strategy?.creator_avatar_url
+  const up =
+    typeof retVal === 'number' && Number.isFinite(retVal) ? retVal >= 0 : true
+  const disguisedCreator = strategy
+    ? MARKET_CREATOR_DISGUISES[strategy.id]
+    : undefined
+  const displayCreatorName =
+    disguisedCreator?.name ?? strategy?.creator_display_name ?? '—'
+  const displayCreatorAvatar =
+    disguisedCreator?.avatar ?? strategy?.creator_avatar_url
   const displayMarketRevision =
-    strategy?.id === BN_SMART_OPERATION_STRATEGY_ID ? 1.4 : strategy?.market_revision
+    strategy?.id === BN_SMART_OPERATION_STRATEGY_ID
+      ? 1.4
+      : strategy?.market_revision
 
   const equityChartData = useMemo(
     () => trend.map((v, i) => ({ i: i + 1, v })),
@@ -414,12 +484,20 @@ export function StrategyMarketDetailPage() {
     if (t <= 0) {
       return [
         { name: language === 'zh' ? '多' : 'Long', value: 1, fill: CRYPTO_UP },
-        { name: language === 'zh' ? '空' : 'Short', value: 1, fill: CRYPTO_DOWN },
+        {
+          name: language === 'zh' ? '空' : 'Short',
+          value: 1,
+          fill: CRYPTO_DOWN,
+        },
       ]
     }
     return [
       { name: language === 'zh' ? '多' : 'Long', value: lo, fill: CRYPTO_UP },
-      { name: language === 'zh' ? '空' : 'Short', value: sh, fill: CRYPTO_DOWN },
+      {
+        name: language === 'zh' ? '空' : 'Short',
+        value: sh,
+        fill: CRYPTO_DOWN,
+      },
     ]
   }, [agg, language])
 
@@ -443,8 +521,13 @@ export function StrategyMarketDetailPage() {
     return (
       <div className="strategy-market-ai3 min-h-screen bg-black pb-16 pt-8 text-white">
         <div className="px-4">
-          <p className="text-zinc-400">{language === 'zh' ? '缺少策略 ID' : 'Missing strategy id'}</p>
-          <Link to={ROUTES.strategyMarket} className="mt-4 inline-block text-primary">
+          <p className="text-zinc-400">
+            {language === 'zh' ? '缺少策略 ID' : 'Missing strategy id'}
+          </p>
+          <Link
+            to={ROUTES.strategyMarket}
+            className="mt-4 inline-block text-primary"
+          >
             ← {language === 'zh' ? '返回策略市场' : 'Back'}
           </Link>
         </div>
@@ -474,7 +557,9 @@ export function StrategyMarketDetailPage() {
 
         {error && (
           <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-4 text-sm text-red-100">
-            <p className="font-bold">{language === 'zh' ? '加载失败' : 'Failed to load'}</p>
+            <p className="font-bold">
+              {language === 'zh' ? '加载失败' : 'Failed to load'}
+            </p>
             <p className="mt-2">
               {formatUserFacingError(error, language === 'zh' ? 'zh' : 'en')}
             </p>
@@ -520,17 +605,32 @@ export function StrategyMarketDetailPage() {
                   <span className="text-zinc-400">
                     {language === 'zh' ? '运行中 Agent' : 'Running'}:{' '}
                     <span className="tabular-nums text-[#0ECB81]">
-                      {strategy.stats?.running_agents ?? strategy.stats?.used_by ?? 0}
+                      {strategy.stats?.running_agents ??
+                        strategy.stats?.used_by ??
+                        0}
                     </span>
                   </span>
                   <span className="text-zinc-500">·</span>
                   <span className="text-zinc-500">
-                    {language === 'zh' ? '更新' : 'Updated'} {formatShortDate(strategy.updated_at, language)}
+                    {language === 'zh' ? '更新' : 'Updated'}{' '}
+                    {formatShortDate(strategy.updated_at, language)}
                   </span>
                 </div>
               </div>
               {strategy ? (
-                needsPurchaseButton(strategy, entitlementIds.has(strategy.id)) ? (
+                historicalOnly ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-6 text-sm font-bold text-amber-100 opacity-90 sm:w-auto"
+                  >
+                    <Activity className="h-4 w-4" aria-hidden />
+                    {language === 'zh' ? '仅历史展示' : 'Historical only'}
+                  </button>
+                ) : needsPurchaseButton(
+                    strategy,
+                    entitlementIds.has(strategy.id)
+                  ) ? (
                   <button
                     type="button"
                     onClick={() => handlePrimaryCta(strategy)}
@@ -544,16 +644,36 @@ export function StrategyMarketDetailPage() {
                     onClick={() => handlePrimaryCta(strategy)}
                     className="market-detail-cta-firefly inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-emerald-50 shadow-[0_0_28px_rgba(52,211,153,0.38),0_0_56px_rgba(34,211,238,0.12)] transition-transform hover:scale-[1.02] active:scale-[0.98] sm:w-auto"
                   >
-                    <Sparkles className="h-4 w-4 text-emerald-200" aria-hidden />
+                    <Sparkles
+                      className="h-4 w-4 text-emerald-200"
+                      aria-hidden
+                    />
                     {language === 'zh' ? '进入策略' : 'Open strategy'}
                   </button>
                 )
               ) : null}
             </header>
 
+            {historicalOnly && (
+              <div className="mb-6 rounded-xl border border-amber-500/35 bg-amber-950/30 px-4 py-3 text-sm text-amber-50">
+                <p className="font-bold">
+                  {language === 'zh'
+                    ? '历史行情场景数据'
+                    : 'Historical scenario data'}
+                </p>
+                <p className="mt-1 text-amber-100/85">
+                  {strategy.performance_disclosure ||
+                    (language === 'zh'
+                      ? '非实盘已实现收益；目前不支持实时跟单。'
+                      : 'Not realized live returns; live copy trading is unavailable.')}
+                </p>
+              </div>
+            )}
+
             {token &&
-              (walletData?.market_subscription_alerts ?? []).filter((a) => a.strategy_id === strategy.id)
-                .length > 0 && (
+              (walletData?.market_subscription_alerts ?? []).filter(
+                (a) => a.strategy_id === strategy.id
+              ).length > 0 && (
                 <div className="mb-6 space-y-2">
                   {(walletData?.market_subscription_alerts ?? [])
                     .filter((a) => a.strategy_id === strategy.id)
@@ -566,7 +686,9 @@ export function StrategyMarketDetailPage() {
                             : 'border-zinc-600/55 bg-zinc-900/55 text-zinc-200'
                         }`}
                       >
-                        {language === 'zh' ? a.message_zh : a.message_en ?? a.message_zh}
+                        {language === 'zh'
+                          ? a.message_zh
+                          : (a.message_en ?? a.message_zh)}
                       </div>
                     ))}
                 </div>
@@ -576,18 +698,34 @@ export function StrategyMarketDetailPage() {
               className={`mb-10 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-2xl border border-zinc-800/80 px-4 py-3 text-sm ${FONT_STATS_LABEL}`}
               style={{ backgroundColor: '#121212' }}
             >
-              <span className="text-zinc-500">{language === 'zh' ? '交易所' : 'Exchange'}</span>
-              <span className={`font-medium text-zinc-100 ${FONT_STATS}`}>{exchangeLabel || '—'}</span>
+              <span className="text-zinc-500">
+                {language === 'zh' ? '交易所' : 'Exchange'}
+              </span>
+              <span className={`font-medium text-zinc-100 ${FONT_STATS}`}>
+                {exchangeLabel || '—'}
+              </span>
               <span className="hidden text-zinc-700 sm:inline">|</span>
-              <span className="text-zinc-500">{language === 'zh' ? '杠杆' : 'Leverage'}</span>
-              <span className={`font-medium text-zinc-100 ${FONT_STATS}`}>{DISPLAY_LEVERAGE}x</span>
+              <span className="text-zinc-500">
+                {language === 'zh' ? '杠杆' : 'Leverage'}
+              </span>
+              <span className={`font-medium text-zinc-100 ${FONT_STATS}`}>
+                {historicalOnly ? '—' : `${DISPLAY_LEVERAGE}x`}
+              </span>
               <span className="hidden text-zinc-700 sm:inline">|</span>
               <span className="font-medium text-zinc-200">
-                {language === 'zh' ? '使用 AI 为 COMKUN-AI' : 'AI: COMKUN-AI'}
+                {historicalOnly
+                  ? language === 'zh'
+                    ? '数据来源：历史行情场景'
+                    : 'Source: historical scenario'
+                  : language === 'zh'
+                    ? '使用 AI 为 COMKUN-AI'
+                    : 'AI: COMKUN-AI'}
               </span>
             </section>
 
-            <section className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}>
+            <section
+              className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}
+            >
               <Activity className="h-5 w-5 text-primary" />
               {language === 'zh' ? '运行数据' : 'Performance'}
               <span className="text-sm font-normal text-zinc-400">
@@ -602,12 +740,21 @@ export function StrategyMarketDetailPage() {
                 className="flex flex-col rounded-2xl border border-zinc-800/80 p-4 sm:p-5 lg:col-span-5"
                 style={{ backgroundColor: '#121212' }}
               >
-                <p className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}>
-                  {language === 'zh' ? '总盈亏（汇总净值变动）' : 'Total return'}
+                <p
+                  className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}
+                >
+                  {language === 'zh'
+                    ? '总盈亏（汇总净值变动）'
+                    : 'Total return'}
                 </p>
-                <p className={`mt-2 text-2xl font-bold sm:text-3xl ${FONT_STATS}`} style={{ color: up ? CRYPTO_UP : CRYPTO_DOWN }}>
+                <p
+                  className={`mt-2 text-2xl font-bold sm:text-3xl ${FONT_STATS}`}
+                  style={{ color: up ? CRYPTO_UP : CRYPTO_DOWN }}
+                >
                   {formatReturnPct(retVal)}{' '}
-                  <span className={`text-lg font-semibold text-zinc-300 ${FONT_STATS}`}>
+                  <span
+                    className={`text-lg font-semibold text-zinc-300 ${FONT_STATS}`}
+                  >
                     {formatUsd(stats?.total_pnl, true)}
                   </span>
                 </p>
@@ -616,15 +763,32 @@ export function StrategyMarketDetailPage() {
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={equityChartData}>
                         <defs>
-                          <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={up ? CRYPTO_UP : CRYPTO_DOWN} stopOpacity={0.35} />
-                            <stop offset="100%" stopColor={up ? CRYPTO_UP : CRYPTO_DOWN} stopOpacity={0} />
+                          <linearGradient
+                            id="eqFill"
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1"
+                          >
+                            <stop
+                              offset="0%"
+                              stopColor={up ? CRYPTO_UP : CRYPTO_DOWN}
+                              stopOpacity={0.35}
+                            />
+                            <stop
+                              offset="100%"
+                              stopColor={up ? CRYPTO_UP : CRYPTO_DOWN}
+                              stopOpacity={0}
+                            />
                           </linearGradient>
                         </defs>
                         <XAxis dataKey="i" hide />
                         <YAxis hide domain={['auto', 'auto']} />
                         <Tooltip
-                          contentStyle={{ background: '#1a1a1a', border: '1px solid #333' }}
+                          contentStyle={{
+                            background: '#1a1a1a',
+                            border: '1px solid #333',
+                          }}
                           labelStyle={{ display: 'none' }}
                           formatter={(v: number) => [v.toFixed(2), 'Σ净值']}
                         />
@@ -638,8 +802,12 @@ export function StrategyMarketDetailPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className={`flex h-full items-center justify-center text-sm text-zinc-500 ${FONT_STATS_LABEL}`}>
-                      {language === 'zh' ? '暂无足够曲线数据' : 'Not enough history'}
+                    <div
+                      className={`flex h-full items-center justify-center text-sm text-zinc-500 ${FONT_STATS_LABEL}`}
+                    >
+                      {language === 'zh'
+                        ? '暂无足够曲线数据'
+                        : 'Not enough history'}
                     </div>
                   )}
                 </div>
@@ -648,29 +816,44 @@ export function StrategyMarketDetailPage() {
                     <dt className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>
                       {language === 'zh' ? '初始资金（合计）' : 'Initial'}
                     </dt>
-                    <dd className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}>
+                    <dd
+                      className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}
+                    >
                       {initialCapital > 0 ? formatUsd(initialCapital) : '—'}
                     </dd>
                   </div>
                   <div>
-                    <dt className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>{language === 'zh' ? '夏普比率' : 'Sharpe'}</dt>
-                    <dd className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}>
-                      {stats && stats.total_trades > 1 && typeof stats.sharpe_ratio === 'number'
-                        ? stats.sharpe_ratio < 0 && statsSource === 'demo_overlay'
+                    <dt className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>
+                      {language === 'zh' ? '夏普比率' : 'Sharpe'}
+                    </dt>
+                    <dd
+                      className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}
+                    >
+                      {stats &&
+                      stats.total_trades > 1 &&
+                      typeof stats.sharpe_ratio === 'number'
+                        ? stats.sharpe_ratio < 0 &&
+                          statsSource === 'demo_overlay'
                           ? '—'
                           : stats.sharpe_ratio.toFixed(2)
                         : '—'}
                     </dd>
                   </div>
                   <div>
-                    <dt className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>{language === 'zh' ? '最大回撤' : 'Max DD'}</dt>
-                    <dd className={`mt-1 text-base text-[#F6465D] ${FONT_STATS}`}>
+                    <dt className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>
+                      {language === 'zh' ? '最大回撤' : 'Max DD'}
+                    </dt>
+                    <dd
+                      className={`mt-1 text-base text-[#F6465D] ${FONT_STATS}`}
+                    >
                       {(() => {
                         const raw =
-                          historyPerformance?.aggregate.stats.max_drawdown_pct ??
+                          historyPerformance?.aggregate.stats
+                            .max_drawdown_pct ??
                           strategy.stats?.max_drawdown_pct ??
                           stats?.max_drawdown_pct
-                        if (typeof raw !== 'number' || !Number.isFinite(raw)) return '—'
+                        if (typeof raw !== 'number' || !Number.isFinite(raw))
+                          return '—'
                         const neg = -Math.abs(raw)
                         return `${neg.toFixed(2)}%`
                       })()}
@@ -684,18 +867,40 @@ export function StrategyMarketDetailPage() {
                   className="rounded-2xl border border-zinc-800/80 p-5"
                   style={{ backgroundColor: '#121212' }}
                 >
-                  <p className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}>
+                  <p
+                    className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}
+                  >
                     {language === 'zh' ? '总交易次数' : 'Trades'}
                   </p>
-                  <p className={`mt-2 text-3xl font-bold text-white ${FONT_STATS}`}>{stats?.total_trades ?? 0}</p>
+                  <p
+                    className={`mt-2 text-3xl font-bold text-white ${FONT_STATS}`}
+                  >
+                    {stats?.total_trades ?? 0}
+                  </p>
                   <div className="mt-4 grid grid-cols-2 gap-4">
                     <div>
-                      <p className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>{language === 'zh' ? '总费用' : 'Fees'}</p>
-                      <p className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}>{formatUsd(stats?.total_fee)}</p>
+                      <p
+                        className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}
+                      >
+                        {language === 'zh' ? '总费用' : 'Fees'}
+                      </p>
+                      <p
+                        className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}
+                      >
+                        {formatUsd(stats?.total_fee)}
+                      </p>
                     </div>
                     <div>
-                      <p className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>{language === 'zh' ? '平均持仓' : 'Avg hold'}</p>
-                      <p className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}>{formatHoldZh(agg?.avg_hold_ms)}</p>
+                      <p
+                        className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}
+                      >
+                        {language === 'zh' ? '平均持仓' : 'Avg hold'}
+                      </p>
+                      <p
+                        className={`mt-1 text-base text-zinc-100 ${FONT_STATS}`}
+                      >
+                        {formatHoldZh(agg?.avg_hold_ms)}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -704,19 +909,30 @@ export function StrategyMarketDetailPage() {
                   className="flex flex-1 flex-col rounded-2xl border border-zinc-800/80 p-5"
                   style={{ backgroundColor: '#121212' }}
                 >
-                  <p className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}>
+                  <p
+                    className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}
+                  >
                     {language === 'zh' ? '盈亏比（盈利因子）' : 'Profit factor'}
                   </p>
-                  <p className={`mt-2 text-2xl font-bold text-white ${FONT_STATS}`}>
-                    {stats && stats.profit_factor > 0 ? stats.profit_factor.toFixed(2) : '—'}
+                  <p
+                    className={`mt-2 text-2xl font-bold text-white ${FONT_STATS}`}
+                  >
+                    {stats && stats.profit_factor > 0
+                      ? stats.profit_factor.toFixed(2)
+                      : '—'}
                   </p>
                   <div className="mt-4 flex flex-col gap-4">
                     <div className="flex items-center gap-3">
                       <div className="flex w-[7.5rem] shrink-0 flex-col gap-0.5 sm:w-[9.5rem]">
-                        <span className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>
+                        <span
+                          className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}
+                        >
                           {language === 'zh' ? '盈利' : 'Profit'}
                         </span>
-                        <span className={`text-base ${FONT_STATS}`} style={{ color: CRYPTO_UP }}>
+                        <span
+                          className={`text-base ${FONT_STATS}`}
+                          style={{ color: CRYPTO_UP }}
+                        >
                           {formatUsd(agg?.gross_profit)}
                         </span>
                       </div>
@@ -732,10 +948,15 @@ export function StrategyMarketDetailPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex w-[7.5rem] shrink-0 flex-col gap-0.5 sm:w-[9.5rem]">
-                        <span className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}>
+                        <span
+                          className={`text-sm text-zinc-400 ${FONT_STATS_LABEL}`}
+                        >
                           {language === 'zh' ? '亏损' : 'Loss'}
                         </span>
-                        <span className={`text-base ${FONT_STATS}`} style={{ color: CRYPTO_DOWN }}>
+                        <span
+                          className={`text-base ${FONT_STATS}`}
+                          style={{ color: CRYPTO_DOWN }}
+                        >
                           {formatUsd(agg?.gross_loss)}
                         </span>
                       </div>
@@ -758,11 +979,17 @@ export function StrategyMarketDetailPage() {
                   className="rounded-2xl border border-zinc-800/80 p-5"
                   style={{ backgroundColor: '#121212' }}
                 >
-                  <p className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}>
+                  <p
+                    className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}
+                  >
                     {language === 'zh' ? '胜率' : 'Win rate'}
                   </p>
-                  <p className={`mt-2 text-3xl font-bold text-white ${FONT_STATS}`}>
-                    {stats && stats.total_trades > 0 ? `${stats.win_rate.toFixed(2)}%` : '—'}
+                  <p
+                    className={`mt-2 text-3xl font-bold text-white ${FONT_STATS}`}
+                  >
+                    {stats && stats.total_trades > 0
+                      ? `${stats.win_rate.toFixed(2)}%`
+                      : '—'}
                   </p>
                   <div className="mt-3 flex h-5 w-full overflow-hidden rounded-full bg-zinc-800">
                     <div
@@ -788,7 +1015,9 @@ export function StrategyMarketDetailPage() {
                       }}
                     />
                   </div>
-                  <div className={`mt-2 flex justify-between text-base font-semibold ${FONT_STATS}`}>
+                  <div
+                    className={`mt-2 flex justify-between text-base font-semibold ${FONT_STATS}`}
+                  >
                     <span style={{ color: CRYPTO_UP }}>
                       {stats?.win_trades ?? 0} {language === 'zh' ? '胜' : 'W'}
                     </span>
@@ -802,16 +1031,23 @@ export function StrategyMarketDetailPage() {
                   className="flex flex-1 flex-col rounded-2xl border border-zinc-800/80 p-5"
                   style={{ backgroundColor: '#121212' }}
                 >
-                  <p className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}>
+                  <p
+                    className={`text-sm font-bold uppercase tracking-wider text-zinc-400 ${FONT_STATS_LABEL}`}
+                  >
                     {language === 'zh' ? '多空比' : 'Long / Short'}
                   </p>
                   {/* 上：多空百分比 | 中：饼图 | 下：笔数，分层留白避免挤在一起 */}
                   <div className="mt-5 flex flex-col items-stretch">
-                    <div className={`flex items-baseline justify-between gap-3 px-1 text-base font-bold leading-snug sm:gap-6 sm:text-lg ${FONT_STATS}`}>
+                    <div
+                      className={`flex items-baseline justify-between gap-3 px-1 text-base font-bold leading-snug sm:gap-6 sm:text-lg ${FONT_STATS}`}
+                    >
                       <span style={{ color: CRYPTO_UP }}>
                         {language === 'zh' ? '多' : 'L'} {longPct.toFixed(2)}%
                       </span>
-                      <span className="text-right" style={{ color: CRYPTO_DOWN }}>
+                      <span
+                        className="text-right"
+                        style={{ color: CRYPTO_DOWN }}
+                      >
                         {language === 'zh' ? '空' : 'S'} {shortPct.toFixed(2)}%
                       </span>
                     </div>
@@ -830,14 +1066,21 @@ export function StrategyMarketDetailPage() {
                             strokeWidth={0}
                           >
                             {longShortPie.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill} stroke="none" strokeWidth={0} />
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={entry.fill}
+                                stroke="none"
+                                strokeWidth={0}
+                              />
                             ))}
                           </Pie>
                           <Tooltip />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
-                    <div className={`flex items-start justify-between gap-3 border-t border-zinc-800/60 px-1 pt-4 text-sm text-zinc-200 sm:gap-6 sm:text-base ${FONT_STATS}`}>
+                    <div
+                      className={`flex items-start justify-between gap-3 border-t border-zinc-800/60 px-1 pt-4 text-sm text-zinc-200 sm:gap-6 sm:text-base ${FONT_STATS}`}
+                    >
                       <span>
                         {agg?.long_trades ?? 0}{' '}
                         {language === 'zh' ? '笔交易' : 'trades'}
@@ -852,108 +1095,54 @@ export function StrategyMarketDetailPage() {
               </div>
             </div>
 
-            <TradeHistorySection strategyId={id} rows={payload?.trade_history} />
+            <TradeHistorySection
+              strategyId={id}
+              rows={payload?.trade_history}
+            />
 
-            {Array.isArray(strategy.demo_trade_highlights) && strategy.demo_trade_highlights.length > 0 && (
-              <section className="mt-10">
-                <h2 className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}>
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  {language === 'zh' ? '演示成交明细（近一月样本）' : 'Demo trades (sample)'}
-                </h2>
-                <div className="space-y-3 md:hidden">
-                  {strategy.demo_trade_highlights.map((row, idx) => {
-                    const upRow = row.pnl_usdt >= 0
-                    return (
-                      <article
-                        key={`mobile-${row.symbol}-${idx}`}
-                        className="rounded-2xl border border-zinc-800/80 p-4 text-sm"
-                        style={{ backgroundColor: '#121212' }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-bold text-zinc-100">{row.symbol}</div>
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {formatShortDate(row.opened_at, language)}{' '}
-                              {new Date(row.opened_at).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
+            {Array.isArray(strategy.demo_trade_highlights) &&
+              strategy.demo_trade_highlights.length > 0 && (
+                <section className="mt-10">
+                  <h2
+                    className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}
+                  >
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    {language === 'zh'
+                      ? '演示成交明细（近一月样本）'
+                      : 'Demo trades (sample)'}
+                  </h2>
+                  <div className="space-y-3 md:hidden">
+                    {strategy.demo_trade_highlights.map((row, idx) => {
+                      const upRow = row.pnl_usdt >= 0
+                      return (
+                        <article
+                          key={`mobile-${row.symbol}-${idx}`}
+                          className="rounded-2xl border border-zinc-800/80 p-4 text-sm"
+                          style={{ backgroundColor: '#121212' }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-bold text-zinc-100">
+                                {row.symbol}
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {formatShortDate(row.opened_at, language)}{' '}
+                                {new Date(row.opened_at).toLocaleTimeString(
+                                  language === 'zh' ? 'zh-CN' : 'en-US',
+                                  {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  }
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <span
-                            className={`rounded-full px-2 py-1 text-xs font-bold ${
-                              row.side === 'short'
-                                ? 'bg-red-500/10 text-red-300'
-                                : 'bg-emerald-500/10 text-emerald-300'
-                            }`}
-                          >
-                            {row.side === 'short'
-                              ? language === 'zh'
-                                ? '空'
-                                : 'Short'
-                              : language === 'zh'
-                                ? '多'
-                                : 'Long'}
-                          </span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-zinc-900/70 p-3">
-                          <div>
-                            <div className="text-xs text-zinc-500">{language === 'zh' ? '开仓价' : 'Entry'}</div>
-                            <div className={`mt-1 tabular-nums text-zinc-200 ${FONT_STATS}`}>
-                              {row.entry_price.toFixed(4)}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-zinc-500">{language === 'zh' ? '平仓价' : 'Exit'}</div>
-                            <div className={`mt-1 tabular-nums text-zinc-200 ${FONT_STATS}`}>
-                              {row.exit_price.toFixed(4)}
-                            </div>
-                          </div>
-                          <div className="col-span-2">
-                            <div className="text-xs text-zinc-500">{language === 'zh' ? '盈亏 (USDT)' : 'PnL'}</div>
-                            <div
-                              className={`mt-1 text-lg font-bold tabular-nums ${FONT_STATS}`}
-                              style={{ color: upRow ? CRYPTO_UP : CRYPTO_DOWN }}
+                            <span
+                              className={`rounded-full px-2 py-1 text-xs font-bold ${
+                                row.side === 'short'
+                                  ? 'bg-red-500/10 text-red-300'
+                                  : 'bg-emerald-500/10 text-emerald-300'
+                              }`}
                             >
-                              {formatUsd(row.pnl_usdt)}
-                            </div>
-                          </div>
-                        </div>
-                      </article>
-                    )
-                  })}
-                </div>
-                <div
-                  className="hidden max-h-[28rem] overflow-auto rounded-2xl border border-zinc-800/80 md:block"
-                  style={{ backgroundColor: '#121212' }}
-                >
-                  <table className="w-full min-w-[720px] border-collapse text-sm">
-                    <thead className="sticky top-0 z-[1] bg-[#1a1a1a] text-left text-xs font-bold uppercase tracking-wide text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3">{language === 'zh' ? '开仓时间' : 'Opened'}</th>
-                        <th className="px-4 py-3">{language === 'zh' ? '币种' : 'Symbol'}</th>
-                        <th className="px-4 py-3">{language === 'zh' ? '方向' : 'Side'}</th>
-                        <th className="px-4 py-3">{language === 'zh' ? '开仓价' : 'Entry'}</th>
-                        <th className="px-4 py-3">{language === 'zh' ? '平仓价' : 'Exit'}</th>
-                        <th className="px-4 py-3 text-right">{language === 'zh' ? '盈亏 (USDT)' : 'PnL'}</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`text-zinc-200 ${FONT_STATS}`}>
-                      {strategy.demo_trade_highlights.map((row, idx) => {
-                        const upRow = row.pnl_usdt >= 0
-                        return (
-                          <tr key={`${row.symbol}-${idx}`} className="border-t border-zinc-800/60">
-                            <td className="whitespace-nowrap px-4 py-2.5 text-zinc-400">
-                              {formatShortDate(row.opened_at, language)}{' '}
-                              <span className="tabular-nums text-zinc-500">
-                                {new Date(row.opened_at).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 font-medium">{row.symbol}</td>
-                            <td className="px-4 py-2.5">
                               {row.side === 'short'
                                 ? language === 'zh'
                                   ? '空'
@@ -961,50 +1150,165 @@ export function StrategyMarketDetailPage() {
                                 : language === 'zh'
                                   ? '多'
                                   : 'Long'}
-                            </td>
-                            <td className="tabular-nums px-4 py-2.5">{row.entry_price.toFixed(4)}</td>
-                            <td className="tabular-nums px-4 py-2.5">{row.exit_price.toFixed(4)}</td>
-                            <td
-                              className={`tabular-nums px-4 py-2.5 text-right font-semibold`}
-                              style={{ color: upRow ? CRYPTO_UP : CRYPTO_DOWN }}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-zinc-900/70 p-3">
+                            <div>
+                              <div className="text-xs text-zinc-500">
+                                {language === 'zh' ? '开仓价' : 'Entry'}
+                              </div>
+                              <div
+                                className={`mt-1 tabular-nums text-zinc-200 ${FONT_STATS}`}
+                              >
+                                {row.entry_price.toFixed(4)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-zinc-500">
+                                {language === 'zh' ? '平仓价' : 'Exit'}
+                              </div>
+                              <div
+                                className={`mt-1 tabular-nums text-zinc-200 ${FONT_STATS}`}
+                              >
+                                {row.exit_price.toFixed(4)}
+                              </div>
+                            </div>
+                            <div className="col-span-2">
+                              <div className="text-xs text-zinc-500">
+                                {language === 'zh' ? '盈亏 (USDT)' : 'PnL'}
+                              </div>
+                              <div
+                                className={`mt-1 text-lg font-bold tabular-nums ${FONT_STATS}`}
+                                style={{
+                                  color: upRow ? CRYPTO_UP : CRYPTO_DOWN,
+                                }}
+                              >
+                                {formatUsd(row.pnl_usdt)}
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                  <div
+                    className="hidden max-h-[28rem] overflow-auto rounded-2xl border border-zinc-800/80 md:block"
+                    style={{ backgroundColor: '#121212' }}
+                  >
+                    <table className="w-full min-w-[720px] border-collapse text-sm">
+                      <thead className="sticky top-0 z-[1] bg-[#1a1a1a] text-left text-xs font-bold uppercase tracking-wide text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3">
+                            {language === 'zh' ? '开仓时间' : 'Opened'}
+                          </th>
+                          <th className="px-4 py-3">
+                            {language === 'zh' ? '币种' : 'Symbol'}
+                          </th>
+                          <th className="px-4 py-3">
+                            {language === 'zh' ? '方向' : 'Side'}
+                          </th>
+                          <th className="px-4 py-3">
+                            {language === 'zh' ? '开仓价' : 'Entry'}
+                          </th>
+                          <th className="px-4 py-3">
+                            {language === 'zh' ? '平仓价' : 'Exit'}
+                          </th>
+                          <th className="px-4 py-3 text-right">
+                            {language === 'zh' ? '盈亏 (USDT)' : 'PnL'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className={`text-zinc-200 ${FONT_STATS}`}>
+                        {strategy.demo_trade_highlights.map((row, idx) => {
+                          const upRow = row.pnl_usdt >= 0
+                          return (
+                            <tr
+                              key={`${row.symbol}-${idx}`}
+                              className="border-t border-zinc-800/60"
                             >
-                              {formatUsd(row.pnl_usdt)}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {Array.isArray(strategy.demo_ai_insights) && strategy.demo_ai_insights.length > 0 && (
-              <section className="mt-10">
-                <h2 className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}>
-                  <Activity className="h-5 w-5 text-primary" />
-                  {language === 'zh' ? 'AI 思考记录（演示）' : 'AI notes (demo)'}
-                </h2>
-                <ul className="space-y-3">
-                  {strategy.demo_ai_insights.map((ins, i) => (
-                    <li
-                      key={`ai-${i}`}
-                      className="rounded-xl border border-zinc-800/80 px-4 py-3 text-sm leading-relaxed text-zinc-300"
-                      style={{ backgroundColor: '#121212' }}
-                    >
-                      <span className="block text-xs text-zinc-500">
-                        {formatShortDate(ins.at, language)}{' '}
-                        {new Date(ins.at).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
+                              <td className="whitespace-nowrap px-4 py-2.5 text-zinc-400">
+                                {formatShortDate(row.opened_at, language)}{' '}
+                                <span className="tabular-nums text-zinc-500">
+                                  {new Date(row.opened_at).toLocaleTimeString(
+                                    language === 'zh' ? 'zh-CN' : 'en-US',
+                                    {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    }
+                                  )}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 font-medium">
+                                {row.symbol}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                {row.side === 'short'
+                                  ? language === 'zh'
+                                    ? '空'
+                                    : 'Short'
+                                  : language === 'zh'
+                                    ? '多'
+                                    : 'Long'}
+                              </td>
+                              <td className="tabular-nums px-4 py-2.5">
+                                {row.entry_price.toFixed(4)}
+                              </td>
+                              <td className="tabular-nums px-4 py-2.5">
+                                {row.exit_price.toFixed(4)}
+                              </td>
+                              <td
+                                className={`tabular-nums px-4 py-2.5 text-right font-semibold`}
+                                style={{
+                                  color: upRow ? CRYPTO_UP : CRYPTO_DOWN,
+                                }}
+                              >
+                                {formatUsd(row.pnl_usdt)}
+                              </td>
+                            </tr>
+                          )
                         })}
-                      </span>
-                      <span className="mt-1 block text-zinc-200">{ins.content}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
+            {Array.isArray(strategy.demo_ai_insights) &&
+              strategy.demo_ai_insights.length > 0 && (
+                <section className="mt-10">
+                  <h2
+                    className={`mb-4 flex flex-wrap items-center gap-2 text-lg font-bold text-white ${FONT_STATS_LABEL}`}
+                  >
+                    <Activity className="h-5 w-5 text-primary" />
+                    {language === 'zh'
+                      ? 'AI 思考记录（演示）'
+                      : 'AI notes (demo)'}
+                  </h2>
+                  <ul className="space-y-3">
+                    {strategy.demo_ai_insights.map((ins, i) => (
+                      <li
+                        key={`ai-${i}`}
+                        className="rounded-xl border border-zinc-800/80 px-4 py-3 text-sm leading-relaxed text-zinc-300"
+                        style={{ backgroundColor: '#121212' }}
+                      >
+                        <span className="block text-xs text-zinc-500">
+                          {formatShortDate(ins.at, language)}{' '}
+                          {new Date(ins.at).toLocaleTimeString(
+                            language === 'zh' ? 'zh-CN' : 'en-US',
+                            {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            }
+                          )}
+                        </span>
+                        <span className="mt-1 block text-zinc-200">
+                          {ins.content}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
           </>
         )}
       </main>
@@ -1057,7 +1361,8 @@ export function StrategyMarketDetailPage() {
                     type="button"
                     disabled={Boolean(walletData?.market_weekly_trial_used)}
                     onClick={() => {
-                      if (!walletData?.market_weekly_trial_used) setPurchasePlan('weekly')
+                      if (!walletData?.market_weekly_trial_used)
+                        setPurchasePlan('weekly')
                     }}
                     className={`rounded-xl border-2 p-4 text-left transition-all ${
                       purchasePlan === 'weekly'
@@ -1066,18 +1371,24 @@ export function StrategyMarketDetailPage() {
                     } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
                   >
                     <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-                      {language === 'zh' ? '周卡体验 · 7 天' : 'Weekly trial · 7d'}
+                      {language === 'zh'
+                        ? '周卡体验 · 7 天'
+                        : 'Weekly trial · 7d'}
                     </div>
                     <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
                       {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
                     </div>
                     {walletData?.market_weekly_trial_used ? (
                       <p className="mt-2 text-[11px] text-zinc-500">
-                        {language === 'zh' ? '本账号已使用过唯一一次体验' : 'Trial already used on this account'}
+                        {language === 'zh'
+                          ? '本账号已使用过唯一一次体验'
+                          : 'Trial already used on this account'}
                       </p>
                     ) : (
                       <p className="mt-2 text-[11px] text-zinc-500">
-                        {language === 'zh' ? '每账号仅一次，不计入充值返利统计' : 'One per account; excluded from rebate stats'}
+                        {language === 'zh'
+                          ? '每账号仅一次，不计入充值返利统计'
+                          : 'One per account; excluded from rebate stats'}
                       </p>
                     )}
                   </button>
@@ -1104,7 +1415,15 @@ export function StrategyMarketDetailPage() {
                 onClick={() => void submitPurchase()}
                 className="market-detail-cta-gold h-11 rounded-lg px-4 text-sm font-bold text-black disabled:opacity-50"
               >
-                {purchaseBusy ? '…' : isFreeSubscriptionStrategy(strategy) ? (language === 'zh' ? '确认免费订阅' : 'Subscribe free') : language === 'zh' ? '确认支付' : 'Pay'}
+                {purchaseBusy
+                  ? '…'
+                  : isFreeSubscriptionStrategy(strategy)
+                    ? language === 'zh'
+                      ? '确认免费订阅'
+                      : 'Subscribe free'
+                    : language === 'zh'
+                      ? '确认支付'
+                      : 'Pay'}
               </button>
             </div>
           </div>
