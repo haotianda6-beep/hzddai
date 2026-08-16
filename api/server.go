@@ -57,6 +57,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		watchHZMarket:             hz.WatchBinanceMarket,
 		port:                      port,
 	}
+	store.SetAgentRebateSpendCallback(s.NotifyAgentRebateAfterWalletSpend)
 
 	binance.SetProxyFaultRecorder(func(in store.RecordFaultInput) {
 		if err := st.ProxyFault().RecordFault(in); err != nil {
@@ -110,10 +111,9 @@ func (s *Server) setupRoutes() {
 		api.POST("/wallet/validate", s.handleWalletValidate)
 		api.POST("/wallet/generate", s.handleWalletGenerate)
 
-		// Crypto related endpoints (no authentication required, not exposed to bot)
+		// Crypto configuration endpoints (no authentication required)
 		api.GET("/crypto/config", s.cryptoHandler.HandleGetCryptoConfig)
 		api.GET("/crypto/public-key", s.cryptoHandler.HandleGetPublicKey)
-		api.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
 
 		// Public competition data (no authentication required)
 		s.route(api, "GET", "/traders", "Public trader list", s.handlePublicTraderList)
@@ -144,7 +144,6 @@ Body: {"eventId":"<string>","sequence":"<positive integer string>","eventType":"
 		s.route(api, "POST", "/register", "Register new user", s.handleRegister)
 		s.route(api, "POST", "/login", "User login, returns JWT token", s.handleLogin)
 		s.route(api, "POST", "/reset-password", "Reset password", s.handleResetPassword)
-		s.route(api, "POST", "/reset-account", "Clear all users and reset system to allow re-registration", s.handleResetAccount)
 
 		// Routes requiring authentication
 		s.route(api, "POST", "/send_signal_strategy", "MT4 EA strategy signal webhook", s.handleMT4StrategySignal)

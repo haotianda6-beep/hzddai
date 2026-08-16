@@ -44,7 +44,7 @@ func (s *Server) handleInviteMe(c *gin.Context) {
 		"invite_code":   user.InviteCode,
 		"invite_link":   inviteLinkForRequest(c, user.InviteCode),
 		"invited_count": len(rows),
-		"reward_text":   "散户邀请5名用户且每人累计确认充值达到100U后自动升级IB。",
+		"reward_text":   "邀请关系用于工作室和分公司的返佣归属。",
 		"invited_users": rows,
 		"generated_at":  time.Now().UTC().Format(time.RFC3339),
 	})

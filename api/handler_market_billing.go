@@ -12,12 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// 非跟单策略仍保留旧套餐；跟单策略统一 0U 解锁，运行中按主控 AI 广播次数扣平台余额。
+// 付费策略统一按月订阅；免费跟单模板仍为 0U 解锁并按主控 AI 广播次数扣费。
 const (
 	marketSubMonthlyUSDT  = 600.0
-	marketSubWeeklyUSDT   = 40.0 // 周卡体验价（全账号仅一次，流水 reason 单独，不参与返利/分账）
 	marketSubMonthlyLabel = "monthly"
-	marketSubWeeklyLabel  = "weekly"
 )
 
 func marketPlanPriceAndDuration(plan string, cfg *store.StrategyConfig) (price float64, extend time.Duration, ledgerReason string, ok bool) {
@@ -28,11 +26,6 @@ func marketPlanPriceAndDuration(plan string, cfg *store.StrategyConfig) (price f
 			price = cfg.MarketSalePriceUSDT
 		}
 		return price, 30 * 24 * time.Hour, "market_subscription_monthly", true
-	case marketSubWeeklyLabel:
-		if cfg != nil && cfg.MarketSubscriptionMonthlyOnly {
-			return 0, 0, "", false
-		}
-		return marketSubWeeklyUSDT, 7 * 24 * time.Hour, "market_subscription_weekly_trial", true
 	default:
 		return 0, 0, "", false
 	}
@@ -46,7 +39,7 @@ func isFreeComkunMarketSubscription(access string, cfg *store.StrategyConfig) bo
 		(store.IsComkunMarketFollowStrategy(cfg) || cfg.ComkunFollowListingTemplate)
 }
 
-// handleMarketStrategyPurchase 解锁策略市场订阅；跟单策略不再卖包月，后续按主控 AI 广播次数扣平台余额。
+// handleMarketStrategyPurchase 解锁策略市场订阅；付费策略只提供 30 天月卡。
 func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 	userID := c.GetString("user_id")
 	var req struct {
@@ -112,27 +105,13 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 
 	price, extend, ledgerReason, ok := marketPlanPriceAndDuration(req.Plan, &cfg)
 	if !ok {
-		if cfg.MarketSubscriptionMonthlyOnly {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "该策略仅支持 monthly 月卡（30 天）"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "plan 须为 monthly（月卡 30 天）或 weekly（周卡体验 7 天，每账号仅一次）"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该策略仅支持 monthly 月卡（30 天）"})
 		return
 	}
 
-	isWeekly := strings.EqualFold(strings.TrimSpace(req.Plan), marketSubWeeklyLabel)
-
 	var newBal float64
+	var spendLedgerID uint64
 	err = s.store.Transaction(func(tx *gorm.DB) error {
-		if isWeekly {
-			claimed, e := s.store.User().TryClaimMarketWeeklyTrial(tx, userID)
-			if e != nil {
-				return e
-			}
-			if !claimed {
-				return errMarketWeeklyTrialAlreadyUsed
-			}
-		}
 		bal, okBal, e := s.store.User().AddBalanceDelta(tx, userID, -price)
 		if e != nil {
 			return e
@@ -141,17 +120,13 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 			return errMarketInsufficientBalance
 		}
 		newBal = bal
-		_, e = s.store.Billing().AppendLedger(tx, userID, -price, newBal, ledgerReason, st.ID)
+		spendLedgerID, e = s.store.Billing().AppendLedger(tx, userID, -price, newBal, ledgerReason, st.ID)
 		if e != nil {
 			return e
 		}
 		return s.store.Billing().ExtendMarketSubscription(tx, userID, st.ID, price, extend)
 	})
 	if err != nil {
-		if err == errMarketWeeklyTrialAlreadyUsed {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "周卡体验每个账号仅可购买一次，请选择月卡续订"})
-			return
-		}
 		if err == errMarketInsufficientBalance {
 			c.JSON(http.StatusPaymentRequired, gin.H{"error": "余额不足，请先充值"})
 			return
@@ -159,6 +134,7 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		SafeInternalError(c, "购买失败", err)
 		return
 	}
+	store.DispatchAgentRebateSpendIfEligible(userID, price, spendLedgerID, ledgerReason)
 
 	if u, e := s.store.User().GetByID(userID); e == nil && u != nil {
 		newBal = u.BalanceUSDT
@@ -169,7 +145,7 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		subUntil = row.SubscriptionUntil
 	}
 
-	msg := "订阅成功：有效期内可使用该策略进行实时跟单"
+	msg := "订阅成功：有效期 30 天"
 	c.JSON(http.StatusOK, gin.H{
 		"balance_usdt":       newBal,
 		"strategy_id":        st.ID,
@@ -181,8 +157,6 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 }
 
 var errMarketInsufficientBalance = errors.New("insufficient balance for market purchase")
-
-var errMarketWeeklyTrialAlreadyUsed = errors.New("market weekly trial already used for this account")
 
 func (s *Server) handleMarketEntitlements(c *gin.Context) {
 	userID := c.GetString("user_id")

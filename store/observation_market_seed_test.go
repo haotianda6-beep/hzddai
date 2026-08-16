@@ -38,10 +38,10 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 	if err := db.Model(&Strategy{}).Where("id LIKE ?", "comkun-observation-history-%").Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 6 {
+	if count != 3 {
 		t.Fatalf("seed count = %d", count)
 	}
-	for slot := 1; slot <= 6; slot++ {
+	for slot := 1; slot <= 3; slot++ {
 		var strategy Strategy
 		if err := db.First(&strategy, "id = ?", observation.StrategyID(slot)).Error; err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestEnsureObservationMarketSeeds(t *testing.T) {
 	}
 }
 
-func TestEnsureObservationMarketSeedsEnablesSixIndependentLiveRoutes(t *testing.T) {
+func TestEnsureObservationMarketSeedsEnablesThreeIndependentLiveRoutes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:observation-live-seed?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -85,12 +85,12 @@ func TestEnsureObservationMarketSeedsEnablesSixIndependentLiveRoutes(t *testing.
 		t.Fatal(err)
 	}
 	t.Setenv(observationMarketEnabledEnv, "true")
-	t.Setenv(observationLiveMasterIDsEnv, "master-1,master-2,master-3,master-4,master-5,master-6")
+	t.Setenv(observationLiveMasterIDsEnv, "master-1,master-2,master-3")
 	if err := st.EnsureObservationMarketSeeds(); err != nil {
 		t.Fatal(err)
 	}
 	seen := map[string]bool{}
-	for slot := 1; slot <= 6; slot++ {
+	for slot := 1; slot <= 3; slot++ {
 		var strategy Strategy
 		if err := db.First(&strategy, "id = ?", observation.StrategyID(slot)).Error; err != nil {
 			t.Fatal(err)

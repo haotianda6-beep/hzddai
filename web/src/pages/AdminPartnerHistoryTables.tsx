@@ -3,7 +3,6 @@ import type { PartnerAdminTab } from './AdminPartnerLedgerTables'
 
 const roleName: Record<PartnerRole, string> = {
   retail: '散户',
-  ib: 'IB',
   studio: '工作室',
   branch: '分公司',
 }

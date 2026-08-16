@@ -17,7 +17,7 @@ import (
 const (
 	observationMarketEnabledEnv        = "COMKUN_OBSERVER_MARKET_ENABLED"
 	observationLiveMasterIDsEnv        = "COMKUN_OBSERVER_LIVE_MASTER_IDS"
-	observationExpectedLiveMasterCount = 6
+	observationExpectedLiveMasterCount = 3
 )
 
 func observationMarketEnabled() bool {
@@ -47,7 +47,7 @@ func observationLiveMasterSourceIDs() ([]string, bool) {
 	return sources, true
 }
 
-// EnsureObservationMarketSeeds publishes the six verified historical-scenario
+// EnsureObservationMarketSeeds publishes the three approved historical-scenario
 // profiles. It never creates exchanges, traders, credentials, or live routes.
 func (s *Store) EnsureObservationMarketSeeds() error {
 	if !observationMarketEnabled() {
@@ -66,6 +66,9 @@ func (s *Store) EnsureObservationMarketSeeds() error {
 	liveSources, liveReady := observationLiveMasterSourceIDs()
 	err = s.gdb.Transaction(func(tx *gorm.DB) error {
 		for _, slot := range doc.Slots {
+			if slot.Slot > observationExpectedLiveMasterCount {
+				continue
+			}
 			profile, ok := observation.MarketProfileBySlot(slot.Slot)
 			if !ok {
 				return fmt.Errorf("observation market profile missing slot=%d", slot.Slot)
@@ -134,7 +137,7 @@ func (s *Store) EnsureObservationMarketSeeds() error {
 		return nil
 	})
 	if err == nil {
-		logger.Infof("✅ observation market strategies ready count=%d live_routes=%t source=%s", len(doc.Slots), liveReady, doc.Status)
+		logger.Infof("✅ observation market strategies ready count=%d live_routes=%t source=%s", observationExpectedLiveMasterCount, liveReady, doc.Status)
 	}
 	return err
 }

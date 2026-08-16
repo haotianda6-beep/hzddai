@@ -34,10 +34,7 @@ import {
   recentBalanceSeries,
   stripStrategyTitleParenthetical,
 } from '../lib/strategyMarketDisplay'
-import {
-  MARKET_SUB_MONTHLY_USDT,
-  MARKET_SUB_WEEKLY_TRIAL_USDT,
-} from '../lib/strategyMarketPricing'
+import { MARKET_SUB_MONTHLY_USDT } from '../lib/strategyMarketPricing'
 import { findExistingForkIdForMarketSource } from '../lib/marketStrategyFork'
 import {
   formatUserFacingError,
@@ -473,9 +470,6 @@ export function StrategyMarketPage() {
   const [page, setPage] = useState(1)
   const [purchaseStrategy, setPurchaseStrategy] =
     useState<PublicStrategy | null>(null)
-  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>(
-    'monthly'
-  )
   const [purchaseBusy, setPurchaseBusy] = useState(false)
 
   const { data: walletData, mutate: mutateWallet } = useSWR(
@@ -497,20 +491,6 @@ export function StrategyMarketPage() {
       is_finance: walletData.is_finance,
     })
   }, [walletData, applyUserProfile])
-
-  useEffect(() => {
-    if (purchaseStrategy) setPurchasePlan('monthly')
-  }, [purchaseStrategy])
-
-  useEffect(() => {
-    if (
-      purchaseStrategy &&
-      walletData?.market_weekly_trial_used &&
-      purchasePlan === 'weekly'
-    ) {
-      setPurchasePlan('monthly')
-    }
-  }, [purchaseStrategy, walletData?.market_weekly_trial_used, purchasePlan])
 
   const tr = (key: string) => t(`strategyMarket.${key}`, language)
 
@@ -713,7 +693,7 @@ export function StrategyMarketPage() {
     try {
       const res = await api.postMarketPurchase(
         purchaseStrategy.id,
-        isFreeSubscriptionStrategy(purchaseStrategy) ? 'free' : purchasePlan
+        isFreeSubscriptionStrategy(purchaseStrategy) ? 'free' : 'monthly'
       )
       toast.success(
         res.message || (language === 'zh' ? '购买成功' : 'Purchased')
@@ -1639,29 +1619,14 @@ export function StrategyMarketPage() {
               ) : (
                 <>
                   <p className="mt-2 text-sm text-on-surface-variant">
-                    {purchaseStrategy.market_subscription_monthly_only
-                      ? language === 'zh'
-                        ? '月费订阅有效期为 30 天，到期后需续订才可继续跟单。'
-                        : 'The monthly subscription is valid for 30 days and must be renewed to keep copy trading.'
-                      : language === 'zh'
-                        ? '选择套餐：订阅期内使用同步策略不再按轮扣除站内余额。'
-                        : 'Pick a plan. Sync usage fees are waived while the subscription is active.'}
+                    {language === 'zh'
+                      ? '月费订阅有效期为 30 天，到期后需续订才可继续使用。'
+                      : 'The monthly subscription is valid for 30 days and must be renewed to continue.'}
                   </p>
-                  <div
-                    className={`mt-4 grid grid-cols-1 gap-3 ${
-                      purchaseStrategy.market_subscription_monthly_only
-                        ? ''
-                        : 'sm:grid-cols-2'
-                    }`}
-                  >
+                  <div className="mt-4 grid grid-cols-1 gap-3">
                     <button
                       type="button"
-                      onClick={() => setPurchasePlan('monthly')}
-                      className={`rounded-xl border-2 p-4 text-left transition-all ${
-                        purchasePlan === 'monthly'
-                          ? 'border-[#d4ff33] bg-primary-container/15 ring-1 ring-[#d4ff33]/40'
-                          : 'border-outline-variant/30 bg-surface-container-low hover:border-outline-variant/50'
-                      }`}
+                      className="rounded-xl border-2 border-[#d4ff33] bg-primary-container/15 p-4 text-left ring-1 ring-[#d4ff33]/40"
                     >
                       <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
                         {language === 'zh' ? '月卡 · 30 天' : 'Monthly · 30d'}
@@ -1675,43 +1640,6 @@ export function StrategyMarketPage() {
                           : 'Valid for 30 days'}
                       </p>
                     </button>
-                    {!purchaseStrategy.market_subscription_monthly_only && (
-                      <button
-                        type="button"
-                        disabled={Boolean(walletData?.market_weekly_trial_used)}
-                        onClick={() => {
-                          if (!walletData?.market_weekly_trial_used)
-                            setPurchasePlan('weekly')
-                        }}
-                        className={`rounded-xl border-2 p-4 text-left transition-all ${
-                          purchasePlan === 'weekly'
-                            ? 'border-[#d4ff33] bg-primary-container/15 ring-1 ring-[#d4ff33]/40'
-                            : 'border-outline-variant/30 bg-surface-container-low hover:border-outline-variant/50'
-                        } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
-                      >
-                        <div className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
-                          {language === 'zh'
-                            ? '周卡体验 · 7 天'
-                            : 'Weekly trial · 7d'}
-                        </div>
-                        <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
-                          {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
-                        </div>
-                        {walletData?.market_weekly_trial_used ? (
-                          <p className="mt-2 text-[11px] text-on-surface-variant">
-                            {language === 'zh'
-                              ? '本账号已使用过唯一一次体验'
-                              : 'Trial already used on this account'}
-                          </p>
-                        ) : (
-                          <p className="mt-2 text-[11px] text-on-surface-variant">
-                            {language === 'zh'
-                              ? '每账号仅一次，不计入充值返利统计'
-                              : 'One per account; excluded from rebate stats'}
-                          </p>
-                        )}
-                      </button>
-                    )}
                   </div>
                 </>
               )}

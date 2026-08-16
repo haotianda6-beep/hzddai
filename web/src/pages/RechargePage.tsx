@@ -2,7 +2,7 @@ import { useState } from 'react'
 import useSWR from 'swr'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
-import { Copy, Mail, Wallet, Headphones, Info, MessageCircle } from 'lucide-react'
+import { Copy, Mail, Wallet, Headphones, MessageCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import { openLiveChatPanel } from '../lib/liveChatOpen'
 import { ROUTES } from '../router/paths'
@@ -110,16 +110,6 @@ export function RechargePage() {
         <p className="break-all rounded-xl border border-dashed border-[#46484d]/50 bg-black/20 px-4 py-3 text-center font-mono text-sm text-[#d4ff33]">
           {SUPPORT_EMAIL}
         </p>
-
-        <div className="flex gap-3 rounded-xl border border-[#2b3139]/80 bg-black/15 p-4">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#848E9C]" aria-hidden />
-          <div className="text-xs leading-relaxed text-[#848E9C]">
-            <p className="font-medium text-[#b7bdc6]">后续可扩展（当前留白）</p>
-            <p className="mt-1">
-              可在此接入：对公账户信息、USDT 收款地址（链上）、第三方支付跳转、工单编号查询等。当前版本仅保留人工通道，避免误充与对账风险。
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,4 +220,34 @@ func (s *Server) postPartnerSync(items []partnerSyncItem) bool {
 		return false
 	}
 	return true
+}
+
+func (s *Server) postAgentRebatePlatformConsume(userID string, amount float64, reason string, walletLedgerID uint64) int {
+	q := url.Values{}
+	q.Set("platform_user_id", userID)
+	q.Set("amount", strconv.FormatFloat(amount, 'f', -1, 64))
+	q.Set("external_ref", "hzddai_wallet_spend:"+strconv.FormatUint(walletLedgerID, 10))
+	q.Set("note", "hzddai_spend:"+reason)
+	resp, err := doAgentRebateRequest(http.MethodPost, "/api/platform/consume?"+q.Encode(), nil)
+	if err != nil {
+		logger.Warnf("partner rebate consume: %v", err)
+		return -1
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
+}
+
+// NotifyAgentRebateAfterWalletSpend reports only committed eligible wallet spends.
+func (s *Server) NotifyAgentRebateAfterWalletSpend(userID string, spendUSDT float64, walletLedgerID uint64, reason string) {
+	if _, _, ok := agentRebateEnvOK(); !ok || spendUSDT <= 0 || walletLedgerID == 0 || !store.IsAgentRebateEligibleSpendReason(reason) {
+		return
+	}
+	code := s.postAgentRebatePlatformConsume(userID, spendUSDT, reason, walletLedgerID)
+	if code == http.StatusNotFound && s.syncInviteChainToAgentRebate(userID) {
+		code = s.postAgentRebatePlatformConsume(userID, spendUSDT, reason, walletLedgerID)
+	}
+	if code != http.StatusOK && code >= 0 {
+		logger.Warnf("partner rebate consume status=%d user=%s", code, userID)
+	}
 }

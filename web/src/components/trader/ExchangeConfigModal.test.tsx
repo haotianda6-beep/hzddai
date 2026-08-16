@@ -4,12 +4,12 @@ import {
   getExchangeCredentialFields,
 } from './ExchangeConfigModal'
 
-describe('HZ trading account configuration', () => {
+describe('BALIB trading account configuration', () => {
   it('uses the approved name and exactly the required credential fields', () => {
     const hz = SUPPORTED_EXCHANGE_TEMPLATES.find(
       (exchange) => exchange.exchange_type === 'hz'
     )
-    expect(hz?.name).toBe('HZ 交易账户')
+    expect(hz?.name).toBe('BALIB 交易账户')
     expect(hz?.name).not.toContain('模拟')
     expect(getExchangeCredentialFields('hz')).toEqual({
       apiUrl: true,

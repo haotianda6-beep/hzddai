@@ -250,6 +250,7 @@ func (s *platformBillingSession) chargeOnce(paymentHeaderB64 string) error {
 	charged = math.Ceil(charged*1_000_000) / 1_000_000
 	var before, after float64
 	var usageID string
+	var walletLedgerID uint64
 	err = s.cfg.Store.Transaction(func(tx *gorm.DB) error {
 		u, err := s.cfg.Store.User().GetByID(s.cfg.UserID)
 		if err != nil {
@@ -264,7 +265,7 @@ func (s *platformBillingSession) chargeOnce(paymentHeaderB64 string) error {
 			return fmt.Errorf("平台余额不足，请先充值")
 		}
 		after = bal
-		_, err = s.cfg.Store.Billing().AppendLedger(tx, s.cfg.UserID, -charged, after, "ai_platform_call", s.cfg.TraderID)
+		walletLedgerID, err = s.cfg.Store.Billing().AppendLedger(tx, s.cfg.UserID, -charged, after, "ai_platform_call", s.cfg.TraderID)
 		if err != nil {
 			return err
 		}
@@ -290,6 +291,7 @@ func (s *platformBillingSession) chargeOnce(paymentHeaderB64 string) error {
 	if err != nil {
 		return err
 	}
+	store.DispatchAgentRebateSpendIfEligible(s.cfg.UserID, charged, walletLedgerID, "ai_platform_call")
 	s.usageID = usageID
 	s.actualCostUSDC = actual
 	s.chargedUSDT = charged

@@ -208,7 +208,7 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 	case "indodax":
 		return "Indodax", "cex"
 	case "hz":
-		return "HZ 交易账户", "cex"
+		return "BALIB 交易账户", "cex"
 	default:
 		return exchangeType + " Exchange", "cex"
 	}

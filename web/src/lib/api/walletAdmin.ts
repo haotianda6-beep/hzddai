@@ -15,7 +15,7 @@ export type MarketEntitlement = {
   strategy_id: string
   amount_paid: number
   created_at: string
-  /** ISO8601，包月/包周到期时间；过期后仍保留解锁，恢复按轮扣费 */
+  /** ISO8601，包月到期时间；过期后仍保留解锁，恢复按轮扣费 */
   subscription_until?: string | null
 }
 
@@ -76,7 +76,7 @@ export async function getInviteMe(): Promise<InviteMePayload> {
   return handleJSONResponse(res)
 }
 
-export type PartnerRole = 'retail' | 'ib' | 'studio' | 'branch'
+export type PartnerRole = 'retail' | 'studio' | 'branch'
 
 export type PartnerDashboard = {
   ok: boolean
@@ -89,18 +89,6 @@ export type PartnerDashboard = {
     frozen_balance_usdt: string
     lifetime_deposit_usdt: string
     qualified_at?: string | null
-  }
-  ib_progress: {
-    qualified_count: number
-    required_count: number
-    required_each_usdt: string
-    excluded_total_usdt: string
-    direct_users: Array<{
-      platform_user_id: string
-      nickname: string
-      deposit_usdt: string
-      qualified: boolean
-    }>
   }
   network: Array<{
     platform_user_id: string
@@ -348,7 +336,7 @@ export async function getWallet(): Promise<{
 
 export async function postMarketPurchase(
   strategyId: string,
-  plan: 'monthly' | 'weekly' | 'free'
+  plan: 'monthly' | 'free'
 ): Promise<{
   balance_usdt: number
   strategy_id: string

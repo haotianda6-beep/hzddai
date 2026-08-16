@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestSupportedExchangesIncludesHZTradingAccount(t *testing.T) {
+func TestSupportedExchangesIncludesBALIBTradingAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
@@ -22,7 +22,7 @@ func TestSupportedExchangesIncludesHZTradingAccount(t *testing.T) {
 	}
 	for _, exchange := range exchanges {
 		if exchange.ExchangeType == "hz" {
-			if exchange.Name != "HZ 交易账户" {
+			if exchange.Name != "BALIB 交易账户" {
 				t.Fatalf("unexpected HZ display name: %q", exchange.Name)
 			}
 			return

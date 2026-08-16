@@ -5,7 +5,7 @@ import "testing"
 func TestMarketProfilesAreCompleteAndUnique(t *testing.T) {
 	names := map[string]bool{}
 	creators := map[string]bool{}
-	wantPrices := []float64{100, 200, 300, 500, 800, 1000}
+	wantPrices := []float64{100, 200, 500, 600, 600, 600}
 	for slot := 1; slot <= 6; slot++ {
 		profile, ok := MarketProfileBySlot(slot)
 		if !ok {

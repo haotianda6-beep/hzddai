@@ -1,8 +1,7 @@
-export type AccountPartnerRole = 'retail' | 'ib' | 'studio' | 'branch'
+export type AccountPartnerRole = 'retail' | 'studio' | 'branch'
 
 const partnerRoleName: Record<AccountPartnerRole, string> = {
   retail: '散户',
-  ib: 'IB',
   studio: '工作室',
   branch: '分公司',
 }

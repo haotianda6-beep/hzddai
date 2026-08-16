@@ -71,13 +71,13 @@ func TestIsFreeComkunMarketSubscription(t *testing.T) {
 	}
 }
 
-func TestMarketPlanPriceAndDurationUsesListingPriceAndMonthlyOnly(t *testing.T) {
-	cfg := &store.StrategyConfig{MarketSalePriceUSDT: 300, MarketSubscriptionMonthlyOnly: true}
+func TestMarketPlanPriceAndDurationUsesListingPriceAndRejectsWeekly(t *testing.T) {
+	cfg := &store.StrategyConfig{MarketSalePriceUSDT: 500}
 	price, duration, reason, ok := marketPlanPriceAndDuration("monthly", cfg)
-	if !ok || price != 300 || duration != 30*24*time.Hour || reason != "market_subscription_monthly" {
+	if !ok || price != 500 || duration != 30*24*time.Hour || reason != "market_subscription_monthly" {
 		t.Fatalf("monthly plan mismatch: price=%v duration=%v reason=%s ok=%v", price, duration, reason, ok)
 	}
 	if _, _, _, ok := marketPlanPriceAndDuration("weekly", cfg); ok {
-		t.Fatal("monthly-only listing accepted weekly trial")
+		t.Fatal("weekly subscriptions must be disabled for every listing")
 	}
 }

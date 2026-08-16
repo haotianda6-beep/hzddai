@@ -9,8 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// WalletLedger 平台余额流水（演示充值 / 策略市场扣款 / 管理员调账）。
-// reason=recharge 为历史站内充值；策略市场周卡体验为 market_subscription_weekly_trial。
+// WalletLedger 平台余额流水（历史充值 / 策略市场扣款 / 管理员调账）。
 type WalletLedger struct {
 	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID        string    `gorm:"column:user_id;not null;index:idx_wallet_ledger_user" json:"user_id"`
@@ -29,7 +28,7 @@ type StrategyMarketEntitlement struct {
 	StrategyID string    `gorm:"column:strategy_id;primaryKey" json:"strategy_id"`
 	AmountPaid float64   `gorm:"column:amount_paid;not null;default:0" json:"amount_paid"`
 	CreatedAt  time.Time `json:"created_at"`
-	// SubscriptionUntil 包月/包周有效期内豁免 COMKUN 跟单「同步展示」按轮扣费；过期后仍保留解锁，恢复按轮扣站内余额
+	// SubscriptionUntil 包月有效期内豁免 COMKUN 跟单「同步展示」按轮扣费；过期后仍保留解锁，恢复按轮扣站内余额
 	SubscriptionUntil *time.Time `gorm:"column:subscription_until" json:"subscription_until,omitempty"`
 }
 
@@ -119,7 +118,7 @@ func (s *BillingStore) GrantEntitlementIfMissing(tx *gorm.DB, userID, strategyID
 	}).Create(row).Error
 }
 
-// HasScanFeeWaiver 策略市场源策略是否在包月/包周有效期内（豁免跟单轮询站内扣费）
+// HasScanFeeWaiver 策略市场源策略是否在包月有效期内（豁免跟单轮询站内扣费）
 func (s *BillingStore) HasScanFeeWaiver(userID, strategyID string) (bool, error) {
 	strategyID = strings.TrimSpace(strategyID)
 	userID = strings.TrimSpace(userID)

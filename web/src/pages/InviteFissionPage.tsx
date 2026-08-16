@@ -18,7 +18,6 @@ import { useAuth } from '../contexts/AuthContext'
 
 const roleName: Record<PartnerRole, string> = {
   retail: '散户',
-  ib: 'IB',
   studio: '工作室',
   branch: '分公司',
 }
@@ -195,29 +194,6 @@ export function InviteFissionPage() {
         />
       </section>
 
-      {(data.user.role === 'retail' || data.user.qualified_at) && (
-        <section className="mt-5 border-y border-zinc-800 py-4">
-          <div className="flex items-center justify-between text-sm">
-            <strong>IB 升级进度</strong>
-            <span className="font-mono text-[#d4ff33]">
-              {data.ib_progress.qualified_count}/
-              {data.ib_progress.required_count}
-            </span>
-          </div>
-          <div className="mt-3 grid grid-cols-5 gap-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className={`h-2 rounded-sm ${i < data.ib_progress.qualified_count ? 'bg-[#d4ff33]' : 'bg-zinc-800'}`}
-              />
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            5名直邀用户分别确认充值100U；门槛500U单独标记且不补发IB返佣。
-          </p>
-        </section>
-      )}
-
       {canWithdraw && (
         <section className="mt-5 flex flex-col gap-3 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end">
           <label className="min-w-0 flex-1 text-xs text-zinc-500">
@@ -291,8 +267,7 @@ export function InviteFissionPage() {
                   <td>{row.depth}</td>
                   <td>{money(row.deposit_usdt)} U</td>
                   <td>
-                    {data.user.role === 'branch' &&
-                    (row.role === 'retail' || row.role === 'ib') ? (
+                    {data.user.role === 'branch' && row.role === 'retail' ? (
                       <button
                         type="button"
                         disabled={busy}

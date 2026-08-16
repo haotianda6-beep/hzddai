@@ -38,7 +38,7 @@ export const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'aster', name: 'Aster DEX', type: 'dex' as const },
   { exchange_type: 'lighter', name: 'Lighter', type: 'dex' as const },
   { exchange_type: 'indodax', name: 'Indodax', type: 'cex' as const },
-  { exchange_type: 'hz', name: 'HZ 交易账户', type: 'cex' as const },
+  { exchange_type: 'hz', name: 'BALIB 交易账户', type: 'cex' as const },
 ]
 
 export function getExchangeCredentialFields(exchangeType: string) {

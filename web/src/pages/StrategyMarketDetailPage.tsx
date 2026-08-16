@@ -37,10 +37,7 @@ import {
   isSimulatedPerformance,
   stripStrategyTitleParenthetical,
 } from '../lib/strategyMarketDisplay'
-import {
-  MARKET_SUB_MONTHLY_USDT,
-  MARKET_SUB_WEEKLY_TRIAL_USDT,
-} from '../lib/strategyMarketPricing'
+import { MARKET_SUB_MONTHLY_USDT } from '../lib/strategyMarketPricing'
 import { findExistingForkIdForMarketSource } from '../lib/marketStrategyFork'
 import { getExchangeIcon } from '../components/common/ExchangeIcons'
 import {
@@ -227,9 +224,6 @@ export function StrategyMarketDetailPage() {
   const { token, applyUserProfile } = useAuth()
   const [purchaseBusy, setPurchaseBusy] = useState(false)
   const [purchaseOpen, setPurchaseOpen] = useState(false)
-  const [purchasePlan, setPurchasePlan] = useState<'monthly' | 'weekly'>(
-    'monthly'
-  )
 
   const tr = (key: string) => t(`strategyMarket.${key}`, language)
 
@@ -252,20 +246,6 @@ export function StrategyMarketDetailPage() {
       is_finance: walletData.is_finance,
     })
   }, [walletData, applyUserProfile])
-
-  useEffect(() => {
-    if (purchaseOpen) setPurchasePlan('monthly')
-  }, [purchaseOpen])
-
-  useEffect(() => {
-    if (
-      purchaseOpen &&
-      walletData?.market_weekly_trial_used &&
-      purchasePlan === 'weekly'
-    ) {
-      setPurchasePlan('monthly')
-    }
-  }, [purchaseOpen, walletData?.market_weekly_trial_used, purchasePlan])
 
   const {
     data: payload,
@@ -435,7 +415,7 @@ export function StrategyMarketDetailPage() {
     try {
       const res = await api.postMarketPurchase(
         strategy.id,
-        isFreeSubscriptionStrategy(strategy) ? 'free' : purchasePlan
+        isFreeSubscriptionStrategy(strategy) ? 'free' : 'monthly'
       )
       toast.success(
         res.message || (language === 'zh' ? '购买成功' : 'Purchased')
@@ -1344,29 +1324,14 @@ export function StrategyMarketDetailPage() {
             ) : (
               <>
                 <p className="mt-2 text-sm text-zinc-400">
-                  {strategy.market_subscription_monthly_only
-                    ? language === 'zh'
-                      ? '月费订阅有效期为 30 天，到期后需续订才可继续跟单。'
-                      : 'The monthly subscription is valid for 30 days and must be renewed to keep copy trading.'
-                    : language === 'zh'
-                      ? '选择套餐：订阅有效期内免除同步使用费。'
-                      : 'Pick a plan. Sync usage fees are waived while active.'}
+                  {language === 'zh'
+                    ? '月费订阅有效期为 30 天，到期后需续订才可继续使用。'
+                    : 'The monthly subscription is valid for 30 days and must be renewed to continue.'}
                 </p>
-                <div
-                  className={`mt-4 grid grid-cols-1 gap-3 ${
-                    strategy.market_subscription_monthly_only
-                      ? ''
-                      : 'sm:grid-cols-2'
-                  }`}
-                >
+                <div className="mt-4 grid grid-cols-1 gap-3">
                   <button
                     type="button"
-                    onClick={() => setPurchasePlan('monthly')}
-                    className={`rounded-xl border-2 p-4 text-left transition-all ${
-                      purchasePlan === 'monthly'
-                        ? 'border-[#d4ff33] bg-[#d4ff33]/10 ring-1 ring-[#d4ff33]/35'
-                        : 'border-zinc-700 bg-zinc-900/80 hover:border-zinc-600'
-                    }`}
+                    className="rounded-xl border-2 border-[#d4ff33] bg-[#d4ff33]/10 p-4 text-left ring-1 ring-[#d4ff33]/35"
                   >
                     <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                       {language === 'zh' ? '月卡 · 30 天' : 'Monthly · 30d'}
@@ -1375,43 +1340,6 @@ export function StrategyMarketDetailPage() {
                       {monthlySubscriptionPrice(strategy)} USDT
                     </div>
                   </button>
-                  {!strategy.market_subscription_monthly_only && (
-                    <button
-                      type="button"
-                      disabled={Boolean(walletData?.market_weekly_trial_used)}
-                      onClick={() => {
-                        if (!walletData?.market_weekly_trial_used)
-                          setPurchasePlan('weekly')
-                      }}
-                      className={`rounded-xl border-2 p-4 text-left transition-all ${
-                        purchasePlan === 'weekly'
-                          ? 'border-[#d4ff33] bg-[#d4ff33]/10 ring-1 ring-[#d4ff33]/35'
-                          : 'border-zinc-700 bg-zinc-900/80 hover:border-zinc-600'
-                      } ${walletData?.market_weekly_trial_used ? 'cursor-not-allowed opacity-50' : ''}`}
-                    >
-                      <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-                        {language === 'zh'
-                          ? '周卡体验 · 7 天'
-                          : 'Weekly trial · 7d'}
-                      </div>
-                      <div className="mt-1 font-['Space_Grotesk',sans-serif] text-2xl font-bold tabular-nums text-[#d4ff33]">
-                        {MARKET_SUB_WEEKLY_TRIAL_USDT} USDT
-                      </div>
-                      {walletData?.market_weekly_trial_used ? (
-                        <p className="mt-2 text-[11px] text-zinc-500">
-                          {language === 'zh'
-                            ? '本账号已使用过唯一一次体验'
-                            : 'Trial already used on this account'}
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-[11px] text-zinc-500">
-                          {language === 'zh'
-                            ? '每账号仅一次，不计入充值返利统计'
-                            : 'One per account; excluded from rebate stats'}
-                        </p>
-                      )}
-                    </button>
-                  )}
                 </div>
               </>
             )}

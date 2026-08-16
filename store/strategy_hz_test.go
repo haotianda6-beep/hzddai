@@ -15,7 +15,7 @@ func TestValidateStrategyExchangeHZBinding(t *testing.T) {
 	if err := ValidateStrategyExchange("hz", hz); err != nil {
 		t.Fatalf("valid HZ binding rejected: %v", err)
 	}
-	if err := ValidateStrategyExchange("binance", hz); err == nil || !strings.Contains(err.Error(), "HZ 交易账户") {
+	if err := ValidateStrategyExchange("binance", hz); err == nil || !strings.Contains(err.Error(), "BALIB 交易账户") {
 		t.Fatalf("HZ strategy should reject crypto exchange: %v", err)
 	}
 
