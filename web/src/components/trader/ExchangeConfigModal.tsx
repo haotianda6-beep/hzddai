@@ -23,8 +23,11 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { configApi } from '../../lib/api/config'
 import { Tooltip } from './Tooltip'
 import { getShortName } from './utils'
+
+export const BALIB_API_BASE_URL = 'https://trade.kunai.fun/api/v1'
 
 // Supported exchange templates
 export const SUPPORTED_EXCHANGE_TEMPLATES = [
@@ -38,12 +41,12 @@ export const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'aster', name: 'Aster DEX', type: 'dex' as const },
   { exchange_type: 'lighter', name: 'Lighter', type: 'dex' as const },
   { exchange_type: 'indodax', name: 'Indodax', type: 'cex' as const },
-  { exchange_type: 'hz', name: 'BALIB 交易账户', type: 'cex' as const },
+  { exchange_type: 'hz', name: 'BALIB', type: 'dex' as const },
 ]
 
 export function getExchangeCredentialFields(exchangeType: string) {
   return {
-    apiUrl: exchangeType === 'hz',
+    apiUrl: false,
     apiKey: true,
     secretKey: true,
     passphrase:
@@ -108,7 +111,7 @@ export function ExchangeConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
-  const [apiUrl, setApiUrl] = useState('')
+  const [balibWhitelistIP, setBalibWhitelistIP] = useState('')
   const [testnet, setTestnet] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [copiedProxyHint, setCopiedProxyHint] = useState(false)
@@ -168,6 +171,22 @@ export function ExchangeConfigModal({
     'gate',
   ].includes(currentExchangeType || '')
 
+  useEffect(() => {
+    if (currentExchangeType !== 'hz') return
+    let cancelled = false
+    configApi
+      .getServerIP()
+      .then(({ public_ip }) => {
+        if (!cancelled) setBalibWhitelistIP(public_ip.trim())
+      })
+      .catch(() => {
+        if (!cancelled) setBalibWhitelistIP('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentExchangeType])
+
   const exchangeRegistrationLinks: Record<
     string,
     { url: string; hasReferral?: boolean }
@@ -208,7 +227,6 @@ export function ExchangeConfigModal({
       setAccountName(selectedExchange.account_name || '')
       setApiKey(selectedExchange.apiKey || '')
       setSecretKey(selectedExchange.secretKey || '')
-      setApiUrl(selectedExchange.apiUrl || '')
       setPassphrase('')
       setTestnet(selectedExchange.testnet || false)
       setAsterUser(selectedExchange.asterUser || '')
@@ -291,11 +309,7 @@ export function ExchangeConfigModal({
     setIsSaving(true)
     try {
       if (currentExchangeType === 'hz') {
-        if (
-          !apiUrl.trim() ||
-          (!editingExchangeId && (!apiKey.trim() || !secretKey.trim()))
-        )
-          return
+        if (!editingExchangeId && (!apiKey.trim() || !secretKey.trim())) return
         await onSave(
           exchangeId,
           exchangeType,
@@ -315,7 +329,7 @@ export function ExchangeConfigModal({
           undefined,
           false,
           false,
-          apiUrl.trim()
+          BALIB_API_BASE_URL
         )
       } else if (currentExchangeType === 'binance') {
         if (!apiKey.trim() || !secretKey.trim()) return
@@ -640,33 +654,6 @@ export function ExchangeConfigModal({
                     currentExchangeType === 'indodax' ||
                     currentExchangeType === 'hz') && (
                     <>
-                      {credentialFields.apiUrl && (
-                        <div className="space-y-2">
-                          <label
-                            className="flex items-center gap-2 text-sm font-semibold"
-                            style={{ color: '#EAECEF' }}
-                          >
-                            <ExternalLink
-                              className="w-4 h-4"
-                              style={{ color: '#F0B90B' }}
-                            />
-                            HZ API URL
-                          </label>
-                          <input
-                            type="url"
-                            value={apiUrl}
-                            onChange={(e) => setApiUrl(e.target.value)}
-                            placeholder="https://trade.kunai.fun/api/v1"
-                            className="w-full px-4 py-3 rounded-xl"
-                            style={{
-                              background: '#0b0b0b',
-                              border: '1px solid #2B3139',
-                              color: '#EAECEF',
-                            }}
-                            required
-                          />
-                        </div>
-                      )}
                       {currentExchangeType === 'binance' && (
                         <div
                           className="p-4 rounded-xl cursor-pointer transition-colors"
@@ -772,6 +759,55 @@ export function ExchangeConfigModal({
                           }
                         />
                       </div>
+
+                      {currentExchangeType === 'hz' && (
+                        <div
+                          className="p-4 rounded-xl"
+                          style={{
+                            background: 'rgba(240, 185, 11, 0.1)',
+                            border: '1px solid rgba(240, 185, 11, 0.2)',
+                          }}
+                        >
+                          <div
+                            className="text-sm font-semibold mb-1"
+                            style={{ color: '#F0B90B' }}
+                          >
+                            IP 白名单
+                          </div>
+                          <p
+                            className="text-xs mb-3 leading-relaxed"
+                            style={{ color: '#848E9C' }}
+                          >
+                            请在 BALIB 的 API 密钥白名单中填写 COMKUN 平台公网 IP。
+                          </p>
+                          <div
+                            className="flex items-center gap-2 p-3 rounded-lg"
+                            style={{ background: '#0b0b0b' }}
+                          >
+                            <code
+                              className="flex-1 text-sm font-mono break-all"
+                              style={{ color: '#F0B90B' }}
+                            >
+                              {balibWhitelistIP || '正在获取…'}
+                            </code>
+                            <button
+                              type="button"
+                              disabled={!balibWhitelistIP}
+                              onClick={() => handleCopyIP(balibWhitelistIP)}
+                              className="flex shrink-0 items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+                              style={{
+                                background: 'rgba(240, 185, 11, 0.2)',
+                                color: '#F0B90B',
+                              }}
+                            >
+                              <Copy className="w-3 h-3" />
+                              {copiedProxyHint
+                                ? t('ipCopied', language)
+                                : t('copyIP', language)}
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {currentExchangeUsesDedicatedProxy && (
                         <div

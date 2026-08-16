@@ -22,7 +22,7 @@ func TestSupportedExchangesIncludesBALIBTradingAccount(t *testing.T) {
 	}
 	for _, exchange := range exchanges {
 		if exchange.ExchangeType == "hz" {
-			if exchange.Name != "BALIB 交易账户" {
+			if exchange.Name != "BALIB" || exchange.Type != "dex" {
 				t.Fatalf("unexpected HZ display name: %q", exchange.Name)
 			}
 			return

@@ -105,7 +105,7 @@ export const getExchangeIcon = (
                     ? 'lighter'
                     : lowerType.includes('indodax')
                       ? 'indodax'
-                      : lowerType.includes('balib')
+                      : lowerType === 'hz' || lowerType.includes('balib')
                         ? 'balib'
                         : lowerType
 

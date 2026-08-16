@@ -407,7 +407,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	}
 	if req.ExchangeType == "hz" {
 		if strings.TrimSpace(req.APIKey) == "" || strings.TrimSpace(req.SecretKey) == "" {
-			SafeBadRequest(c, "BALIB 交易账户需要 API Key 和 Secret Key")
+			SafeBadRequest(c, "BALIB 需要 API Key 和 Secret Key")
 			return
 		}
 		req.APIURL, err = normalizeHZAPIURL(req.APIURL)
@@ -544,7 +544,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 		{ExchangeType: "okx", Name: "OKX Futures", Type: "cex"},
 		{ExchangeType: "gate", Name: "Gate.io Futures", Type: "cex"},
 		{ExchangeType: "kucoin", Name: "KuCoin Futures", Type: "cex"},
-		{ExchangeType: "hz", Name: "BALIB 交易账户", Type: "cex"},
+		{ExchangeType: "hz", Name: "BALIB", Type: "dex"},
 		{ExchangeType: "hyperliquid", Name: "Hyperliquid", Type: "dex"},
 		{ExchangeType: "aster", Name: "Aster DEX", Type: "dex"},
 		{ExchangeType: "lighter", Name: "LIGHTER DEX", Type: "dex"},

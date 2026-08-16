@@ -11,7 +11,7 @@ import (
 
 func TestHZExchangeConfiguration(t *testing.T) {
 	name, typ := getExchangeNameAndType("hz")
-	if name != "BALIB 交易账户" || typ != "cex" {
+	if name != "BALIB" || typ != "dex" {
 		t.Fatalf("unexpected HZ display config: %q %q", name, typ)
 	}
 

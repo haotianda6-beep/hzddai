@@ -20,7 +20,7 @@ func ValidateStrategyExchange(exchangeType string, config *StrategyConfig) error
 	hzStrategy := IsHZStrategy(config)
 	hzExchange := strings.EqualFold(exchangeType, "hz")
 	if hzStrategy && !hzExchange {
-		return fmt.Errorf("黄金、白银、原油策略只能连接 BALIB 交易账户")
+		return fmt.Errorf("黄金、白银、原油策略只能连接 BALIB")
 	}
 	// HZ instruments and contract rules are validated against B at binding and
 	// execution time; keeping a second static allow-list here causes drift.
