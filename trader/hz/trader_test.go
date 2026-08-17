@@ -434,8 +434,8 @@ func TestNewTraderUsesRESTReconciliationWithoutWebSocket(t *testing.T) {
 	if got := wsRequests.Load(); got != 0 {
 		t.Fatalf("HZ follower opened %d websocket request(s)", got)
 	}
-	if got := accountRequests.Load(); got < 2 {
-		t.Fatalf("account requests=%d, want capability check plus REST reconciliation", got)
+	if got := accountRequests.Load(); got != 1 {
+		t.Fatalf("account requests=%d, want one shared account request for capability check and REST reconciliation", got)
 	}
 }
 
@@ -516,6 +516,6 @@ func writeCapabilities(w http.ResponseWriter) {
 func testScopeAccount() account {
 	return account{
 		AccountID: "account", AccountScope: "AI", WalletID: "wallet", PositionBookID: "book",
-		Currency: "USD", Tradable: true,
+		Currency: "USD", Balance: "0", Equity: "0", AvailableMargin: "0", UsedMargin: "0", MarginRatio: "0", UnrealizedPnL: "0", Tradable: true,
 	}
 }

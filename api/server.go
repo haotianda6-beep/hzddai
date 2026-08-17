@@ -32,6 +32,7 @@ type Server struct {
 	hzMarketWatchCancel       context.CancelFunc
 	watchHZMarket             func(string)
 	partnerRebateCancel       context.CancelFunc
+	traderStartGate           *traderStartGate
 }
 
 // NewServer Creates API server
@@ -55,6 +56,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
 		watchHZMarket:             hz.WatchBinanceMarket,
+		traderStartGate:           newTraderStartGate(),
 		port:                      port,
 	}
 	store.SetAgentRebateSpendCallback(s.NotifyAgentRebateAfterWalletSpend)

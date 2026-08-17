@@ -109,6 +109,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	totalUnrealizedProfit := 0.0
 	availableBalance := 0.0
 	totalEquity := 0.0
+	providedMarginUsed, hasProvidedMarginUsed := balance["usedMargin"].(float64)
 
 	if wallet, ok := balance["totalWalletBalance"].(float64); ok {
 		totalWalletBalance = wallet
@@ -167,6 +168,11 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		totalPnLPct = (totalPnL / at.initialBalance) * 100
 	} else {
 		logger.Infof("⚠️ Initial Balance abnormal: %.2f, cannot calculate P&L percentage", at.initialBalance)
+	}
+
+	if hasProvidedMarginUsed && providedMarginUsed >= 0 && !math.IsNaN(providedMarginUsed) && !math.IsInf(providedMarginUsed, 0) {
+		// HZ /account is authoritative; do not replace its used margin with a position estimate.
+		totalMarginUsed = providedMarginUsed
 	}
 
 	marginUsedPct := 0.0

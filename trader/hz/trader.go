@@ -79,8 +79,8 @@ func (t *Trader) IsReady() bool {
 }
 
 func (t *Trader) GetBalance() (map[string]interface{}, error) {
-	var value account
-	if err := t.client.do(context.Background(), http.MethodGet, "/account", nil, "", &value); err != nil {
+	value, err := t.client.getAccount(context.Background(), true)
+	if err != nil {
 		return nil, err
 	}
 	return map[string]interface{}{

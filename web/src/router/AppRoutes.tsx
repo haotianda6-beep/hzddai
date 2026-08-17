@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import {
   Navigate,
   Route,
@@ -32,6 +32,7 @@ import {
   HZ_LAST_PRICE_REFRESH_MS,
   mergeHZLastPrices,
 } from '../lib/hzLastPrices'
+import { HZ_DETAIL_POSITIONS_REFRESH_MS } from '../lib/traderDashboardData'
 import type {
   AccountInfo,
   DecisionRecord,
@@ -323,6 +324,7 @@ function DashboardRoute() {
   const [accountPollOff, setAccountPollOff] = useState(false)
   const [positionsPollOff, setPositionsPollOff] = useState(false)
   const [decisionsPollOff, setDecisionsPollOff] = useState(false)
+  const [statsPollOff, setStatsPollOff] = useState(false)
 
   const { data: traders, error: tradersError } = useSWR<TraderInfo[]>(
     user && token ? 'traders-dashboard' : null,
@@ -354,6 +356,7 @@ function DashboardRoute() {
     setAccountPollOff(false)
     setPositionsPollOff(false)
     setDecisionsPollOff(false)
+    setStatsPollOff(false)
   }, [stableSelectedId])
 
   useEffect(() => {
@@ -397,12 +400,13 @@ function DashboardRoute() {
     }
   )
 
-  const { data: account } = useSWR<AccountInfo>(
+  const { data: account, error: accountError } = useSWR<AccountInfo>(
     stableSelectedId ? `account-${stableSelectedId}` : null,
     () => api.getAccount(stableSelectedId!, true),
     {
-      refreshInterval: 15000,
-      revalidateOnFocus: true,
+      refreshInterval: accountPollOff ? 0 : 15000,
+      refreshWhenHidden: false,
+      revalidateOnFocus: false,
       dedupingInterval: 10000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) {
@@ -419,13 +423,18 @@ function DashboardRoute() {
     }
   )
 
-  const { data: positions } = useSWR<Position[]>(
+  const { data: positions, error: positionsError } = useSWR<Position[]>(
     stableSelectedId ? `positions-${stableSelectedId}` : null,
     () => api.getPositions(stableSelectedId!, true),
     {
-      refreshInterval: isHZTrader ? 1000 : 15000,
-      revalidateOnFocus: true,
-      dedupingInterval: isHZTrader ? 500 : 10000,
+      refreshInterval: positionsPollOff
+        ? 0
+        : isHZTrader
+          ? HZ_DETAIL_POSITIONS_REFRESH_MS
+          : 15000,
+      refreshWhenHidden: false,
+      revalidateOnFocus: false,
+      dedupingInterval: isHZTrader ? HZ_DETAIL_POSITIONS_REFRESH_MS : 10000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) {
           setPositionsPollOff(true)
@@ -462,25 +471,7 @@ function DashboardRoute() {
     [positions, hzLastPrices]
   )
 
-  const dashboardAccount = useMemo(() => {
-    if (!isHZTrader || !account || !positions) return account
-    const unrealizedProfit = positions.reduce(
-      (sum, position) => sum + (position.unrealized_pnl || 0),
-      0
-    )
-    const totalEquity = account.wallet_balance + unrealizedProfit
-    const totalPnl = totalEquity - account.initial_balance
-    return {
-      ...account,
-      unrealized_profit: unrealizedProfit,
-      total_equity: totalEquity,
-      total_pnl: totalPnl,
-      total_pnl_pct:
-        account.initial_balance > 0
-          ? (totalPnl / account.initial_balance) * 100
-          : 0,
-    }
-  }, [account, isHZTrader, positions])
+  const dashboardAccount = account
 
   const { data: decisions } = useSWR<DecisionRecord[]>(
     stableSelectedId
@@ -511,13 +502,26 @@ function DashboardRoute() {
     }
   )
 
-  const { data: stats } = useSWR<Statistics>(
+  const { data: stats, error: statsError } = useSWR<Statistics>(
     stableSelectedId ? `statistics-${stableSelectedId}` : null,
     () => api.getStatistics(stableSelectedId!, true),
     {
-      refreshInterval: 30000,
+      refreshInterval: statsPollOff ? 0 : 30000,
+      refreshWhenHidden: false,
       revalidateOnFocus: false,
       dedupingInterval: 20000,
+      onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
+        if (retryCount >= 2) {
+          setStatsPollOff(true)
+          return
+        }
+        setTimeout(() => revalidate({ retryCount }), 500)
+      },
+      onSuccess: () => {
+        if (statsPollOff) {
+          setStatsPollOff(false)
+        }
+      },
     }
   )
 
@@ -537,12 +541,31 @@ function DashboardRoute() {
           selectedTrader={selectedTrader}
           status={status}
           account={dashboardAccount}
-          accountFailed={accountPollOff}
+          accountFailed={Boolean(accountError) || accountPollOff}
+          onRetryAccount={() => {
+            setAccountPollOff(false)
+            void mutate(
+              stableSelectedId ? `account-${stableSelectedId}` : undefined
+            )
+          }}
           positions={displayPositions}
-          positionsFailed={positionsPollOff}
+          positionsFailed={Boolean(positionsError) || positionsPollOff}
+          onRetryPositions={() => {
+            setPositionsPollOff(false)
+            void mutate(
+              stableSelectedId ? `positions-${stableSelectedId}` : undefined
+            )
+          }}
           decisions={decisions}
           decisionsFailed={decisionsPollOff}
           stats={stats}
+          statsFailed={Boolean(statsError) || statsPollOff}
+          onRetryStats={() => {
+            setStatsPollOff(false)
+            void mutate(
+              stableSelectedId ? `statistics-${stableSelectedId}` : undefined
+            )
+          }}
           language={language}
           traders={traders}
           tradersError={tradersError}

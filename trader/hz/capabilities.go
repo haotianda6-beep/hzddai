@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 )
@@ -29,8 +28,8 @@ func VerifyCapabilities(apiURL, apiKey, secret string) (*VerifiedCapabilities, e
 }
 
 func verifyCapabilities(client *client) (*VerifiedCapabilities, error) {
-	var value Capabilities
-	if err := client.do(context.Background(), http.MethodGet, "/capabilities", nil, "", &value); err != nil {
+	value, err := client.getCapabilities(context.Background())
+	if err != nil {
 		return nil, fmt.Errorf("verify HZ capabilities: %w", err)
 	}
 	permissions := value.Permissions
@@ -44,8 +43,8 @@ func verifyCapabilities(client *client) (*VerifiedCapabilities, error) {
 	if strings.TrimSpace(value.WalletID) == "" || strings.TrimSpace(value.PositionBookID) == "" {
 		return nil, fmt.Errorf("HZ AI scope identifiers are incomplete")
 	}
-	var remoteAccount account
-	if err := client.do(context.Background(), http.MethodGet, "/account", nil, "", &remoteAccount); err != nil {
+	remoteAccount, err := client.getAccount(context.Background(), false)
+	if err != nil {
 		return nil, fmt.Errorf("verify HZ account scope: %w", err)
 	}
 	if strings.TrimSpace(remoteAccount.AccountID) == "" ||

@@ -12,6 +12,7 @@ interface ChartTabsProps {
   selectedSymbol?: string // Externally selected symbol
   updateKey?: number // Force update key
   exchangeId?: string // Exchange ID
+  isHZ?: boolean
 }
 
 type ChartTab = 'equity' | 'kline'
@@ -52,7 +53,7 @@ function getMarketTypeFromExchange(exchangeId: string | undefined): MarketType {
   return 'crypto'
 }
 
-export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: ChartTabsProps) {
+export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId, isHZ }: ChartTabsProps) {
   const { language } = useLanguage()
   const [activeTab, setActiveTab] = useState<ChartTab>('equity')
   const [chartSymbol, setChartSymbol] = useState<string>('BTC')
@@ -311,7 +312,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
               transition={{ duration: 0.2 }}
               className="h-full w-full absolute inset-0"
             >
-              <EquityChart traderId={traderId} embedded />
+              <EquityChart traderId={traderId} embedded isHZ={isHZ} />
             </motion.div>
           ) : (
             <motion.div

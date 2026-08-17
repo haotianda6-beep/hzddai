@@ -17,9 +17,11 @@ import (
 )
 
 type APIError struct {
-	Code    string
-	Message string
-	Status  int
+	Code          string
+	Message       string
+	Status        int
+	RetryAfter    time.Duration
+	RetryAfterSet bool
 }
 
 func (e *APIError) Error() string {
@@ -34,6 +36,7 @@ type client struct {
 	now     func() time.Time
 	nonce   func() string
 	offset  atomic.Int64
+	binding *bindingState
 }
 
 func newClient(apiURL, apiKey, secret string) (*client, error) {
@@ -48,6 +51,7 @@ func newClient(apiURL, apiKey, secret string) (*client, error) {
 		http:    &http.Client{Timeout: 10 * time.Second},
 		now:     time.Now,
 		nonce:   randomToken,
+		binding: newBindingState(baseURL, apiKey, secret),
 	}, nil
 }
 
@@ -59,11 +63,11 @@ func (c *client) do(
 	out any,
 ) error {
 	call := func() error { return c.doOnce(ctx, method, path, query, idempotency, nil, out) }
-	err := retryIdempotent(ctx, idempotency, call)
+	err := retryIdempotent(ctx, idempotency, method == http.MethodGet || method == http.MethodHead, call)
 	apiErr, expired := err.(*APIError)
 	if expired && apiErr.Code == "TIMESTAMP_EXPIRED" {
 		if syncErr := c.syncTime(ctx); syncErr == nil {
-			return retryIdempotent(ctx, idempotency, call)
+			return retryIdempotent(ctx, idempotency, method == http.MethodGet || method == http.MethodHead, call)
 		}
 	}
 	return err
@@ -80,39 +84,65 @@ func (c *client) doJSON(
 		return err
 	}
 	call := func() error { return c.doOnce(ctx, method, path, nil, idempotency, raw, out) }
-	err = retryIdempotent(ctx, idempotency, call)
+	err = retryIdempotent(ctx, idempotency, method == http.MethodGet || method == http.MethodHead, call)
 	apiErr, expired := err.(*APIError)
 	if expired && apiErr.Code == "TIMESTAMP_EXPIRED" {
 		if syncErr := c.syncTime(ctx); syncErr == nil {
-			return retryIdempotent(ctx, idempotency, call)
+			return retryIdempotent(ctx, idempotency, method == http.MethodGet || method == http.MethodHead, call)
 		}
 	}
 	return err
 }
 
-func retryIdempotent(ctx context.Context, idempotency string, call func() error) error {
+func retryIdempotent(ctx context.Context, idempotency string, retryGET bool, call func() error) error {
 	err := call()
-	if idempotency == "" || !temporary(err) {
-		return err
+	for attempt := 0; attempt < 2; attempt++ {
+		if !retryable(err, idempotency, retryGET) {
+			return err
+		}
+		timer := time.NewTimer(retryDelay(err, attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		err = call()
 	}
-	timer := time.NewTimer(100 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return call()
-	}
+	return err
 }
 
-func temporary(err error) bool {
+func retryable(err error, idempotency string, retryGET bool) bool {
 	if err == nil {
 		return false
 	}
 	if apiErr, ok := err.(*APIError); ok {
-		return apiErr.Status >= http.StatusInternalServerError
+		if apiErr.Status == http.StatusTooManyRequests {
+			return retryGET
+		}
+		return apiErr.Status >= http.StatusInternalServerError && (retryGET || idempotency != "")
 	}
-	return true
+	return retryGET || idempotency != ""
+}
+
+func retryDelay(err error, attempt int) time.Duration {
+	if apiErr, ok := err.(*APIError); ok && apiErr.RetryAfterSet {
+		if apiErr.RetryAfter < 0 {
+			return 0
+		}
+		if apiErr.RetryAfter > hzMaxRetryAfter {
+			return hzMaxRetryAfter
+		}
+		return apiErr.RetryAfter
+	}
+	delay := 100 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+	}
+	if delay > time.Second {
+		return time.Second
+	}
+	return delay
 }
 
 func (c *client) doOnce(
@@ -123,6 +153,11 @@ func (c *client) doOnce(
 	body []byte,
 	out any,
 ) error {
+	if c.binding != nil && path != "/time" {
+		if err := c.binding.wait(ctx); err != nil {
+			return err
+		}
+	}
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(c.baseURL.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	endpoint.RawQuery = query.Encode()
@@ -157,7 +192,11 @@ func (c *client) doOnce(
 			payload.Error.Code = "HTTP_ERROR"
 			payload.Error.Message = http.StatusText(response.StatusCode)
 		}
-		return &APIError{payload.Error.Code, payload.Error.Message, response.StatusCode}
+		retryAfter, retryAfterSet := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
+		if response.StatusCode == http.StatusTooManyRequests && c.binding != nil {
+			c.binding.noteRateLimit(retryAfter, retryAfterSet)
+		}
+		return &APIError{Code: payload.Error.Code, Message: payload.Error.Message, Status: response.StatusCode, RetryAfter: retryAfter, RetryAfterSet: retryAfterSet}
 	}
 	if out == nil || len(raw) == 0 {
 		return nil

@@ -36,9 +36,10 @@ func (t *Trader) GetOrderBook(symbol string, _ int) ([][]float64, [][]float64, e
 }
 
 func (t *Trader) Reconcile() (err error) {
-	defer func() { t.reconcileHealthy.Store(err == nil) }()
 	var snapshot account
-	if err = t.client.do(context.Background(), http.MethodGet, "/account", nil, "", &snapshot); err != nil {
+	defer func() { t.reconcileHealthy.Store(err == nil) }()
+	snapshot, err = t.client.getAccount(context.Background(), true)
+	if err != nil {
 		return err
 	}
 	t.accountOpeningStopped.Store(!snapshot.Tradable)
@@ -266,8 +267,8 @@ func (t *Trader) instruments() (map[string]instrument, error) {
 	if cached != nil {
 		return cached, nil
 	}
-	var values []instrument
-	if err := t.client.do(context.Background(), http.MethodGet, "/instruments", nil, "", &values); err != nil {
+	values, err := t.client.getInstruments(context.Background())
+	if err != nil {
 		return nil, err
 	}
 	result := make(map[string]instrument, len(values))

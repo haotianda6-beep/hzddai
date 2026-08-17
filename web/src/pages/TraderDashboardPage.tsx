@@ -29,6 +29,7 @@ import {
 import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { NofxSelect } from '../components/ui/select'
 import { GridRiskPanel } from '../components/strategy/GridRiskPanel'
+import { getTraderDashboardLabels, getWinRateDisplay } from '../lib/traderDashboardData'
 import { ROUTES } from '../router/paths'
 import { SourceUserAccountsPanel, TraderOpenOrdersPanel } from '../components/trader/TraderOpenOrdersPanel'
 import { ComkunMasterFollowersSidebar } from '../components/trader/ComkunMasterFollowersSidebar'
@@ -132,10 +133,14 @@ interface TraderDashboardPageProps {
     status?: SystemStatus
     account?: AccountInfo
     accountFailed?: boolean
+    onRetryAccount?: () => void
     positions?: Position[]
     positionsFailed?: boolean
+    onRetryPositions?: () => void
     decisions?: DecisionRecord[]
     decisionsFailed?: boolean
+    statsFailed?: boolean
+    onRetryStats?: () => void
     stats?: Statistics
     language: Language
     exchanges?: Exchange[]
@@ -146,10 +151,14 @@ export function TraderDashboardPage({
     status,
     account,
     accountFailed,
+    onRetryAccount,
     positions,
     positionsFailed,
+    onRetryPositions,
     decisions,
     decisionsFailed,
+    statsFailed,
+    onRetryStats,
     language,
     traders,
     tradersError,
@@ -200,6 +209,8 @@ export function TraderDashboardPage({
     )
     const walletAddress = getWalletAddress(currentExchange)
     const isPerpDex = isPerpDexExchange(currentExchange?.exchange_type)
+    const isHZTrader = currentExchange?.exchange_type?.toLowerCase() === 'hz'
+    const dashboardLabels = getTraderDashboardLabels(isHZTrader)
 
     const strategyIdForTrader = selectedTrader?.strategy_id?.trim() || ''
     const { data: boundStrategy } = useSWR<Strategy>(
@@ -228,6 +239,7 @@ export function TraderDashboardPage({
         }
         return undefined
     }, [stats])
+    const winRateEmpty = getWinRateDisplay(stats, language)
 
     const ordersTabLabel = language === 'zh' ? '订单与挂单' : 'Orders & pending'
     const historyTabLabel = language === 'zh' ? '成交与历史' : 'Trade History'
@@ -561,7 +573,7 @@ export function TraderDashboardPage({
                                             <span className="font-mono tabular-nums text-[#b7bdc6]">
                                                 {account.total_equity?.toFixed(2)}
                                             </span>
-                                            <span className="text-[#5e6673]"> USDT</span>
+                                            <span className="text-[#5e6673]"> {dashboardLabels.asset}</span>
                                         </>
                                     ) : null}
                                     {status ? (
@@ -699,10 +711,10 @@ export function TraderDashboardPage({
                                 title={language === 'zh' ? '胜率' : 'Win Rate'}
                                 value={
                                     winRatePct === undefined
-                                        ? '--'
+                                        ? stats ? (winRateEmpty.value ?? '--') : '--'
                                         : `${winRatePct.toFixed(1)}`
                                 }
-                                unit="%"
+                                unit={winRatePct === undefined ? winRateEmpty.unit : '%'}
                                 subtitle={
                                     stats && stats.total_trades != null && stats.total_trades > 0
                                         ? language === 'zh'
@@ -722,7 +734,7 @@ export function TraderDashboardPage({
                                         ? '--'
                                         : `${account?.total_pnl !== undefined && account.total_pnl >= 0 ? '+' : ''}${account?.total_pnl?.toFixed(2) ?? '--'}`
                                 }
-                                unit="USDT"
+                                unit={dashboardLabels.asset}
                                 change={account ? account.total_pnl_pct || 0 : undefined}
                                 positive={(account?.total_pnl ?? 0) >= 0}
                                 iconKind="pnl"
@@ -745,9 +757,9 @@ export function TraderDashboardPage({
                                 loading={!account && !accountFailed}
                             />
                             <StatCard
-                                title={t('availableBalance', language)}
+                                title={dashboardLabels.available}
                                 value={accountFailed && !account ? '--' : `${account?.available_balance?.toFixed(2) ?? '--'}`}
-                                unit="USDT"
+                                unit={dashboardLabels.asset}
                                 subtitle={
                                     accountFailed && !account
                                         ? '--'
@@ -757,6 +769,20 @@ export function TraderDashboardPage({
                                 loading={!account && !accountFailed}
                             />
                         </div>
+
+                        {accountFailed && !account && (
+                            <div className="rounded-lg border border-[#F6465D]/30 bg-[#F6465D]/10 px-3 py-2 text-xs text-[#F6465D]">
+                                <span>{language === 'zh' ? '账户数据读取失败，请重试' : 'Account data failed to load; retry.'}</span>
+                                <button type="button" onClick={() => onRetryAccount?.()} className="ml-2 underline">{language === 'zh' ? '重试' : 'Retry'}</button>
+                            </div>
+                        )}
+
+                        {statsFailed && (
+                            <div className="rounded-lg border border-[#F6465D]/30 bg-[#F6465D]/10 px-3 py-2 text-xs text-[#F6465D]">
+                                <span>{stats ? (language === 'zh' ? '统计数据刷新失败，当前显示上次结果' : 'Statistics refresh failed; showing the last result.') : (language === 'zh' ? '统计数据读取失败，请重试' : 'Statistics failed to load; retry.')}</span>
+                                <button type="button" onClick={() => onRetryStats?.()} className="ml-2 underline">{language === 'zh' ? '重试' : 'Retry'}</button>
+                            </div>
+                        )}
 
                         {status?.strategy_type === 'grid_trading' && selectedTraderId && (
                             <div className="animate-slide-in" style={{ animationDelay: '0.05s' }}>
@@ -773,6 +799,7 @@ export function TraderDashboardPage({
                             className="chart-container scroll-mt-28 rounded-xl border border-[#2b3139] bg-nofx-bg-secondary/85 p-1 shadow-[0_0_24px_rgba(0,0,0,0.35)] md:p-1.5"
                         >
                             <ChartTabs
+                                isHZ={isHZTrader}
                                 traderId={selectedTrader.trader_id}
                                 selectedSymbol={selectedChartSymbol}
                                 updateKey={chartUpdateKey}
@@ -1064,6 +1091,7 @@ export function TraderDashboardPage({
                                 <div className="text-center py-16 text-nofx-text-muted opacity-60">
                                     <div className="text-4xl mb-4">⚠️</div>
                                     <div className="text-lg font-semibold mb-2">{t('traderDashboard.positionsFetchFailed', language)}</div>
+                                    <button type="button" onClick={() => onRetryPositions?.()} className="mt-2 underline">{language === 'zh' ? '重试' : 'Retry'}</button>
                                 </div>
                             ) : (
                                 <div className="text-center py-16 text-nofx-text-muted opacity-60">

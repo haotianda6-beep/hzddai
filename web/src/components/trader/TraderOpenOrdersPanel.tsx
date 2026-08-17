@@ -100,7 +100,7 @@ export function TraderOpenOrdersPanel({
   const { data, error, isLoading, isValidating } = useSWR<ExchangeOpenOrder[]>(
     traderId ? ['exchange-open-orders', traderId] : null,
     () => api.getOpenOrders(traderId, undefined, true),
-    { refreshInterval: refreshMs, revalidateOnFocus: true }
+    { refreshInterval: refreshMs, refreshWhenHidden: false, revalidateOnFocus: false, dedupingInterval: refreshMs }
   )
 
   const rows = (data ?? []).filter(

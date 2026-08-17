@@ -570,7 +570,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 
 	// Query exchange actual balance, override user input
-	actualBalance := req.InitialBalance // Default to use user input
+	actualBalance := 0.0
 	exchanges, err := s.store.Exchange().List(userID)
 	if err != nil {
 		SafeError(c, http.StatusInternalServerError,
@@ -630,19 +630,25 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 			if closer, ok := tempTrader.(interface{ Close() }); ok {
 				defer closer.Close()
 			}
-			// Query actual balance
+			// Query actual balance; unknown or real zero must block creation.
 			balanceInfo, balanceErr := tempTrader.GetBalance()
-			if balanceErr != nil {
-				logger.Infof("⚠️ Failed to query exchange balance, using user input for initial balance: %v", balanceErr)
-			} else {
-				if extractedBalance, found := extractExchangeTotalEquity(balanceInfo); found {
-					actualBalance = extractedBalance
-					logger.Infof("✓ Queried exchange total equity: %.2f %s (user input: %.2f)",
-						actualBalance, accountAssetForExchange(exchangeCfg.ExchangeType), req.InitialBalance)
-				} else {
-					logger.Infof("⚠️ Unable to extract total equity from balance info, balanceInfo=%v, using user input for initial balance", balanceInfo)
-				}
+			resolvedBalance, resolveErr := resolveTraderInitialBalance(exchangeCfg.ExchangeType, req.InitialBalance, balanceInfo, balanceErr)
+			if resolveErr != nil {
+				SafeErrorWithDetails(c, http.StatusServiceUnavailable,
+					formatTraderCreationError("暂时无法读取 BALIB AI 可用余额或账户权益", "请稍后重试；余额读取失败时不会使用手工填写的数值创建机器人"),
+					"trader.create.exchange_balance_unavailable",
+					mapStringPairs("exchange_name", exchangeDisplayName(exchangeCfg)), resolveErr)
+				return
 			}
+			actualBalance = resolvedBalance
+			logger.Infof("✓ Queried exchange account equity: %.2f %s", actualBalance, accountAssetForExchange(exchangeCfg.ExchangeType))
+		} else {
+			err := fmt.Errorf("exchange probe trader is unavailable")
+			SafeErrorWithDetails(c, http.StatusServiceUnavailable,
+				formatTraderCreationError("暂时无法读取 BALIB AI 可用余额或账户权益", "请稍后重试"),
+				"trader.create.exchange_balance_unavailable",
+				mapStringPairs("exchange_name", exchangeDisplayName(exchangeCfg)), err)
+			return
 		}
 	}
 
@@ -1030,6 +1036,14 @@ func (s *Server) handleStartTraderForUser(c *gin.Context, userID, traderID strin
 		traderName = fullCfg.Trader.Name
 	}
 
+	if s.traderStartGate != nil {
+		if !s.traderStartGate.acquire(userID, traderID) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Trader start already in progress"})
+			return
+		}
+		defer s.traderStartGate.release(userID, traderID)
+	}
+
 	if fullCfg != nil {
 		var stratCfg *store.StrategyConfig
 		if fullCfg.Strategy != nil {
@@ -1160,19 +1174,23 @@ func (s *Server) handleStartTraderForUser(c *gin.Context, userID, traderID strin
 		return
 	}
 
+	// Persist the intended running state before Run can exit; the goroutine clears it on return.
+	err = s.store.Trader().UpdateStatus(userID, traderID, true)
+	if err != nil {
+		SafeInternalError(c, "保存交易员运行状态失败", err)
+		return
+	}
+
 	// Start trader
 	go func() {
 		logger.Infof("▶️  Starting trader %s (%s)", traderID, trader.GetName())
 		if err := trader.Run(); err != nil {
 			logger.Infof("❌ Trader %s runtime error: %v", trader.GetName(), err)
 		}
+		if statusErr := s.store.Trader().UpdateStatus(userID, traderID, false); statusErr != nil {
+			logger.Infof("⚠️ Failed to clear trader status after runtime exit: %v", statusErr)
+		}
 	}()
-
-	// Update running status in database
-	err = s.store.Trader().UpdateStatus(userID, traderID, true)
-	if err != nil {
-		logger.Infof("⚠️  Failed to update trader status: %v", err)
-	}
 
 	logger.Infof("✓ Trader %s started", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader started"})
