@@ -117,6 +117,17 @@ func TestComkunStatsPayloadUsesContractJSONNames(t *testing.T) {
 	}
 }
 
+func TestComkunPublisherFiltersRowsOutsideActiveMasterAllowlist(t *testing.T) {
+	rows := []store.ComkunFollowingStatsRow{
+		{StrategyID: "active-listing", SourceStrategyID: "source-active"},
+		{StrategyID: "inactive-listing", SourceStrategyID: "source-inactive"},
+	}
+	filtered := filterComkunFollowingStatsRows(rows, map[string]string{"source-active": "master-active"})
+	if len(filtered) != 1 || filtered[0].StrategyID != "active-listing" {
+		t.Fatalf("filtered=%+v, want only active listing", filtered)
+	}
+}
+
 func TestScopeComkunFollowingStatsDoesNotExposeOtherMasters(t *testing.T) {
 	rows := []store.ComkunFollowingStatsRow{
 		{StrategyID: "strategy-1", SourceStrategyID: "source-1"},

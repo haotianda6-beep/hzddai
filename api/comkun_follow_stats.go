@@ -36,6 +36,16 @@ type comkunFollowingStatsPayload struct {
 	Strategies      []comkunFollowingStatsStrategy `json:"strategies"`
 }
 
+func filterComkunFollowingStatsRows(rows []store.ComkunFollowingStatsRow, mapping map[string]string) []store.ComkunFollowingStatsRow {
+	filtered := make([]store.ComkunFollowingStatsRow, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := mapping[strings.TrimSpace(row.SourceStrategyID)]; ok {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
 func buildComkunFollowingStatsPayload(rows []store.ComkunFollowingStatsRow, mapping map[string]string, observedAt time.Time) ([]byte, comkunFollowingStatsPayload, error) {
 	if len(rows) > 1000 {
 		return nil, comkunFollowingStatsPayload{}, fmt.Errorf("too many strategies")

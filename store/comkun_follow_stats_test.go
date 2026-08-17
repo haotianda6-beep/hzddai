@@ -101,3 +101,31 @@ func TestComkunMasterSourceMappingUsesStableConfiguredIDs(t *testing.T) {
 		t.Fatalf("mapping=%v, want stable source-to-master mapping", mapping)
 	}
 }
+
+func TestComkunActiveMasterSourceMappingFailsClosedAndKeepsFullMappingSeparate(t *testing.T) {
+	t.Setenv("COMKUN_OBSERVER_LIVE_MASTER_IDS", "master-1,master-2")
+	t.Setenv("COMKUN_OBSERVER_PUBLISH_MASTER_IDS", "master-2")
+	active, err := ComkunActiveMasterSourceMapping()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[HZMasterSourceStrategyID("master-2")] != "master-2" {
+		t.Fatalf("active=%v, want only master-2", active)
+	}
+	full, err := ComkunMasterSourceMapping()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full) != 2 {
+		t.Fatalf("full=%v, want both stable masters", full)
+	}
+
+	t.Setenv("COMKUN_OBSERVER_PUBLISH_MASTER_IDS", "")
+	if _, err := ComkunActiveMasterSourceMapping(); err == nil {
+		t.Fatal("missing publisher allowlist must fail closed")
+	}
+	t.Setenv("COMKUN_OBSERVER_PUBLISH_MASTER_IDS", "unconfigured-master")
+	if _, err := ComkunActiveMasterSourceMapping(); err == nil {
+		t.Fatal("publisher allowlist outside stable mapping must fail closed")
+	}
+}

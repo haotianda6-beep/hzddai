@@ -20,6 +20,8 @@ type ComkunFollowingStatsRow struct {
 	SubscribedFollowerCount int    `json:"subscribedFollowerCount"`
 }
 
+const comkunPublisherMasterIDsEnv = "COMKUN_OBSERVER_PUBLISH_MASTER_IDS"
+
 // ComkunMasterSourceMapping maps the immutable source strategy ID to the
 // stable BALIB/COMKUN master user ID configured by operations. Strategy names
 // and display slots are deliberately not involved in this mapping.
@@ -44,6 +46,40 @@ func ComkunMasterSourceMapping() (map[string]string, error) {
 		return nil, fmt.Errorf("COMKUN_OBSERVER_LIVE_MASTER_IDS is empty")
 	}
 	return mapping, nil
+}
+
+// ComkunActiveMasterSourceMapping is intentionally scoped to the outbound
+// publisher. The full stable mapping remains available to admin and master
+// scoped reads, while this separate allowlist fails closed when it is absent
+// or names a master outside the stable mapping.
+func ComkunActiveMasterSourceMapping() (map[string]string, error) {
+	fullMapping, err := ComkunMasterSourceMapping()
+	if err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(os.Getenv(comkunPublisherMasterIDsEnv))
+	if raw == "" {
+		return nil, fmt.Errorf("%s is not configured", comkunPublisherMasterIDsEnv)
+	}
+	active := make(map[string]string)
+	for _, part := range strings.Split(raw, ",") {
+		masterID := strings.TrimSpace(part)
+		if masterID == "" {
+			return nil, fmt.Errorf("%s contains an empty ID", comkunPublisherMasterIDsEnv)
+		}
+		sourceID := HZMasterSourceStrategyID(masterID)
+		if _, exists := active[sourceID]; exists {
+			return nil, fmt.Errorf("%s contains a duplicate ID", comkunPublisherMasterIDsEnv)
+		}
+		if _, exists := fullMapping[sourceID]; !exists {
+			return nil, fmt.Errorf("%s contains an ID outside the stable mapping", comkunPublisherMasterIDsEnv)
+		}
+		active[sourceID] = masterID
+	}
+	if len(active) == 0 {
+		return nil, fmt.Errorf("%s is empty", comkunPublisherMasterIDsEnv)
+	}
+	return active, nil
 }
 
 type comkunStatsStrategy struct {

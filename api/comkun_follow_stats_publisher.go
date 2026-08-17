@@ -106,11 +106,12 @@ func (s *Server) startComkunFollowStatsPublisher() {
 				logger.Warnf("comkun follow stats query failed: %v", err)
 				return
 			}
-			mapping, err := store.ComkunMasterSourceMapping()
+			mapping, err := store.ComkunActiveMasterSourceMapping()
 			if err != nil {
-				logger.Warnf("comkun follow stats stable mapping unavailable")
+				logger.Warnf("comkun follow stats active publisher mapping unavailable")
 				return
 			}
+			rows = filterComkunFollowingStatsRows(rows, mapping)
 			raw, payload, err := buildComkunFollowingStatsPayload(rows, mapping, time.Now().UTC())
 			if err != nil {
 				logger.Warnf("comkun follow stats payload invalid: %v", err)
