@@ -13,6 +13,7 @@ import (
 	"nofx/trader/binance"
 	"nofx/trader/hz"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,11 @@ type Server struct {
 	hzMarketWatchCancel       context.CancelFunc
 	watchHZMarket             func(string)
 	partnerRebateCancel       context.CancelFunc
+	comkunFollowStatsTrigger  chan struct{}
+	comkunFollowStatsCancel   context.CancelFunc
+	teamDetailsCacheMu        sync.Mutex
+	teamDetailsCacheAt        time.Time
+	teamDetailsCache          []partnerTeamRecord
 	traderStartGate           *traderStartGate
 }
 
@@ -72,6 +78,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	s.startHZMasterEventPoller()
 	s.startPersistedHZMasterMarketWatch()
 	s.startPartnerRebateOutboxWorker()
+	s.startComkunFollowStatsPublisher()
 
 	return s
 }
@@ -416,11 +423,14 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 				s.handleStatistics)
 
 			s.route(protected, "GET", "/comkun/follow-balance", "Comkun compliant follow: platform wallet balance", s.handleComkunFollowBalance)
+			s.route(protected, "GET", "/comkun/following-stats", "Comkun following stats scoped to the current master", s.handleComkunFollowingStats)
 
 			admin := protected.Group("/admin", s.adminMiddleware())
 			{
 				s.route(admin, "GET", "/users-overview", "Admin: list users with balance and Binance positions", s.handleAdminUsersOverview)
 				s.route(admin, "GET", "/partner/dashboard", "Admin: complete partner deposit and commission ledger", s.handleAdminPartnerDashboard)
+				s.route(admin, "GET", "/comkun/following-stats", "Admin: global Comkun following stats", s.handleAdminComkunFollowingStats)
+				s.route(admin, "GET", "/team-details", "Admin: branches and umbrella members", s.handleAdminTeamDetails)
 				s.route(admin, "GET", "/ai-platform-usage", "Admin: AI platform usage billing ledger", s.handleAdminAIPlatformUsage)
 				s.route(admin, "GET", "/users/:id", "Admin: user detail and wallet ledger", s.handleAdminUserDetail)
 				s.route(admin, "POST", "/users/:id/wallet-adjust", "Admin: adjust user platform balance", s.handleAdminUserWalletAdjust)
@@ -710,6 +720,9 @@ func (s *Server) Shutdown() error {
 	}
 	if s.partnerRebateCancel != nil {
 		s.partnerRebateCancel()
+	}
+	if s.comkunFollowStatsCancel != nil {
+		s.comkunFollowStatsCancel()
 	}
 	if s.httpServer == nil {
 		return nil

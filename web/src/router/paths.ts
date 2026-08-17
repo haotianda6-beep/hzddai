@@ -41,6 +41,8 @@ export const ROUTES = {
   adminProxies: '/admin/proxies',
   adminUsers: '/admin/users',
   adminAIBilling: '/admin/ai-billing',
+  adminTeam: '/admin/team',
+  adminFollowingStats: '/admin/following-stats',
   /** 财务台：为客户正数入账（COMKUN_FINANCE_EMAILS 白名单） */
   finance: '/finance',
   /** 站内余额充值说明（人工客服） */

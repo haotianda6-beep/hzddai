@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowRight,
   Bot,
   HandCoins,
@@ -33,6 +34,18 @@ const modules = [
     description: '查看全部用户、交易所绑定并执行站内余额调账',
     route: ROUTES.adminUsers,
     icon: Users,
+  },
+  {
+    title: '团队详情',
+    description: '分公司、层级关系和伞下成员的安全只读视图',
+    route: ROUTES.adminTeam,
+    icon: Network,
+  },
+  {
+    title: '跟单统计',
+    description: '平台与各策略运行中的有效跟单、交易员和订阅人数',
+    route: ROUTES.adminFollowingStats,
+    icon: Activity,
   },
   {
     title: 'AI 调用账单',

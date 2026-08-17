@@ -233,6 +233,12 @@ export function StrategyMarketDetailPage() {
     { refreshInterval: 45000, revalidateOnFocus: true }
   )
 
+  const { data: comkunStats } = useSWR(
+    token ? 'comkun-following-stats-scoped' : null,
+    () => api.getComkunFollowingStats(),
+    { refreshInterval: 30000, shouldRetryOnError: false }
+  )
+
   const entitlementIds = useMemo(
     () => new Set((walletData?.entitlements ?? []).map((e) => e.strategy_id)),
     [walletData]
@@ -646,6 +652,49 @@ export function StrategyMarketDetailPage() {
                 )
               ) : null}
             </header>
+
+            {comkunStats && comkunStats.strategies.length > 0 && (
+              <section className="mb-6 rounded-xl border border-emerald-500/25 bg-emerald-950/15 px-4 py-4">
+                <div className="text-sm font-bold text-emerald-100">
+                  主控跟单统计
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  仅显示当前主控可见的策略；运行人数不含仅订阅未启动用户
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {comkunStats.strategies.map((row) => (
+                    <div
+                      key={row.strategyId}
+                      className="rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-xs"
+                    >
+                      <div className="truncate font-semibold text-white">
+                        {row.strategyName || row.strategyId}
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-zinc-400">
+                        <span>
+                          运行用户
+                          <strong className="ml-1 text-emerald-300">
+                            {row.runningFollowerCount}
+                          </strong>
+                        </span>
+                        <span>
+                          运行交易员
+                          <strong className="ml-1 text-emerald-300">
+                            {row.runningTraderCount}
+                          </strong>
+                        </span>
+                        <span>
+                          有效订阅
+                          <strong className="ml-1 text-zinc-200">
+                            {row.subscribedFollowerCount}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {token &&
               (walletData?.market_subscription_alerts ?? []).filter(

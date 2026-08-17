@@ -668,3 +668,94 @@ export async function postAdminOutboundProxyPoolAssign(
   )
   return handleJSONResponse(res)
 }
+
+export type ComkunFollowingStatsRow = {
+  strategyId: string
+  strategyName?: string
+  sourceStrategyId: string
+  runningFollowerCount: number
+  runningTraderCount: number
+  subscribedFollowerCount: number
+}
+
+export type ComkunFollowingStatsPayload = {
+  observed_at: string
+  platform?: {
+    running_follower_count: number
+    running_trader_count: number
+    subscribed_follower_count: number
+  }
+  strategies: ComkunFollowingStatsRow[]
+}
+
+export async function getAdminComkunFollowingStats(): Promise<ComkunFollowingStatsPayload> {
+  const res = await fetch(`${API_BASE}/admin/comkun/following-stats`, {
+    headers: getAuthHeaders(),
+  })
+  return handleJSONResponse(res)
+}
+
+export async function getComkunFollowingStats(): Promise<ComkunFollowingStatsPayload> {
+  const res = await fetch(`${API_BASE}/comkun/following-stats`, {
+    headers: getAuthHeaders(),
+  })
+  return handleJSONResponse(res)
+}
+
+export type TeamBranch = {
+  id: string
+  name: string
+  status: string
+  parentId?: string
+  directUserCount: number
+  umbrellaUserCount: number
+}
+
+export type TeamMember = {
+  id: string
+  name?: string
+  branchId?: string
+  parentId?: string
+  role: string
+  level: number
+  status: string
+  registeredAt?: string
+  activated: boolean
+}
+
+export type AdminTeamDetails = {
+  branches: TeamBranch[]
+  members: {
+    items: TeamMember[]
+    total: number
+    page: number
+    pageSize: number
+  }
+  relationship_issues?: Record<string, string>
+}
+
+export async function getAdminTeamDetails(
+  params: {
+    branchId?: string
+    query?: string
+    role?: string
+    status?: string
+    page?: number
+    pageSize?: number
+  } = {}
+): Promise<AdminTeamDetails> {
+  const search = new URLSearchParams()
+  if (params.branchId) search.set('branch_id', params.branchId)
+  if (params.query) search.set('q', params.query)
+  if (params.role) search.set('role', params.role)
+  if (params.status) search.set('status', params.status)
+  search.set('page', String(params.page ?? 1))
+  search.set('page_size', String(params.pageSize ?? 20))
+  const res = await fetch(
+    `${API_BASE}/admin/team-details?${search.toString()}`,
+    {
+      headers: getAuthHeaders(),
+    }
+  )
+  return handleJSONResponse(res)
+}

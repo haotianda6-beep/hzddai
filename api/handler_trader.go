@@ -1180,6 +1180,7 @@ func (s *Server) handleStartTraderForUser(c *gin.Context, userID, traderID strin
 		SafeInternalError(c, "保存交易员运行状态失败", err)
 		return
 	}
+	s.requestComkunFollowStatsPush()
 
 	// Start trader
 	go func() {
@@ -1190,6 +1191,7 @@ func (s *Server) handleStartTraderForUser(c *gin.Context, userID, traderID strin
 		if statusErr := s.store.Trader().UpdateStatus(userID, traderID, false); statusErr != nil {
 			logger.Infof("⚠️ Failed to clear trader status after runtime exit: %v", statusErr)
 		}
+		s.requestComkunFollowStatsPush()
 	}()
 
 	logger.Infof("✓ Trader %s started", trader.GetName())
@@ -1240,6 +1242,7 @@ func (s *Server) executeStopTrader(c *gin.Context, userID, traderID string, admi
 	if err != nil {
 		logger.Infof("⚠️  Failed to update trader status: %v", err)
 	}
+	s.requestComkunFollowStatsPush()
 
 	logger.Infof("⏹  Trader %s stopped", at.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader stopped"})

@@ -100,6 +100,7 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 			"subscription_until": nil,
 			"message":            "订阅成功：跟单策略 0U 解锁，运行后按主控 AI 分析/广播次数扣除平台余额",
 		})
+		s.requestComkunFollowStatsPush()
 		return
 	}
 
@@ -135,6 +136,7 @@ func (s *Server) handleMarketStrategyPurchase(c *gin.Context) {
 		return
 	}
 	store.DispatchAgentRebateSpendIfEligible(userID, price, spendLedgerID, ledgerReason)
+	s.requestComkunFollowStatsPush()
 
 	if u, e := s.store.User().GetByID(userID); e == nil && u != nil {
 		newBal = u.BalanceUSDT

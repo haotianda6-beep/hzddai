@@ -125,6 +125,16 @@ const AdminAIBillingPage = lazy(() =>
     default: mod.AdminAIBillingPage,
   }))
 )
+const AdminTeamPage = lazy(() =>
+  import('../pages/AdminTeamPage').then((mod) => ({
+    default: mod.AdminTeamPage,
+  }))
+)
+const AdminFollowingStatsPage = lazy(() =>
+  import('../pages/AdminFollowingStatsPage').then((mod) => ({
+    default: mod.AdminFollowingStatsPage,
+  }))
+)
 const FinanceDashboardPage = lazy(() =>
   import('../pages/FinanceDashboardPage').then((mod) => ({
     default: mod.FinanceDashboardPage,
@@ -830,6 +840,14 @@ export function AppRoutes() {
         <Route
           path={ROUTES.adminAIBilling}
           element={adminElement(<AdminAIBillingPage />)}
+        />
+        <Route
+          path={ROUTES.adminTeam}
+          element={adminElement(<AdminTeamPage />)}
+        />
+        <Route
+          path={ROUTES.adminFollowingStats}
+          element={adminElement(<AdminFollowingStatsPage />)}
         />
         <Route
           path={ROUTES.finance}

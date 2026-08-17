@@ -39,5 +39,7 @@ describe('router paths helpers', () => {
     expect(ROUTES.adminProxies).toBe('/admin/proxies')
     expect(ROUTES.adminUsers).toBe('/admin/users')
     expect(ROUTES.adminAIBilling).toBe('/admin/ai-billing')
+    expect(ROUTES.adminTeam).toBe('/admin/team')
+    expect(ROUTES.adminFollowingStats).toBe('/admin/following-stats')
   })
 })
