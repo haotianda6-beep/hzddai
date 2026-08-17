@@ -71,7 +71,7 @@ func (s *Server) handleAdminUsersOverview(c *gin.Context) {
 			return
 		}
 
-		var binanceOpen []adminBinPos
+		binanceOpen := make([]adminBinPos, 0)
 		exchangeSummaries := make([]gin.H, 0)
 		traderSummaries := make([]gin.H, 0, len(traders))
 

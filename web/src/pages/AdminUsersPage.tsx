@@ -102,7 +102,7 @@ export function AdminUsersPage() {
                 </td>
                 <td>{user.trader_count}</td>
                 <td>
-                  {user.exchanges.length
+                  {user.exchanges?.length
                     ? user.exchanges
                         .map(
                           (exchange) =>
@@ -112,7 +112,7 @@ export function AdminUsersPage() {
                     : '—'}
                 </td>
                 <td>
-                  {user.binance_open_positions.length
+                  {user.binance_open_positions?.length
                     ? user.binance_open_positions
                         .map(
                           (position) =>
